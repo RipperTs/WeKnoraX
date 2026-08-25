@@ -95,31 +95,8 @@
       </svg>
     </div>
 
-    <!-- Logo - Top Left -->
-    <a href="https://github.com/Tencent/WeKnora" target="_blank" class="header-logo" :title="$t('common.github')">
-      <img src="@/assets/img/weknora.png" alt="WeKnora" class="logo-image" />
-    </a>
-
-    <!-- Header Links - Top Right -->
+    <!-- Language Switch - Top Right -->
     <div class="header-links">
-      <a href="https://weknora.weixin.qq.com" target="_blank" class="header-link" :title="$t('common.website')">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-          stroke-linecap="round">
-          <circle cx="12" cy="12" r="10" />
-          <line x1="2" y1="12" x2="22" y2="12" />
-          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-        </svg>
-        <span class="link-text">{{ $t('common.website') }}</span>
-      </a>
-
-      <a href="https://github.com/Tencent/WeKnora" target="_blank" class="header-link" :title="$t('common.info')">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
-          <path
-            d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-        </svg>
-        <span class="link-text">GitHub</span>
-      </a>
-
       <div class="language-switch">
         <button @click="toggleLanguageMenu" class="header-link" :title="currentLangOption?.label">
           <span class="lang-flag-icon">{{ currentLangOption?.flag }}</span>
@@ -199,8 +176,14 @@
           </div>
 
           <div class="form-content">
-            <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
-              label-align="top">
+            <t-tabs v-if="fushunSSOEnabled" v-model="loginMethod" class="login-method-tabs">
+              <t-tab-panel value="password" :label="$t('auth.login')" />
+              <t-tab-panel value="fushun-sso" :label="$t('auth.fushunSSOLogin')" />
+            </t-tabs>
+
+            <template v-if="loginMethod === 'password'">
+              <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
+                label-align="top">
               <t-form-item :label="$t('auth.email')" name="email">
                 <t-input v-model="formData.email" :placeholder="$t('auth.emailPlaceholder')" type="text"
                   autocomplete="email" size="large" :disabled="loading" />
@@ -233,7 +216,15 @@
                 class="oidc-button" @click="handleOIDCLogin">
                 {{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}
               </t-button>
-            </t-form>
+              </t-form>
+            </template>
+
+            <div v-else class="fushun-sso-login">
+              <p>{{ $t('auth.fushunSSODescription') }}</p>
+              <t-button theme="primary" size="large" block :loading="fushunSSOLoading" @click="handleFushunSSOLogin">
+                {{ fushunSSOLoading ? $t('auth.loggingIn') : $t('auth.fushunSSOLogin') }}
+              </t-button>
+            </div>
 
             <!-- Features list -->
             <div class="login-features">
@@ -354,6 +345,8 @@ import {
   register,
   getOIDCAuthorizationURL,
   getOIDCConfig,
+  getFushunSSOConfig,
+  loginWithFushunSSO,
   autoSetup,
   getAuthConfig,
   userInfoFromApi,
@@ -410,10 +403,15 @@ const registerFormRef = ref()
 // State management
 const loading = ref(false)
 const oidcLoading = ref(false)
+const fushunSSOLoading = ref(false)
 const isRegisterMode = ref(false)
 const showLanguageMenu = ref(false)
 const oidcEnabled = ref(false)
 const oidcProviderName = ref('')
+const fushunSSOEnabled = ref(false)
+const fushunSSOAuthURL = ref('')
+const fushunSSOStateStorageKey = 'weknora_fushun_sso_state'
+const loginMethod = ref('password')
 // registrationEnabled defaults to true so that on first paint the Register
 // link is visible; the actual mode is fetched from /auth/config in onMounted.
 // In invite_only mode the link/card are hidden.
@@ -616,6 +614,17 @@ const loadOIDCConfig = async () => {
   }
 }
 
+const loadFushunSSOConfig = async () => {
+  try {
+    const response = await getFushunSSOConfig()
+    fushunSSOEnabled.value = !!response.success && !!response.enabled
+    fushunSSOAuthURL.value = response.auth_url || ''
+  } catch {
+    fushunSSOEnabled.value = false
+    fushunSSOAuthURL.value = ''
+  }
+}
+
 // loadAuthConfig fetches /auth/config and caches whether self-service
 // registration is allowed. Failures fall back to "enabled" so a transient
 // network glitch doesn't lock new users out of an open deployment.
@@ -649,6 +658,65 @@ const handleOIDCLogin = async () => {
     MessagePlugin.error(error.message || t('auth.oidcLoginFailed'))
   } finally {
     oidcLoading.value = false
+  }
+}
+
+const handleFushunSSOLogin = () => {
+  if (!fushunSSOAuthURL.value) {
+    MessagePlugin.error(t('auth.loginError'))
+    return
+  }
+
+  if (inviteToken.value) {
+    sessionStorage.setItem('weknora_pending_invite_token', inviteToken.value)
+  }
+
+  fushunSSOLoading.value = true
+  const state = crypto.randomUUID()
+  sessionStorage.setItem(fushunSSOStateStorageKey, state)
+  const redirectURL = new URL(window.location.href)
+  redirectURL.search = ''
+  redirectURL.searchParams.set('sso', 'fsxgt')
+  redirectURL.searchParams.set('state', state)
+
+  const authorizationURL = new URL(fushunSSOAuthURL.value)
+  authorizationURL.searchParams.set('systemId', 'login')
+  authorizationURL.searchParams.set('mode', 'simple')
+  authorizationURL.searchParams.set('redirect', redirectURL.toString())
+  window.location.href = authorizationURL.toString()
+}
+
+const handleFushunSSOCallback = async (token: string, state: string) => {
+  fushunSSOLoading.value = true
+  window.history.replaceState({}, document.title, route.path)
+  const expectedState = sessionStorage.getItem(fushunSSOStateStorageKey)
+  sessionStorage.removeItem(fushunSSOStateStorageKey)
+  if (!expectedState || state !== expectedState) {
+    MessagePlugin.error(t('auth.loginErrorRetry'))
+    fushunSSOLoading.value = false
+    return
+  }
+  try {
+    const response = await loginWithFushunSSO(token)
+    if (!response.success) {
+      MessagePlugin.error(response.message || t('auth.loginError'))
+      return
+    }
+
+    const pendingInviteToken = sessionStorage.getItem('weknora_pending_invite_token')
+    sessionStorage.removeItem('weknora_pending_invite_token')
+    if (pendingInviteToken) {
+      await persistLoginResponse(response, true)
+      await acceptAndEnter(pendingInviteToken)
+      return
+    }
+    await persistLoginResponse(response)
+    notifyLoginSuccess(response, t, tm, formatRole, roleIcon)
+  } catch (error: any) {
+    console.error('抚顺新钢铁 SSO 登录错误:', error)
+    MessagePlugin.error(error.message || t('auth.loginErrorRetry'))
+  } finally {
+    fushunSSOLoading.value = false
   }
 }
 
@@ -764,6 +832,13 @@ const handleRegister = async () => {
 
 // Check if already logged in; for lite edition, attempt transparent auto-setup
 onMounted(async () => {
+  const ssoToken = String(route.query.token || '').trim()
+  const ssoState = String(route.query.state || '').trim()
+  if (route.query.sso === 'fsxgt' && ssoToken) {
+    await handleFushunSSOCallback(ssoToken, ssoState)
+    return
+  }
+
   // Share-link landing: ?token=xxx switches the form into invite-
   // register mode before any other auto-flow (logged-in redirect /
   // auto-setup / OIDC) gets a chance to redirect. Resolution failure
@@ -784,12 +859,14 @@ onMounted(async () => {
       } else {
         inviteLookupError.value = resp.message || t('inviteRegister.invalidBody')
         loadOIDCConfig()
+        loadFushunSSOConfig()
         loadAuthConfig()
         return
       }
     } catch {
       inviteLookupError.value = t('inviteRegister.invalidBody')
       loadOIDCConfig()
+      loadFushunSSOConfig()
       loadAuthConfig()
       return
     } finally {
@@ -808,6 +885,7 @@ onMounted(async () => {
     registrationEnabled.value = !inviteOnly
     isRegisterMode.value = !inviteOnly
     loadOIDCConfig()
+    loadFushunSSOConfig()
     return
   }
 
@@ -833,6 +911,7 @@ onMounted(async () => {
   }
 
   loadOIDCConfig()
+  loadFushunSSOConfig()
   loadAuthConfig()
 })
 </script>
@@ -1199,19 +1278,6 @@ onMounted(async () => {
   z-index: 2;
 }
 
-.header-logo {
-  position: fixed;
-  top: 32px;
-  left: 50px;
-  z-index: 100;
-  cursor: pointer;
-
-  .logo-image {
-    width: 120px;
-    height: auto;
-  }
-}
-
 .header-links {
   position: fixed;
   top: 28px;
@@ -1534,6 +1600,21 @@ onMounted(async () => {
   }
 }
 
+.login-method-tabs {
+  margin-bottom: 24px;
+}
+
+.fushun-sso-login {
+  padding: 12px 0 20px;
+
+  p {
+    margin: 0 0 20px;
+    color: var(--td-text-color-secondary);
+    font-size: 14px;
+    text-align: center;
+  }
+}
+
 .submit-button {
   height: 46px;
   border-radius: 8px;
@@ -1654,15 +1735,6 @@ onMounted(async () => {
     font-size: 18px;
   }
 
-  .header-logo {
-    top: 26px;
-    left: 40px;
-
-    .logo-image {
-      width: 100px;
-    }
-  }
-
   .header-links {
     top: 22px;
     right: 22px;
@@ -1700,15 +1772,6 @@ onMounted(async () => {
 
   .showcase-content {
     max-width: 100%;
-  }
-
-  .header-logo {
-    top: 22px;
-    left: 30px;
-
-    .logo-image {
-      width: 80px;
-    }
   }
 
   .showcase-subtitle {
@@ -1760,15 +1823,6 @@ onMounted(async () => {
 
   .showcase-section {
     padding: 32px 20px;
-  }
-
-  .header-logo {
-    top: 18px;
-    left: 20px;
-
-    .logo-image {
-      width: 70px;
-    }
   }
 
   .showcase-subtitle {
@@ -1833,10 +1887,6 @@ html[theme-mode="dark"] {
 
   .connection-line {
     stroke: rgba(255, 255, 255, 0.25);
-  }
-
-  .header-logo .logo-image {
-    filter: invert(1) hue-rotate(180deg) brightness(1.1);
   }
 
   .header-link {

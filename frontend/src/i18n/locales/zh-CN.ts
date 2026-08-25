@@ -4236,7 +4236,7 @@ export default {
     }
   },
   createChat: {
-    title: 'Hi，我是 WeKnora，让你的知识触手可及',
+    title: '我是您的知识库，知识触手可及',
     newSessionTitle: '新会话',
     messages: {
       createFailed: '创建会话失败',
@@ -4473,6 +4473,8 @@ export default {
     redirectingToOIDC: '正在跳转到身份提供商...',
     orContinueWith: '或使用以下方式继续',
     oidcLoginFailed: 'OIDC 登录失败',
+    fushunSSOLogin: '抚顺新钢铁 SSO 登录',
+    fushunSSODescription: '使用抚顺新钢铁统一身份认证登录',
     username: '用户名',
     email: '邮箱',
     password: '密码',

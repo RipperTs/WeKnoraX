@@ -315,6 +315,131 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 	}, nil
 }
 
+type fushunSSOUserInfoResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		EmployeeNo string `json:"empNo"`
+		Name       string `json:"chn"`
+	} `json:"data"`
+}
+
+// LoginWithFushunSSO exchanges the remote SSO token for a local session.
+func (s *userService) LoginWithFushunSSO(
+	ctx context.Context,
+	remoteToken string,
+	provisioning types.TenantProvisioningMode,
+) (*types.LoginResponse, error) {
+	if strings.TrimSpace(remoteToken) == "" {
+		return nil, errors.New("SSO token is required")
+	}
+
+	cfg, err := s.getFushunSSOConfig()
+	if err != nil {
+		return nil, err
+	}
+	info, err := fetchFushunSSOUserInfo(ctx, cfg.GetUserInfoURL, remoteToken)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := s.userRepo.GetUserByUsername(ctx, info.Data.EmployeeNo)
+	if err != nil && !isUserLookupNotFound(err) {
+		return nil, fmt.Errorf("failed to find SSO user: %w", err)
+	}
+	if user == nil || isUserLookupNotFound(err) {
+		randomPassword, passwordErr := generateRandomString(32)
+		if passwordErr != nil {
+			return nil, fmt.Errorf("failed to generate SSO user password: %w", passwordErr)
+		}
+		user, err = s.Register(ctx, &types.RegisterRequest{
+			Username:           info.Data.EmployeeNo,
+			Email:              fushunSSOPlaceholderEmail(info.Data.EmployeeNo),
+			Password:           randomPassword,
+			TenantProvisioning: provisioning,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to auto-provision SSO user: %w", err)
+		}
+	}
+	if !user.IsActive {
+		return &types.LoginResponse{Success: false, Message: "Account is disabled"}, nil
+	}
+
+	resolvedTenantID := s.resolveLoginTenantID(ctx, user)
+	accessToken, refreshToken, err := s.generateTokensForTenant(ctx, user, resolvedTenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate SSO login tokens: %w", err)
+	}
+
+	var tenant *types.Tenant
+	if resolvedTenantID > 0 {
+		tenant, _ = s.tenantService.GetTenantByID(ctx, resolvedTenantID)
+	}
+	return &types.LoginResponse{
+		Success:      true,
+		Message:      "Login successful",
+		User:         user,
+		ActiveTenant: tenant,
+		Memberships:  s.buildMembershipsForUser(ctx, user, tenant),
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+	}, nil
+}
+
+func (s *userService) getFushunSSOConfig() (*config.FushunSSOConfig, error) {
+	if s.config == nil || s.config.FushunSSO == nil {
+		return nil, errors.New("Fushun SSO login is disabled")
+	}
+	cfg := *s.config.FushunSSO
+	if strings.TrimSpace(cfg.AuthURL) == "" || strings.TrimSpace(cfg.DoLoginURL) == "" ||
+		strings.TrimSpace(cfg.GetUserInfoURL) == "" {
+		return nil, errors.New("Fushun SSO login is disabled")
+	}
+	if err := secutils.ValidateURLForSSRF(cfg.GetUserInfoURL); err != nil {
+		return nil, fmt.Errorf("Fushun SSO userinfo URL failed SSRF validation: %w", err)
+	}
+	return &cfg, nil
+}
+
+func fetchFushunSSOUserInfo(ctx context.Context, endpoint, remoteToken string) (*fushunSSOUserInfoResponse, error) {
+	body, err := json.Marshal(map[string]string{"remoteToken": remoteToken})
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode SSO userinfo request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSO userinfo request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := newOIDCHTTPClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load SSO user info: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("SSO userinfo request failed: status=%d", resp.StatusCode)
+	}
+
+	var result fushunSSOUserInfoResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode SSO userinfo response: %w", err)
+	}
+	result.Data.EmployeeNo = strings.TrimSpace(result.Data.EmployeeNo)
+	if result.Code != http.StatusOK || result.Data.EmployeeNo == "" {
+		return nil, errors.New("SSO userinfo response does not contain a valid employee number")
+	}
+	if utf8.RuneCountInString(result.Data.EmployeeNo) > 100 {
+		return nil, errors.New("SSO employee number is too long")
+	}
+	return &result, nil
+}
+
+func fushunSSOPlaceholderEmail(employeeNo string) string {
+	return employeeNo + "@fsxgt.sso.invalid"
+}
+
 // buildMembershipsForUser returns the user's tenant memberships projected
 // into the login-response shape. activeTenant (if non-nil and matching one
 // of the rows) is used to reuse its already-fetched name without a second

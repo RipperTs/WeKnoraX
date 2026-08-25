@@ -4471,6 +4471,8 @@ export default {
     redirectingToOIDC: 'ID 공급자로 이동하는 중...',
     orContinueWith: '또는 다음 방법으로 계속',
     oidcLoginFailed: 'OIDC 로그인 실패',
+    fushunSSOLogin: '푸순 신신철강 SSO',
+    fushunSSODescription: '푸순 신신철강 통합 인증으로 로그인합니다',
     username: '사용자명',
     email: '이메일',
     password: '비밀번호',

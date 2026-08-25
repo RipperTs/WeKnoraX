@@ -119,10 +119,6 @@
                   ? $t('settings.sandbox.secretConfigured')
                   : $t('settings.sandbox.cubeApiKeyOptional') }}
               </p>
-              <a class="inline-guide-link" :href="clusterGuideUrl" target="_blank" rel="noopener noreferrer">
-                <t-icon name="link" />
-                {{ $t('settings.sandbox.cubeApiKeyWhere') }}
-              </a>
             </div>
           </t-form-item>
         </template>
@@ -138,10 +134,6 @@
                   ? $t('settings.sandbox.secretConfigured')
                   : $t('settings.sandbox.e2bApiKeyHelp') }}
               </p>
-              <a class="inline-guide-link" :href="e2bApiKeysUrl" target="_blank" rel="noopener noreferrer">
-                <t-icon name="link" />
-                {{ $t('settings.sandbox.e2bApiKeyWhere') }}
-              </a>
             </div>
           </t-form-item>
           <div class="form-grid form-grid--two">
@@ -273,10 +265,6 @@
         <p v-else-if="!templatesLoaded" class="section-help">
           {{ $t('settings.sandbox.templateLoadHint') }}
         </p>
-        <a class="inline-guide-link" :href="clusterGuideUrl" target="_blank" rel="noopener noreferrer">
-          <t-icon name="link" />
-          {{ $t('settings.sandbox.howToBuildTemplate') }}
-        </a>
       </section>
 
       <section v-if="currentStepKey === 'runtime'" class="setting-drawer__section">
@@ -470,9 +458,6 @@ const { t } = useI18n()
 // placeholder is only re-attached on submit so the stored value survives.
 const secretPlaceholder = '***'
 const isMaskedSecret = (value?: string) => value === secretPlaceholder
-
-const clusterGuideUrl = 'https://github.com/Tencent/WeKnora/blob/main/docs/sandbox-cluster.md'
-const e2bApiKeysUrl = 'https://e2b.dev/dashboard?tab=keys'
 
 const backendOptions = [...NAMED_SANDBOX_BACKEND_TYPES]
 
@@ -1405,24 +1390,6 @@ onUnmounted(stopTemplatePolling)
   gap: 4px;
   margin-top: 6px;
 
-  .inline-guide-link {
-    margin-top: 0;
-  }
-}
-
-.inline-guide-link {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 5px;
-  margin-top: -4px;
-  color: var(--td-brand-color);
-  font-size: 12px;
-  text-decoration: none;
-
-  &:hover {
-    color: var(--td-brand-color-hover);
-  }
 }
 
 .runtime-fields {

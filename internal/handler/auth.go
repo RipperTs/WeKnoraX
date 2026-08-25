@@ -277,6 +277,51 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(response))
 }
 
+// GetFushunSSOConfig returns only the browser redirect URL needed to render
+// the optional Fushun Xinxin Steel SSO login tab.
+func (h *AuthHandler) GetFushunSSOConfig(c *gin.Context) {
+	enabled := false
+	authURL := ""
+	if h.configInfo != nil && h.configInfo.FushunSSO != nil {
+		cfg := h.configInfo.FushunSSO
+		enabled = strings.TrimSpace(cfg.AuthURL) != "" &&
+			strings.TrimSpace(cfg.DoLoginURL) != "" &&
+			strings.TrimSpace(cfg.GetUserInfoURL) != ""
+		if enabled {
+			authURL = strings.TrimSpace(cfg.AuthURL)
+		}
+	}
+	c.JSON(http.StatusOK, &types.FushunSSOConfigResponse{
+		Success: true,
+		Enabled: enabled,
+		AuthURL: authURL,
+	})
+}
+
+// LoginWithFushunSSO verifies a remote SSO token server-side and returns the
+// same local JWT response shape as password login.
+func (h *AuthHandler) LoginWithFushunSSO(c *gin.Context) {
+	var req types.FushunSSOLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewValidationError("Invalid SSO login parameters").WithDetails(err.Error()))
+		return
+	}
+
+	response, err := h.userService.LoginWithFushunSSO(
+		c.Request.Context(), req.Token, h.resolveDefaultTenantMode(c.Request.Context()),
+	)
+	if err != nil {
+		logger.Errorf(c.Request.Context(), "Failed to login through Fushun SSO: %v", err)
+		c.Error(errors.NewUnauthorizedError("SSO login failed"))
+		return
+	}
+	if !response.Success {
+		c.JSON(http.StatusUnauthorized, dto.NewAuthLoginResponse(response))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(response))
+}
+
 // GetOIDCAuthorizationURL godoc
 // @Summary      获取OIDC授权地址
 // @Description  根据后端OIDC配置生成第三方登录跳转地址

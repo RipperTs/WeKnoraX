@@ -75,19 +75,6 @@
           </div>
         </template>
 
-        <div class="row row--doc">
-          <div class="row-info">
-            <label>{{ $t('tenant.api.docLabel') }}</label>
-            <p>
-              {{ $t('tenant.api.docDescription') }}
-              <a class="doc-link" @click="openApiDoc">
-                {{ $t('tenant.api.openDoc') }}
-                <t-icon name="link" class="link-icon" />
-              </a>
-            </p>
-          </div>
-        </div>
-
         <div class="api-key-section">
           <div class="api-key-section__header">
             <div class="api-key-section__title">
@@ -1430,10 +1417,6 @@ const saveDesktopPort = async () => {
   }
 }
 
-function openApiDoc() {
-  window.open('https://github.com/Tencent/WeKnora/blob/main/docs/api/README.md', '_blank')
-}
-
 function openCreateAPIKeyDialog() {
   apiKeyForm.name = ''
   apiKeyForm.knowledge_base_ids = []
@@ -1776,27 +1759,6 @@ onBeforeUnmount(stopPlayground)
 
 .row--single {
   display: block;
-}
-
-.row--doc {
-  grid-template-columns: 1fr;
-}
-
-.doc-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--td-brand-color);
-  cursor: pointer;
-  text-decoration: none;
-
-  &:hover {
-    text-decoration: underline;
-  }
-}
-
-.link-icon {
-  font-size: 13px;
 }
 
 .desktop-api-control {

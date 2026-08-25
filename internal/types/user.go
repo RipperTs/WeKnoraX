@@ -156,6 +156,16 @@ type OIDCConfigResponse struct {
 	ProviderDisplayName string `json:"provider_display_name,omitempty"`
 }
 
+type FushunSSOConfigResponse struct {
+	Success bool   `json:"success"`
+	Enabled bool   `json:"enabled"`
+	AuthURL string `json:"auth_url,omitempty"`
+}
+
+type FushunSSOLoginRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
 type OIDCCallbackResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`

@@ -188,6 +188,8 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	r.POST("/auth/register-by-invite", publicAuthRL, handler.RegisterByInvite)
 	r.POST("/auth/invitations/lookup", publicAuthRL, handler.LookupInvitationByToken)
 	r.POST("/auth/login", handler.Login)
+	r.GET("/auth/fushun-sso/config", handler.GetFushunSSOConfig)
+	r.POST("/auth/fushun-sso/login", publicAuthRL, handler.LoginWithFushunSSO)
 	r.POST("/auth/auto-setup", handler.AutoSetup)
 	r.GET("/auth/config", handler.GetAuthConfig)
 	r.POST("/auth/switch-tenant", handler.SwitchTenant)

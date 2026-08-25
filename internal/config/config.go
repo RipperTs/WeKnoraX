@@ -24,6 +24,7 @@ type Config struct {
 	Auth            *AuthConfig            `yaml:"auth"             json:"auth"`
 	Audit           *AuditConfig           `yaml:"audit"            json:"audit"`
 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
+	FushunSSO       *FushunSSOConfig       `yaml:"fushun_sso"       json:"fushun_sso"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
 	DocReader       *DocReaderConfig       `yaml:"docreader"        json:"docreader"`
@@ -320,6 +321,13 @@ type OIDCAuthConfig struct {
 	UserInfoMapping       *OIDCUserInfoMapping `yaml:"user_info_mapping"      json:"user_info_mapping"`
 }
 
+// FushunSSOConfig configures the Fushun Xinxin Steel SSO integration.
+type FushunSSOConfig struct {
+	AuthURL        string `yaml:"auth_url"          json:"auth_url"`
+	DoLoginURL     string `yaml:"do_login_url"      json:"do_login_url"`
+	GetUserInfoURL string `yaml:"get_user_info_url" json:"get_user_info_url"`
+}
+
 // PromptTemplateI18n holds localized name and description for a prompt template.
 type PromptTemplateI18n struct {
 	Name        string `yaml:"name"        json:"name"`
@@ -578,6 +586,7 @@ func LoadConfig() (*Config, error) {
 
 	// Validate configuration values
 	applyOIDCEnvOverrides(&cfg)
+	applyFushunSSOEnvOverrides(&cfg)
 	applyAgentEnvOverrides(&cfg)
 	applyKnowledgeBaseEnvOverrides(&cfg)
 	applyAuthAndTenantDefaults(&cfg)
@@ -623,6 +632,15 @@ func ValidateConfig(cfg *Config) error {
 		if strings.TrimSpace(cfg.OIDCAuth.DiscoveryURL) == "" &&
 			(strings.TrimSpace(cfg.OIDCAuth.AuthorizationEndpoint) == "" || strings.TrimSpace(cfg.OIDCAuth.TokenEndpoint) == "") {
 			errs = append(errs, "oidc_auth.discovery_url or both oidc_auth.authorization_endpoint and oidc_auth.token_endpoint are required when OIDC is enabled")
+		}
+	}
+	if cfg.FushunSSO != nil && (strings.TrimSpace(cfg.FushunSSO.AuthURL) != "" ||
+		strings.TrimSpace(cfg.FushunSSO.DoLoginURL) != "" ||
+		strings.TrimSpace(cfg.FushunSSO.GetUserInfoURL) != "") {
+		if strings.TrimSpace(cfg.FushunSSO.AuthURL) == "" ||
+			strings.TrimSpace(cfg.FushunSSO.DoLoginURL) == "" ||
+			strings.TrimSpace(cfg.FushunSSO.GetUserInfoURL) == "" {
+			errs = append(errs, "fushun_sso.auth_url, fushun_sso.do_login_url and fushun_sso.get_user_info_url are required together")
 		}
 	}
 
@@ -742,6 +760,21 @@ func applyOIDCEnvOverrides(cfg *Config) {
 	}
 	if cfg.OIDCAuth.DiscoveryURL == "" && cfg.OIDCAuth.IssuerURL != "" {
 		cfg.OIDCAuth.DiscoveryURL = strings.TrimRight(cfg.OIDCAuth.IssuerURL, "/") + "/.well-known/openid-configuration"
+	}
+}
+
+func applyFushunSSOEnvOverrides(cfg *Config) {
+	if cfg.FushunSSO == nil {
+		cfg.FushunSSO = &FushunSSOConfig{}
+	}
+	if value := strings.TrimSpace(os.Getenv("SSO_AUTH_URL")); value != "" {
+		cfg.FushunSSO.AuthURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SSO_DO_LOGIN_URL")); value != "" {
+		cfg.FushunSSO.DoLoginURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SSO_GET_USER_INFO_URL")); value != "" {
+		cfg.FushunSSO.GetUserInfoURL = value
 	}
 }
 
