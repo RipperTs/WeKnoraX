@@ -226,7 +226,7 @@ services:
 
   # Sandbox 镜像：仅用于 build/pull，非常驻服务；本地 app 执行 Skills 时按需 docker run 该镜像，用毕即释
   sandbox:
-    image: wechatopenai/weknora-sandbox:${WEKNORA_VERSION:-latest}
+    image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-sandbox:${WEKNORA_VERSION:-latest}
     container_name: WeKnora-sandbox-dev
     build:
       context: .
@@ -240,7 +240,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.docreader
-    image: wechatopenai/weknora-docreader:${WEKNORA_VERSION:-latest}
+    image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-docreader:${WEKNORA_VERSION:-latest}
     container_name: WeKnora-docreader-dev
     ports:
       - "${DOCREADER_PORT:-50051}:50051"
