@@ -39,6 +39,7 @@ jobs:
 
       - name: Build frontend
         env:
+          NODE_OPTIONS: --max-old-space-size=4096
           VITE_IS_DOCKER: true
           VITE_FRONTEND_COMMIT: ${{ steps.version.outputs.commit_id }}
         run: ./scripts/build_frontend_dist.sh
