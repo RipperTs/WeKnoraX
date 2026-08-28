@@ -220,16 +220,11 @@ services:
     restart: always
     networks:
       - WeKnora-network-dev
-    profiles:
-      - neo4j
-      - full
 
   # Sandbox 镜像仅用于拉取，不是常驻服务；本地 app 执行 Skills 时按需 docker run 该镜像，用毕即释
   sandbox:
     image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-sandbox:${WEKNORA_VERSION:-latest}
     container_name: WeKnora-sandbox-dev
-    profiles:
-      - full
     command: ["true"]
     restart: "no"
 

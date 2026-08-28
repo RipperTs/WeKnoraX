@@ -264,7 +264,7 @@ services:
       - WEKNORA_REDIS_OP_TIMEOUT_MS=${WEKNORA_REDIS_OP_TIMEOUT_MS:-}
       # 知识图谱唯一开关是 NEO4J_ENABLE（见下方）。ENABLE_GRAPH_RAG 自 v0.1.6 起已被
       # NEO4J_ENABLE 取代，Go 主应用不再读取，此处不再透传。
-      - NEO4J_ENABLE=${NEO4J_ENABLE:-}
+      - NEO4J_ENABLE=${NEO4J_ENABLE:-true}
       - NEO4J_URI=${NEO4J_URI:-bolt://neo4j:7687}
       - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
@@ -360,8 +360,6 @@ services:
   sandbox:
     image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-sandbox:${WEKNORA_VERSION:-latest}
     container_name: WeKnora-sandbox
-    profiles:
-      - full
     command: ["true"]
     restart: "no"
 
@@ -604,9 +602,6 @@ services:
     restart: always
     networks:
       - WeKnora-network
-    profiles:
-      - neo4j
-      - full
 
   qdrant:
     image: qdrant/qdrant:v1.16.2
@@ -982,8 +977,6 @@ services:
     networks:
       - WeKnora-network
     restart: unless-stopped
-    profiles:
-      - full
 
 networks:
   WeKnora-network:
