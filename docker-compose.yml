@@ -1,9 +1,6 @@
 services:
   frontend:
     image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-ui:${WEKNORA_VERSION:-latest}
-    # Requires frontend/dist — run ./scripts/build_frontend_dist.sh before --build
-    build:
-      context: ./frontend
     container_name: WeKnora-frontend
     ports:
       - "${FRONTEND_PORT:-80}:80"
@@ -27,12 +24,6 @@ services:
 
   app:
     image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-app:${WEKNORA_VERSION:-latest}
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.app
-      args:
-        - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
-        - WITH_ANYDOC=${WITH_ANYDOC:-1}
     container_name: WeKnora-app
     ports:
       - "${APP_PORT:-8080}:8080"
@@ -365,14 +356,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # Sandbox 镜像：仅用于 build/pull，非常驻服务；app 执行 Skills 时按需 docker run 该镜像，用毕即释
+  # Sandbox 镜像仅用于拉取，不是常驻服务；app 执行 Skills 时按需 docker run 该镜像，用毕即释
   sandbox:
     image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-sandbox:${WEKNORA_VERSION:-latest}
     container_name: WeKnora-sandbox
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.sandbox
-      target: sandbox
     profiles:
       - full
     command: ["true"]
@@ -380,11 +367,6 @@ services:
 
   docreader:
     image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-docreader:${WEKNORA_VERSION:-latest}
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.docreader
-      args:
-        - APT_MIRROR=${APT_MIRROR:-}
     container_name: WeKnora-docreader
     # docreader gRPC ships without auth/TLS and is only consumed by the app
     # container over the WeKnora-network (DOCREADER_ADDR defaults to
@@ -483,12 +465,8 @@ services:
       - "host.docker.internal:host-gateway"
 
   # OpenDataLoader hybrid backend (optional). Default --no-ocr (no EasyOCR/libGL).
-  # Local build only — not published to Docker Hub; use --profile odl-hybrid --build.
   odl-hybrid:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.odl-hybrid
-    image: weknora-odl-hybrid:local
+    image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-odl-hybrid:${WEKNORA_VERSION:-latest}
     container_name: WeKnora-odl-hybrid
     profiles:
       - odl-hybrid
@@ -983,8 +961,7 @@ services:
       - full
 
   mcp:
-    build:
-      context: ./mcp-server
+    image: registry.cn-hangzhou.aliyuncs.com/ripper/weknora-mcp:${WEKNORA_VERSION:-latest}
     container_name: WeKnora-mcp
     ports:
       - "${MCP_PORT:-8082}:8000"
