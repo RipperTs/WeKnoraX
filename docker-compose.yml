@@ -504,6 +504,8 @@ services:
   postgres:
     image: paradedb/paradedb:v0.22.2-pg17
     container_name: WeKnora-postgres
+    ports:
+      - "${DB_PORT:-5432}:5432"
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
@@ -525,6 +527,8 @@ services:
   redis:
     image: redis:7.0-alpine
     container_name: WeKnora-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     restart: always
     networks:
