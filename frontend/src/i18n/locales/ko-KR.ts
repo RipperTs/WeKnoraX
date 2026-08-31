@@ -226,7 +226,18 @@ export default {
   },
   userProfile: {
     title: '사용자 정보',
-    description: '계정 기본 정보(사용자 ID, 사용자 이름, 이메일, 가입 시각)를 확인하고 비밀번호를 변경할 수 있습니다.',
+    description: '계정 기본 정보(사용자 ID, 사용자 이름, 이름, 이메일, 가입 시각)를 확인하고 이름과 비밀번호를 변경할 수 있습니다.',
+    name: {
+      label: '이름',
+      description: '계정 표시에 사용되며 비워 둘 수 있습니다',
+      empty: '설정되지 않음',
+      edit: '이름 수정',
+      placeholder: '이름을 입력하세요',
+      save: '저장',
+      cancel: '취소',
+      success: '이름이 변경되었습니다',
+      failed: '이름을 변경하지 못했습니다',
+    },
     changePassword: {
       label: '비밀번호 변경',
       description: '현재 비밀번호를 확인한 뒤 새 비밀번호를 설정합니다. 성공 시 모든 세션이 만료되어 다시 로그인해야 합니다.',

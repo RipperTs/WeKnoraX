@@ -44,6 +44,65 @@
         </div>
       </div>
 
+      <!-- 姓名 -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>{{ $t('userProfile.name.label') }}</label>
+          <p class="desc">{{ $t('userProfile.name.description') }}</p>
+        </div>
+        <div class="setting-control">
+          <template v-if="!editingName">
+            <span class="info-value" :class="{ 'info-value--muted': !userInfo?.name }">
+              {{ userInfo?.name || $t('userProfile.name.empty') }}
+            </span>
+            <t-button
+              theme="default"
+              variant="text"
+              shape="square"
+              size="small"
+              class="edit-btn"
+              :title="$t('userProfile.name.edit')"
+              :aria-label="$t('userProfile.name.edit')"
+              @click="startEditName"
+            >
+              <template #icon>
+                <t-icon name="edit" />
+              </template>
+            </t-button>
+          </template>
+          <div v-else class="inline-edit">
+            <t-input
+              v-model="editName"
+              :placeholder="$t('userProfile.name.placeholder')"
+              :maxlength="100"
+              :disabled="savingName"
+              autofocus
+              class="inline-edit-input"
+              @enter="saveName"
+              @keydown="onNameKeydown"
+            />
+            <t-button
+              theme="primary"
+              size="small"
+              :loading="savingName"
+              :disabled="!canSubmitName"
+              @click="saveName"
+            >
+              {{ $t('userProfile.name.save') }}
+            </t-button>
+            <t-button
+              theme="default"
+              variant="outline"
+              size="small"
+              :disabled="savingName"
+              @click="cancelEditName"
+            >
+              {{ $t('userProfile.name.cancel') }}
+            </t-button>
+          </div>
+        </div>
+      </div>
+
       <!-- 邮箱 -->
       <div class="setting-row">
         <div class="setting-info">
@@ -176,8 +235,10 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 import {
   getCurrentUser,
+  updateMyProfile,
   changePassword,
   logout as logoutApi,
+  userInfoFromApi,
   type UserInfo,
 } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
@@ -190,6 +251,13 @@ const authStore = useAuthStore()
 const userInfo = ref<UserInfo | null>(null)
 const loading = ref(true)
 const error = ref('')
+const editingName = ref(false)
+const editName = ref('')
+const savingName = ref(false)
+const editNameTrimmed = computed(() => editName.value.trim())
+const canSubmitName = computed(
+  () => !savingName.value && editNameTrimmed.value !== (userInfo.value?.name || ''),
+)
 
 const passwordPopupVisible = ref(false)
 const passwordFormRef = ref<FormInstanceFunctions | null>(null)
@@ -251,6 +319,49 @@ const loadInfo = async () => {
     error.value = err?.message || t('tenant.messages.networkError')
   } finally {
     loading.value = false
+  }
+}
+
+const startEditName = () => {
+  editName.value = userInfo.value?.name || ''
+  editingName.value = true
+}
+
+const cancelEditName = () => {
+  if (savingName.value) return
+  editingName.value = false
+  editName.value = ''
+}
+
+const onNameKeydown = (_value: any, ctx: { e: KeyboardEvent }) => {
+  if (ctx?.e?.key === 'Escape') {
+    cancelEditName()
+  }
+}
+
+const saveName = async () => {
+  const name = editNameTrimmed.value
+  if (name === (userInfo.value?.name || '')) {
+    editingName.value = false
+    return
+  }
+
+  savingName.value = true
+  try {
+    const resp = await updateMyProfile(name)
+    if (!resp.success || !resp.data) {
+      MessagePlugin.error(resp.message || t('userProfile.name.failed'))
+      return
+    }
+
+    userInfo.value = resp.data
+    authStore.setUser(userInfoFromApi(resp.data))
+    editingName.value = false
+    MessagePlugin.success(t('userProfile.name.success'))
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('userProfile.name.failed'))
+  } finally {
+    savingName.value = false
   }
 }
 
@@ -426,6 +537,18 @@ onMounted(loadInfo)
 .password-mask {
   letter-spacing: 0.12em;
   color: var(--td-text-color-secondary);
+}
+
+.inline-edit {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: min(480px, 100%);
+}
+
+.inline-edit-input {
+  min-width: 220px;
 }
 
 .password-popup-inner {

@@ -103,6 +103,9 @@ func TestLoginWithFushunSSOAutoProvisionsWorkIDUser(t *testing.T) {
 	if repo.created.Username != "10001" {
 		t.Fatalf("username = %q, want work ID", repo.created.Username)
 	}
+	if repo.created.Name != "张三" {
+		t.Fatalf("name = %q, want SSO Chinese name", repo.created.Name)
+	}
 	if repo.created.Email != "10001@fsxgt.sso.invalid" {
 		t.Fatalf("email = %q, want internal placeholder", repo.created.Email)
 	}

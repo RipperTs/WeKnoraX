@@ -693,6 +693,53 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	})
 }
 
+type updateMyProfileRequest struct {
+	Name string `json:"name" binding:"max=100"`
+}
+
+// UpdateMyProfile godoc
+// @Summary      更新当前用户资料
+// @Description  更新当前登录用户的姓名，传入空字符串可清空姓名。
+// @Tags         认证
+// @Accept       json
+// @Produce      json
+// @Param        request  body      updateMyProfileRequest  true  "用户资料"
+// @Success      200      {object}  map[string]interface{} "更新后的用户信息"
+// @Failure      400      {object}  errors.AppError        "请求参数错误"
+// @Failure      401      {object}  errors.AppError        "未授权"
+// @Security     Bearer
+// @Router       /auth/me/profile [put]
+func (h *AuthHandler) UpdateMyProfile(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	user, err := h.userService.GetCurrentUser(ctx)
+	if err != nil {
+		appErr := errors.NewUnauthorizedError("Failed to get user information").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	var req updateMyProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		appErr := errors.NewValidationError("Invalid profile request").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	user.Name = strings.TrimSpace(req.Name)
+	if err := h.userService.UpdateUser(ctx, user); err != nil {
+		logger.Errorf(ctx, "Failed to update profile for user %s: %v", user.Email, err)
+		appErr := errors.NewBadRequestError("Failed to update profile").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    user.ToUserInfo(),
+	})
+}
+
 // updateMyPreferencesRequest is the body for PUT /auth/me/preferences.
 // Fields are pointers so the handler can distinguish "key not present"
 // (preserve existing value) from "explicit false". See

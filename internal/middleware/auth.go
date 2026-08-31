@@ -87,6 +87,8 @@ func isTenantOptionalAPI(path, method string) bool {
 	switch {
 	case path == "/api/v1/auth/me" && (method == http.MethodGet || method == http.MethodPut):
 		return true
+	case path == "/api/v1/auth/me/profile" && method == http.MethodPut:
+		return true
 	case path == "/api/v1/auth/me/preferences" && method == http.MethodPut:
 		return true
 	case path == "/api/v1/auth/logout" && method == http.MethodPost:

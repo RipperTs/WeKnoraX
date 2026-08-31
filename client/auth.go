@@ -68,6 +68,7 @@ type AuthMembership struct {
 type AuthUser struct {
 	ID                  string    `json:"id"`
 	Username            string    `json:"username"`
+	Name                string    `json:"name"`
 	Email               string    `json:"email"`
 	Avatar              string    `json:"avatar,omitempty"`
 	TenantID            uint64    `json:"tenant_id"`

@@ -205,6 +205,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	// for any valid API key. Chat clients / MCP call it to discover "who am I";
 	// leaving it default-deny was why scoped keys got a 403 here.
 	g.apiKeyRoute(r, http.MethodGet, "/auth/me", apiKeyAny(), handler.GetCurrentUser)
+	r.PUT("/auth/me/profile", handler.UpdateMyProfile)
 	r.PUT("/auth/me/preferences", handler.UpdateMyPreferences)
 	r.POST("/auth/change-password", handler.ChangePassword)
 }

@@ -21,7 +21,7 @@
           </template>
           <template v-else>
             <div class="user-name">{{ userName }}</div>
-            <div class="user-email">{{ userEmail }}</div>
+            <div class="user-email">{{ userAccountDetail }}</div>
           </template>
         </div>
         <t-icon :name="menuVisible ? 'chevron-up' : 'chevron-down'" class="dropdown-icon" />
@@ -245,12 +245,17 @@ let tenantSubmenuHideTimer: ReturnType<typeof setTimeout> | null = null
 // 用户信息
 const userInfo = ref({
   username: t('common.defaultUser'),
+  name: '',
   email: 'user@example.com',
   avatar: ''
 })
 
 const userName = computed(() => userInfo.value.username)
 const userEmail = computed(() => userInfo.value.email)
+const userRealName = computed(() => (
+  authStore.user ? authStore.user.name || '' : userInfo.value.name
+))
+const userAccountDetail = computed(() => userRealName.value.trim() || userEmail.value)
 const userAvatar = computed(() => userInfo.value.avatar)
 
 // 用户名首字母（用于无头像时显示）
@@ -500,6 +505,7 @@ const loadUserInfo = async () => {
       const user = response.data.user
       userInfo.value = {
         username: user.username || t('common.info'),
+        name: user.name || '',
         email: user.email || 'user@example.com',
         avatar: user.avatar || ''
       }

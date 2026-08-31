@@ -193,6 +193,7 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	user := &types.User{
 		ID:           uuid.New().String(),
 		Username:     req.Username,
+		Name:         req.Name,
 		Email:        req.Email,
 		PasswordHash: string(hashedPassword),
 		TenantID:     0,
@@ -353,6 +354,7 @@ func (s *userService) LoginWithFushunSSO(
 		}
 		user, err = s.Register(ctx, &types.RegisterRequest{
 			Username:           info.Data.EmployeeNo,
+			Name:               info.Data.Name,
 			Email:              fushunSSOPlaceholderEmail(info.Data.EmployeeNo),
 			Password:           randomPassword,
 			TenantProvisioning: provisioning,
@@ -427,6 +429,7 @@ func fetchFushunSSOUserInfo(ctx context.Context, endpoint, remoteToken string) (
 		return nil, fmt.Errorf("failed to decode SSO userinfo response: %w", err)
 	}
 	result.Data.EmployeeNo = strings.TrimSpace(result.Data.EmployeeNo)
+	result.Data.Name = strings.TrimSpace(result.Data.Name)
 	if result.Code != http.StatusOK || result.Data.EmployeeNo == "" {
 		return nil, errors.New("SSO userinfo response does not contain a valid employee number")
 	}

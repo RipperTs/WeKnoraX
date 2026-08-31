@@ -15,6 +15,7 @@ export interface LoginResponse {
   user?: {
     id: string
     username: string
+    name: string
     email: string
     avatar?: string
     tenant_id: number
@@ -114,6 +115,7 @@ export interface UserPreferences {
 export interface UserInfo {
   id: string
   username: string
+  name: string
   email: string
   avatar?: string
   tenant_id: string
@@ -154,6 +156,7 @@ export function userInfoFromApi(
   return {
     id: u?.id || '',
     username: u?.username || '',
+    name: u?.name || '',
     email: u?.email || '',
     avatar: u?.avatar,
     tenant_id: String(tid) || '',
@@ -364,6 +367,23 @@ export async function getCurrentUser(): Promise<{ success: boolean; data?: { use
     return {
       success: false,
       message: error.message || t('error.auth.getUserFailed')
+    }
+  }
+}
+
+/**
+ * 更新当前用户资料。
+ */
+export async function updateMyProfile(
+  name: string,
+): Promise<{ success: boolean; data?: UserInfo; message?: string }> {
+  try {
+    const response = await put('/api/v1/auth/me/profile', { name })
+    return response as unknown as { success: boolean; data?: UserInfo; message?: string }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || t('userProfile.name.failed'),
     }
   }
 }

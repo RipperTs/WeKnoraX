@@ -226,7 +226,18 @@ export default {
   },
   userProfile: {
     title: '用户信息',
-    description: '查看您的账户基础信息（用户 ID、用户名、邮箱、注册时间），并可修改登录密码',
+    description: '查看您的账户基础信息（用户 ID、用户名、姓名、邮箱、注册时间），并可修改姓名和登录密码',
+    name: {
+      label: '姓名',
+      description: '用于账户信息展示，可留空',
+      empty: '未设置',
+      edit: '修改姓名',
+      placeholder: '请输入姓名',
+      save: '保存',
+      cancel: '取消',
+      success: '姓名已更新',
+      failed: '姓名更新失败',
+    },
     changePassword: {
       label: '修改密码',
       description: '使用当前密码验证后设置新密码。修改成功后所有设备上的登录状态将失效，需要重新登录。',
