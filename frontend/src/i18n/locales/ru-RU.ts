@@ -4471,6 +4471,8 @@ export default {
     redirectingToOIDC: 'Перенаправление к поставщику удостоверений...',
     orContinueWith: 'Или продолжить с помощью',
     oidcLoginFailed: 'Ошибка входа через OIDC',
+    quickLogin: 'Быстрый вход',
+    passwordLogin: 'Вход по логину и паролю',
     fushunSSOLogin: 'SSO Fushun Xinxin Steel',
     fushunSSODescription: 'Войти через единую аутентификацию Fushun Xinxin Steel',
     username: 'Имя пользователя',

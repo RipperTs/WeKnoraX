@@ -4473,6 +4473,8 @@ export default {
     redirectingToOIDC: '正在跳转到身份提供商...',
     orContinueWith: '或使用以下方式继续',
     oidcLoginFailed: 'OIDC 登录失败',
+    quickLogin: '快捷登录',
+    passwordLogin: '账号密码登录',
     fushunSSOLogin: '抚顺新钢铁 SSO 登录',
     fushunSSODescription: '使用抚顺新钢铁统一身份认证登录',
     username: '用户名',

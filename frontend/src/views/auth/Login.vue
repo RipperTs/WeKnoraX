@@ -154,6 +154,11 @@
       <div class="form-panel">
         <!-- Login Card -->
         <div class="form-card" v-if="!isRegisterMode">
+          <t-tabs v-if="fushunSSOEnabled" v-model="loginMethod" class="login-card-tabs">
+            <t-tab-panel value="fushun-sso" :label="$t('auth.quickLogin')" />
+            <t-tab-panel value="password" :label="$t('auth.passwordLogin')" />
+          </t-tabs>
+
           <!-- invite_only 模式下共享链接停在登录卡，同样需要邀请上下文。 -->
           <div v-if="inviteLookup" class="invite-banner">
             <t-icon name="link" class="invite-banner__icon" />
@@ -169,19 +174,13 @@
           <div v-else-if="inviteLookupError" class="invite-banner invite-banner--error">
             {{ inviteLookupError }}
           </div>
-          <div class="form-header">
+          <div v-if="!fushunSSOEnabled || loginMethod === 'password'" class="form-header">
             <h2 class="form-title">{{ $t('auth.login') }}</h2>
-            <p class="form-welcome">{{ $t('auth.subtitle') }}</p>
             <p v-if="registrationEnabled" class="form-hint">{{ $t('auth.loginHint') }}</p>
           </div>
 
           <div class="form-content">
-            <t-tabs v-if="fushunSSOEnabled" v-model="loginMethod" class="login-method-tabs">
-              <t-tab-panel value="password" :label="$t('auth.login')" />
-              <t-tab-panel value="fushun-sso" :label="$t('auth.fushunSSOLogin')" />
-            </t-tabs>
-
-            <template v-if="loginMethod === 'password'">
+            <template v-if="!fushunSSOEnabled || loginMethod === 'password'">
               <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
                 label-align="top">
               <t-form-item :label="$t('auth.email')" name="email">
@@ -199,9 +198,7 @@
               </t-button>
 
               <div class="register-cta" v-if="registrationEnabled">
-                <div class="register-cta__divider">
-                  <span>{{ $t('auth.firstTime') }}</span>
-                </div>
+                <div class="register-cta__divider"></div>
                 <t-button theme="default" variant="outline" size="large" block class="register-cta__button"
                   :disabled="loading" @click="toggleMode">
                   {{ $t('auth.createAccount') }}
@@ -220,26 +217,11 @@
             </template>
 
             <div v-else class="fushun-sso-login">
+              <img :src="xgtLogo" :alt="$t('auth.fushunSSOLogin')" class="fushun-sso-logo" />
               <p>{{ $t('auth.fushunSSODescription') }}</p>
               <t-button theme="primary" size="large" block :loading="fushunSSOLoading" @click="handleFushunSSOLogin">
                 {{ fushunSSOLoading ? $t('auth.loggingIn') : $t('auth.fushunSSOLogin') }}
               </t-button>
-            </div>
-
-            <!-- Features list -->
-            <div class="login-features">
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.multimodalParsing') }}</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.hybridSearchEngine') }}</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.ragQandA') }}</span>
-              </div>
             </div>
           </div>
         </div>
@@ -362,6 +344,7 @@ import screenshot1 from '@/assets/img/screenshot-1.svg'
 import screenshot2 from '@/assets/img/screenshot-2.svg'
 import screenshot3 from '@/assets/img/screenshot-3.svg'
 import screenshot4 from '@/assets/img/screenshot-4.svg'
+import xgtLogo from '@/assets/img/xgt-logo.jpg'
 
 const router = useRouter()
 const route = useRoute()
@@ -411,7 +394,7 @@ const oidcProviderName = ref('')
 const fushunSSOEnabled = ref(false)
 const fushunSSOAuthURL = ref('')
 const fushunSSOStateStorageKey = 'weknora_fushun_sso_state'
-const loginMethod = ref('password')
+const loginMethod = ref('fushun-sso')
 // registrationEnabled defaults to true so that on first paint the Register
 // link is visible; the actual mode is fetched from /auth/config in onMounted.
 // In invite_only mode the link/card are hidden.
@@ -835,6 +818,8 @@ onMounted(async () => {
   const ssoToken = String(route.query.token || '').trim()
   const ssoState = String(route.query.state || '').trim()
   if (route.query.sso === 'fsxgt' && ssoToken) {
+    loginMethod.value = 'fushun-sso'
+    await loadFushunSSOConfig()
     await handleFushunSSOCallback(ssoToken, ssoState)
     return
   }
@@ -1263,9 +1248,9 @@ onMounted(async () => {
 .form-section {
   flex: 0 0 48%;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  padding: 40px 50px 100px 30px;
+  padding: 40px 50px 40px 30px;
   box-sizing: border-box;
   position: relative;
 }
@@ -1273,7 +1258,7 @@ onMounted(async () => {
 .form-panel {
   width: 100%;
   max-width: 480px;
-  margin-bottom: 60px;
+  margin-bottom: 0;
   position: relative;
   z-index: 2;
 }
@@ -1403,6 +1388,38 @@ onMounted(async () => {
   box-sizing: border-box;
   border: none;
   width: 100%;
+  overflow: hidden;
+}
+
+.login-card-tabs {
+  margin: -40px -40px 32px;
+
+  :deep(.t-tabs__header) {
+    background: var(--td-bg-color-secondarycontainer);
+    border-bottom: 1px solid var(--td-component-stroke);
+  }
+
+  :deep(.t-tabs__nav-container),
+  :deep(.t-tabs__nav-scroll),
+  :deep(.t-tabs__nav-wrap) {
+    width: 100%;
+  }
+
+  :deep(.t-tabs__nav-wrap) {
+    display: flex;
+  }
+
+  :deep(.t-tabs__nav-item) {
+    flex: 1;
+    justify-content: center;
+    height: 58px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  :deep(.t-tabs__content) {
+    display: none;
+  }
 }
 
 /* Share-link invitation banner. Sits above the register form when the
@@ -1469,13 +1486,6 @@ onMounted(async () => {
   font-family: var(--app-font-family);
 }
 
-.form-welcome {
-  font-size: 13px;
-  color: var(--td-text-color-secondary);
-  margin: 0;
-  font-family: var(--app-font-family);
-}
-
 .form-hint {
   margin: 10px 0 0;
   padding: 8px 12px;
@@ -1499,13 +1509,6 @@ onMounted(async () => {
     color: var(--td-text-color-secondary);
     font-size: 13px;
     font-family: var(--app-font-family);
-
-    span {
-      position: relative;
-      z-index: 1;
-      padding: 0 12px;
-      background: rgba(255, 255, 255, 0.97);
-    }
 
     &::before {
       content: '';
@@ -1600,15 +1603,25 @@ onMounted(async () => {
   }
 }
 
-.login-method-tabs {
-  margin-bottom: 24px;
-}
-
 .fushun-sso-login {
-  padding: 12px 0 20px;
+  padding: 8px 0 4px;
+
+  .fushun-sso-logo {
+    display: block;
+    width: 128px;
+    max-width: 50%;
+    height: auto;
+    margin: 0 auto 18px;
+    padding: 4px;
+    box-sizing: border-box;
+    background: #ffffff;
+    border: 1px solid rgba(2, 44, 34, 0.06);
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(2, 44, 34, 0.06);
+  }
 
   p {
-    margin: 0 0 20px;
+    margin: 0 0 16px;
     color: var(--td-text-color-secondary);
     font-size: 14px;
     text-align: center;
@@ -1811,6 +1824,10 @@ onMounted(async () => {
     padding: 32px 24px;
   }
 
+  .login-card-tabs {
+    margin: -32px -24px 28px;
+  }
+
   .form-title {
     font-size: 22px;
   }
@@ -1852,6 +1869,10 @@ onMounted(async () => {
 
   .form-card {
     padding: 28px 20px;
+  }
+
+  .login-card-tabs {
+    margin: -28px -20px 24px;
   }
 
   .form-header {
@@ -1920,10 +1941,6 @@ html[theme-mode="dark"] {
   .form-card {
     background: rgba(36, 36, 36, 0.97) !important;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
-  }
-
-  .register-cta__divider span {
-    background: rgba(36, 36, 36, 0.97);
   }
 
   .form-content .t-input {

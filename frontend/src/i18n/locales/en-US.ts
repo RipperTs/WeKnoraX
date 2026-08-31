@@ -1870,6 +1870,8 @@ export default {
     redirectingToOIDC: 'Redirecting to identity provider...',
     orContinueWith: 'Or continue with',
     oidcLoginFailed: 'OIDC login failed',
+    quickLogin: 'Quick Login',
+    passwordLogin: 'Account & Password',
     fushunSSOLogin: 'Fushun Xinxin Steel SSO',
     fushunSSODescription: 'Sign in with Fushun Xinxin Steel unified identity authentication',
     username: 'Username',
