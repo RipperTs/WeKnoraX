@@ -37,12 +37,15 @@ import (
 //	      like Owner; Contributor in someone else's KB acts like
 //	      Viewer" hold uniformly.
 //
-//	NO  — Tenant-wide infrastructure: Model, VectorStore, IM channel,
-//	      WebSearchProvider, DataSource, MCPService, WeKnoraCloud
-//	      credentials.
+//	NO  — Tenant-wide infrastructure: VectorStore, IM channel,
+//	      WebSearchProvider, DataSource, MCPService.
 //	      => Mutating routes use Admin().
 //	      There is no "creator-of-the-vector-store" concept; configuring
 //	      it affects everyone, so only Admin+ may touch it.
+//
+//	PLATFORM — Shared models visible to every workspace.
+//	      => Mutating routes use SystemAdmin(). Workspace users only read and
+//	      select these models from business pages.
 //
 //	ENTRY POINT — Routes that CREATE a new owned resource (POST
 //	      /knowledge-bases, POST /agents).

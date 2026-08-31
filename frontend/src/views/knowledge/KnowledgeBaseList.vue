@@ -808,7 +808,11 @@ const router = useRouter()
 const route = useRoute()
 const uiStore = useUIStore()
 const authStore = useAuthStore()
-const { loaded: modelsReadyLoaded, isReadyForDocumentKb } = useTenantModelReadiness()
+const {
+  readiness: modelReadiness,
+  loaded: modelsReadyLoaded,
+  isReadyForDocumentKb,
+} = useTenantModelReadiness()
 const orgStore = useOrganizationStore()
 const chatResources = useChatResourcesStore()
 const { t } = useI18n()
@@ -1693,11 +1697,17 @@ const goSettings = (id: string) => {
 
 // 创建知识库
 const handleCreateKnowledgeBase = () => {
+  if (modelsReadyLoaded.value && modelReadiness.value !== null && !isReadyForDocumentKb.value) {
+    MessagePlugin.warning(t(authStore.isSystemAdmin
+      ? 'contextualGuide.tenantModels.needDocumentModelsFirst'
+      : 'contextualGuide.tenantModels.contactSystemAdmin'))
+    if (authStore.isSystemAdmin) {
+      uiStore.openSettings('models')
+    }
+    return
+  }
   markContextualGuideDone('kbList')
-  // 无模型时仍打开创建向导，并定位到模型配置页；用户可在向导内添加模型，无需先跳转系统设置
-  const initialSection =
-    modelsReadyLoaded.value && !isReadyForDocumentKb.value ? 'models' : undefined
-  uiStore.openCreateKB('document', initialSection)
+  uiStore.openCreateKB('document')
 }
 
 // 知识库编辑器成功回调（创建或编辑成功）

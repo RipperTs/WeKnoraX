@@ -1951,10 +1951,10 @@ export default {
     }
   },
   modelSettings: {
-    title: '模型配置',
-    description: '管理不同类型的 AI 模型，支持 Ollama 本地模型和远程 API',
+    title: '平台模型管理',
+    description: '由系统管理员统一维护所有空间可用的 AI 模型',
     copySuffix: ' 副本',
-    builtinTag: '内置',
+    builtinTag: '平台',
     confirmDelete: '确定删除模型「{name}」吗？',
     debug: {
       title: '模型测试',
@@ -2005,9 +2005,9 @@ export default {
       }
     },
     builtinModels: {
-      title: '内置模型',
+      title: '平台共享模型',
       description: '内置模型对所有空间可见，敏感信息会被隐藏，且不可编辑或删除。',
-      descriptionAdmin: '内置模型对所有空间可见。系统管理员可编辑配置和凭据；删除仍由部署配置管理。',
+      descriptionAdmin: '此处创建的模型对所有空间可见，配置和凭据仅由系统管理员维护。',
       viewGuide: '查看内置模型管理指南'
     },
     toasts: {
@@ -2284,11 +2284,11 @@ export default {
   model: {
     modelName: '模型名称',
     defaultTag: '默认',
-    addModelInSettings: '前往全局设置添加模型',
+    addModelInSettings: '前往系统管理添加模型',
     loadFailed: '加载模型列表失败',
     selectModelPlaceholder: '请选择模型',
     searchPlaceholder: '搜索模型...',
-    builtinTag: '内置',
+    builtinTag: '平台',
     editor: {
       addTitle: '添加模型',
       editTitle: '编辑模型',
@@ -6276,6 +6276,8 @@ export default {
     },
     tenantModels: {
       needChatModelFirst: '请先添加对话模型（KnowledgeQA），再创建智能体。',
+      needDocumentModelsFirst: '请先配置对话模型和 Embedding 模型，再创建知识库。',
+      contactSystemAdmin: '平台尚未配置所需模型，请联系系统管理员。',
       stepsAgent: {
         done: {
           title: '然后创建智能体',

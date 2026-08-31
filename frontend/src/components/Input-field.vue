@@ -20,6 +20,7 @@ import { type ModelConfig } from '@/api/model';
 import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { useEditorResourcesStore } from '@/stores/editorResources';
+import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
 import AttachmentUpload, { type AttachmentFile } from './AttachmentUpload.vue';
 import {
@@ -51,6 +52,7 @@ const orgStore = useOrganizationStore();
 const menuStore = useMenuStore();
 const chatResources = useChatResourcesStore();
 const editorResources = useEditorResourcesStore();
+const authStore = useAuthStore();
 const {
   agents,
   disabledOwnAgentIds,
@@ -2673,7 +2675,8 @@ defineExpose({
             <div class="model-selector-dropdown" :style="modelDropdownStyle" @click.stop>
               <div class="model-selector-header">
                 <span>{{ $t('conversationSettings.models.chatGroupLabel') }}</span>
-                <button class="model-selector-add" type="button" @click="handleModelChange('__add_model__')">
+                <button v-if="authStore.isSystemAdmin" class="model-selector-add" type="button"
+                  @click="handleModelChange('__add_model__')">
                   <span class="add-icon">+</span>
                   <span class="add-text">{{ $t('input.addModel') }}</span>
                 </button>

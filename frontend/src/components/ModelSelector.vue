@@ -29,7 +29,7 @@
       
       <!-- 添加模型选项（在底部） -->
       <t-option
-        v-if="!disabled"
+        v-if="!disabled && authStore.isSystemAdmin"
         value="__add_model__"
         class="add-model-option"
       >
@@ -48,6 +48,7 @@ import { listModels, type ModelConfig } from '@/api/model'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { filterModelsByType } from './modelSelectorFilter'
+import { useAuthStore } from '@/stores/auth'
 
 interface Props {
   modelType: 'KnowledgeQA' | 'Embedding' | 'Rerank' | 'VLLM' | 'ASR'
@@ -75,6 +76,7 @@ const emit = defineEmits<{
 const models = ref<ModelConfig[]>([])
 const loading = ref(false)
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const placeholderText = computed(() => {
   return props.placeholder || t('model.selectModelPlaceholder')

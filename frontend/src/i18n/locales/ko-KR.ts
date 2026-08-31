@@ -1949,10 +1949,10 @@ export default {
     }
   },
   modelSettings: {
-    title: '모델 설정',
-    description: '다양한 유형의 AI 모델을 관리합니다. Ollama 로컬 모델과 원격 API를 지원합니다',
+    title: '플랫폼 모델 관리',
+    description: '시스템 관리자가 모든 워크스페이스에서 사용할 AI 모델을 통합 관리합니다',
     copySuffix: ' 사본',
-    builtinTag: '기본제공',
+    builtinTag: '플랫폼',
     confirmDelete: '모델 "{name}"을(를) 삭제하시겠습니까?',
     debug: {
       title: '모델 테스트',
@@ -2003,9 +2003,9 @@ export default {
       }
     },
     builtinModels: {
-      title: '기본 제공 모델',
+      title: '플랫폼 공유 모델',
       description: '기본 제공 모델은 모든 워크스페이스에게 표시됩니다. 민감한 정보는 숨겨지며, 편집하거나 삭제할 수 없습니다.',
-      descriptionAdmin: '기본 제공 모델은 모든 워크스페이스에게 표시됩니다. 시스템 관리자는 구성과 자격 증명을 편집할 수 있으며, 삭제는 배포 구성에서 관리됩니다.',
+      descriptionAdmin: '여기서 만든 모델은 모든 워크스페이스에 표시되며 시스템 관리자만 구성과 자격 증명을 관리합니다.',
       viewGuide: '기본 제공 모델 관리 가이드 보기'
     },
     toasts: {
@@ -2282,11 +2282,11 @@ export default {
   model: {
     modelName: '모델 이름',
     defaultTag: '기본값',
-    addModelInSettings: '전역 설정에서 모델 추가하기',
+    addModelInSettings: '시스템 관리에서 모델 추가하기',
     loadFailed: '모델 목록 로드 실패',
     selectModelPlaceholder: '모델을 선택해주세요',
     searchPlaceholder: '모델 검색...',
-    builtinTag: '내장',
+    builtinTag: '플랫폼',
     editor: {
       addTitle: '모델 추가',
       editTitle: '모델 편집',
@@ -6274,6 +6274,8 @@ export default {
     },
     tenantModels: {
       needChatModelFirst: '에이전트를 만들기 전에 대화 모델(KnowledgeQA)을 추가하세요.',
+      needDocumentModelsFirst: '지식 베이스를 만들기 전에 대화 모델과 Embedding 모델을 구성하세요.',
+      contactSystemAdmin: '필요한 플랫폼 모델이 구성되지 않았습니다. 시스템 관리자에게 문의하세요.',
       stepsAgent: {
         done: {
           title: '이후 에이전트 생성',

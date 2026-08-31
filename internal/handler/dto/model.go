@@ -2,6 +2,7 @@ package dto
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -29,6 +30,7 @@ type ModelResponse struct {
 	Status      types.ModelStatus  `json:"status"`
 	CreatedAt   time.Time          `json:"created_at"`
 	UpdatedAt   time.Time          `json:"updated_at"`
+	CanDelete   bool               `json:"can_delete"`
 	// Per-field "configured?" map. Omitted for builtin models unless the
 	// caller is a system administrator. See MCPServiceResponse.Credentials.
 	Credentials map[string]CredentialFieldMetadata `json:"credentials,omitempty"`
@@ -94,6 +96,10 @@ func NewModelResponse(ctx context.Context, m *types.Model) *ModelResponse {
 			"app_secret": {Configured: m.Parameters.AppSecret != ""},
 		}
 	}
+	canDelete := types.IsSystemAdminFromContext(ctx)
+	if scope, ok := types.TenantAPIKeyScopeFromContext(ctx); ok && scope.IsPlatform() {
+		canDelete = true
+	}
 	return &ModelResponse{
 		ID:          m.ID,
 		TenantID:    m.TenantID,
@@ -108,6 +114,7 @@ func NewModelResponse(ctx context.Context, m *types.Model) *ModelResponse {
 		Status:      m.Status,
 		CreatedAt:   m.CreatedAt,
 		UpdatedAt:   m.UpdatedAt,
+		CanDelete:   canDelete && strings.TrimSpace(m.ManagedBy) == "",
 		Credentials: creds,
 	}
 }

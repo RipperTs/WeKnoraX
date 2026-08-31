@@ -7,7 +7,7 @@
           <p class="section-description">{{ $t('modelSettings.description') }}</p>
         </div>
         <t-button
-          v-if="authStore.hasRole('admin')"
+          v-if="authStore.isSystemAdmin"
           type="button"
           theme="primary"
           variant="text"
@@ -23,9 +23,7 @@
       <div class="builtin-models-hint" role="note">
         <p class="builtin-hint-label">{{ $t('modelSettings.builtinModels.title') }}</p>
         <p class="builtin-hint-text">
-          {{ $t(authStore.isSystemAdmin
-            ? 'modelSettings.builtinModels.descriptionAdmin'
-            : 'modelSettings.builtinModels.description') }}
+          {{ $t('modelSettings.builtinModels.descriptionAdmin') }}
         </p>
       </div>
     </div>
@@ -41,7 +39,7 @@
     </t-tabs>
 
     <t-loading :loading="loading" size="small" class="model-list-loading">
-      <div v-if="!loading && filteredModels.length === 0 && !authStore.hasRole('admin')" class="empty-state">
+      <div v-if="!loading && filteredModels.length === 0 && !authStore.isSystemAdmin" class="empty-state">
         <t-empty :description="emptyHint" />
       </div>
       <div v-else-if="!loading" class="model-grid">
@@ -113,7 +111,7 @@
           </div>
         </div>
         <button
-          v-if="authStore.hasRole('admin')"
+          v-if="authStore.isSystemAdmin"
           type="button"
           class="model-card model-card--add"
           data-guide="settings-add-model"
@@ -200,6 +198,7 @@ function convertToLegacyFormat(model: ModelConfig) {
     dimension: model.parameters.embedding_parameters?.dimension,
     supportsDimensionOverride: model.parameters.embedding_parameters?.supports_dimension_override || false,
     isBuiltin: model.is_builtin || false,
+    canDelete: model.can_delete || false,
     supportsVision: model.parameters.supports_vision || false,
     maxConcurrency: model.parameters.max_concurrency,
     customHeaders: model.parameters.custom_headers
@@ -323,19 +322,14 @@ const openAddDialog = () => {
   showDialog.value = true
 }
 
-// Tenant Admin+ manages tenant models; only SystemAdmin manages shared
-// built-in models. The backend repeats this distinction authoritatively.
-const canEditModel = (model: any) =>
-  model.isBuiltin ? authStore.isSystemAdmin : authStore.hasRole('admin')
+// 模型配置属于平台级基础设施，只有系统管理员可以操作。
+const canEditModel = (_model: any) => authStore.isSystemAdmin
 
 const isModelCardClickable = (model: any) => canEditModel(model)
 
 const canManageModel = (model: any) => canEditModel(model)
 
-// Built-in lifecycle remains deployment-managed (YAML / SQL). The UI only
-// exposes configuration and credential editing to SystemAdmin.
-const canDeleteModel = (model: any) =>
-  authStore.hasRole('admin') && !model.isBuiltin
+const canDeleteModel = (model: any) => authStore.isSystemAdmin && model.canDelete
 
 const onModelCardClick = (event: Event, type: ModelType, model: any) => {
   if (!isModelCardClickable(model)) return
@@ -351,11 +345,7 @@ const onModelCardClick = (event: Event, type: ModelType, model: any) => {
 
 // 编辑模型
 const editModel = (type: ModelType, model: any) => {
-  if (model.isBuiltin && !authStore.isSystemAdmin) {
-    MessagePlugin.warning(t('modelSettings.toasts.builtinCannotEdit'))
-    return
-  }
-  if (!model.isBuiltin && !authStore.hasRole('admin')) {
+  if (!authStore.isSystemAdmin) {
     return
   }
   currentModelType.value = type
@@ -491,12 +481,6 @@ const handleModelSave = async (modelData: any) => {
 
 // 删除模型
 const deleteModel = async (_type: ModelType, modelId: string) => {
-  const model = allModels.value.find(m => m.id === modelId)
-  if (model?.is_builtin) {
-    MessagePlugin.warning(t('modelSettings.toasts.builtinCannotDelete'))
-    return
-  }
-
   try {
     await deleteModelAPI(modelId)
     MessagePlugin.success(t('modelSettings.toasts.deleted'))
@@ -511,32 +495,13 @@ const deleteModel = async (_type: ModelType, modelId: string) => {
 const getModelOptions = (type: ModelType, model: any) => {
   const options: any[] = []
 
-  if (model.isBuiltin) {
-    if (authStore.isSystemAdmin) {
-      options.push({
-        content: t('common.edit'),
-        value: `edit-${type}-${model.id}`
-      })
-    }
-    return options
-  }
-
-  // Models are tenant-wide infrastructure (LLM credentials); the
-  // backend gates every mutation behind Admin+ (see RegisterModelRoutes).
-  // Non-Admins get an empty action menu — viewing is fine, but editing,
-  // copying (also goes through createModel), and deleting are not.
-  if (!authStore.hasRole('admin')) {
+  if (!authStore.isSystemAdmin) {
     return options
   }
 
   options.push({
     content: t('common.edit'),
     value: `edit-${type}-${model.id}`
-  })
-
-  options.push({
-    content: t('common.copy'),
-    value: `copy-${type}-${model.id}`
   })
 
   return options
@@ -548,51 +513,6 @@ const handleMenuAction = (data: { value: string }, type: ModelType, model: any) 
 
   if (value.indexOf('edit-') === 0) {
     editModel(type, model)
-  } else if (value.indexOf('copy-') === 0) {
-    copyModel(type, model.id)
-  }
-}
-
-// 生成不重复的复制名称
-const generateCopyName = (originalName: string): string => {
-  const suffix = t('modelSettings.copySuffix')
-  const existingNames = new Set(allModels.value.map(m => m.name))
-  let candidate = `${originalName}${suffix}`
-  let counter = 2
-  while (existingNames.has(candidate)) {
-    candidate = `${originalName}${suffix} ${counter}`
-    counter += 1
-  }
-  return candidate
-}
-
-// 复制模型
-const copyModel = async (_type: ModelType, modelId: string) => {
-  const source = allModels.value.find(m => m.id === modelId)
-  if (!source) {
-    return
-  }
-  if (source.is_builtin) {
-    MessagePlugin.warning(t('modelSettings.toasts.builtinCannotCopy'))
-    return
-  }
-
-  try {
-    const newModel: ModelConfig = {
-      name: generateCopyName(source.name),
-      display_name: source.display_name || '',
-      type: source.type,
-      source: source.source,
-      description: source.description || '',
-      parameters: JSON.parse(JSON.stringify(source.parameters || {}))
-    }
-
-    await createModel(newModel)
-    MessagePlugin.success(t('modelSettings.toasts.copied'))
-    await loadModels()
-  } catch (error: any) {
-    console.error('复制模型失败:', error)
-    MessagePlugin.error(error.message || t('modelSettings.toasts.copyFailed'))
   }
 }
 

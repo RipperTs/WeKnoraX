@@ -62,13 +62,16 @@ func (r *customAgentRepository) DeleteAgent(ctx context.Context, id string, tena
 }
 
 // CountByModelID counts active agents whose config references modelID.
+// tenantID=0 scans all workspaces for platform-model lifecycle checks.
 func (r *customAgentRepository) CountByModelID(
 	ctx context.Context, tenantID uint64, modelID string,
 ) (int64, error) {
 	var count int64
 	query := r.db.WithContext(ctx).
-		Model(&types.CustomAgent{}).
-		Where("tenant_id = ?", tenantID)
+		Model(&types.CustomAgent{})
+	if tenantID != 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
 	query = scopeCustomAgentsByModelID(query, modelID)
 	err := query.Count(&count).Error
 	return count, err
