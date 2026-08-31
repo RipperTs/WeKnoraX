@@ -229,7 +229,6 @@ func TestKnowledgeBaseManagementRoutesDeclareManageKBsCapability(t *testing.T) {
 	}{
 		{http.MethodPut, "/api/v1/knowledge-bases/:id"},
 		{http.MethodDelete, "/api/v1/knowledge-bases/:id"},
-		{http.MethodPost, "/api/v1/initialization/initialize/:kbId"},
 		{http.MethodPut, "/api/v1/initialization/config/:kbId"},
 	}
 
@@ -336,6 +335,7 @@ func TestTenantInfrastructureRoutesDeclareSpecificCapabilities(t *testing.T) {
 
 	RegisterTenantRoutes(v1, &handler.TenantHandler{}, nil, nil, nil, g)
 	RegisterModelRoutes(v1, &handler.ModelHandler{}, &handler.ModelCredentialsHandler{}, g)
+	RegisterInitializationRoutes(v1, &handler.InitializationHandler{}, g)
 	RegisterEvaluationRoutes(v1, &handler.EvaluationHandler{}, g)
 	RegisterSystemRoutes(v1, &handler.SystemHandler{}, g)
 	RegisterMCPServiceRoutes(v1, &handler.MCPServiceHandler{}, &handler.MCPCredentialsHandler{}, &handler.MCPOAuthHandler{}, g)
@@ -360,6 +360,7 @@ func TestTenantInfrastructureRoutesDeclareSpecificCapabilities(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/tenants", types.APIKeyCapabilityManageTenantSettings},
 		{http.MethodGet, "/api/v1/models", types.APIKeyCapabilityManageModels},
+		{http.MethodPost, "/api/v1/initialization/initialize/:kbId", types.APIKeyCapabilityManageModels},
 		{http.MethodPost, "/api/v1/evaluation", types.APIKeyCapabilityRunEvaluations},
 		{http.MethodGet, "/api/v1/system/info", types.APIKeyCapabilityManageVectorStores},
 		{http.MethodGet, "/api/v1/mcp-services", types.APIKeyCapabilityManageMCPServices},

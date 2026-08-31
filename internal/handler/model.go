@@ -101,6 +101,7 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 		Source:      req.Source,
 		Description: secutils.SanitizeForLog(req.Description),
 		Parameters:  req.Parameters,
+		IsBuiltin:   true,
 	}
 
 	if err := h.service.CreateModel(ctx, model); err != nil {

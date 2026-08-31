@@ -8,49 +8,58 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import SpotlightGuide from '@/components/SpotlightGuide.vue'
 import { GLOBAL_USER_GUIDE_KEY, OPEN_NEW_USER_GUIDE_EVENT } from '@/config/contextualGuides'
 import { useUIStore } from '@/stores/ui'
+import { useAuthStore } from '@/stores/auth'
 import type { SpotlightGuideStep } from '@/types/spotlightGuide'
 
 const uiStore = useUIStore()
+const authStore = useAuthStore()
 let settingsOpenedByGuide = false
 
-const steps = computed<SpotlightGuideStep[]>(() => [
-  { key: 'welcome' },
-  {
-    key: 'knowledge',
-    target: '[data-guide="nav-knowledge-bases"]',
-    placement: 'right',
-    before: () => uiStore.expandSidebar(),
-  },
-  {
-    key: 'agents',
-    target: '[data-guide="nav-agents"]',
-    placement: 'right',
-    optional: true,
-    before: () => uiStore.expandSidebar(),
-  },
-  {
-    key: 'chat',
-    target: '[data-guide="nav-creatChat"]',
-    placement: 'right',
-    before: () => uiStore.expandSidebar(),
-  },
-  {
-    key: 'settings',
-    target: '[data-guide="user-menu"]',
-    placement: 'right',
-    before: () => uiStore.expandSidebar(),
-  },
-  {
-    key: 'models',
-    target: '[data-guide="settings-add-model"], [data-guide="settings-models"]',
-    placement: 'left',
-    before: () => {
-      uiStore.openSettings('models')
-      settingsOpenedByGuide = true
+const steps = computed<SpotlightGuideStep[]>(() => {
+  const result: SpotlightGuideStep[] = [
+    { key: 'welcome' },
+    {
+      key: 'knowledge',
+      target: '[data-guide="nav-knowledge-bases"]',
+      placement: 'right',
+      before: () => uiStore.expandSidebar(),
     },
-  },
-  { key: 'done' },
-])
+    {
+      key: 'agents',
+      target: '[data-guide="nav-agents"]',
+      placement: 'right',
+      optional: true,
+      before: () => uiStore.expandSidebar(),
+    },
+    {
+      key: 'chat',
+      target: '[data-guide="nav-creatChat"]',
+      placement: 'right',
+      before: () => uiStore.expandSidebar(),
+    },
+    {
+      key: 'settings',
+      target: '[data-guide="user-menu"]',
+      placement: 'right',
+      before: () => uiStore.expandSidebar(),
+    },
+  ]
+
+  if (authStore.isSystemAdmin) {
+    result.push({
+      key: 'models',
+      target: '[data-guide="settings-add-model"], [data-guide="settings-models"]',
+      placement: 'left',
+      before: () => {
+        uiStore.openSettings('models')
+        settingsOpenedByGuide = true
+      },
+    })
+  }
+
+  result.push({ key: 'done' })
+  return result
+})
 
 const active = ref(false)
 

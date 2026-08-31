@@ -109,6 +109,8 @@ export default {
     },
     tenantModels: {
       needChatModelFirst: 'Add a chat model (KnowledgeQA) before creating an agent.',
+      needDocumentModelsFirst: 'Configure a chat model and an Embedding model before creating a knowledge base.',
+      contactSystemAdmin: 'The required platform models are not configured. Contact a system administrator.',
       steps: {
         intro: {
           title: 'Configure models first',
@@ -3896,7 +3898,7 @@ export default {
   model: {
     modelName: 'Model Name',
     defaultTag: 'Default',
-    addModelInSettings: 'Go to global settings to add models',
+    addModelInSettings: 'Go to system administration to add models',
     loadFailed: 'Failed to load model list',
     selectModelPlaceholder: 'Select a model',
     searchPlaceholder: 'Search models...',
@@ -4123,7 +4125,7 @@ export default {
         }
       }
     },
-    builtinTag: 'Built-in'
+    builtinTag: 'Platform'
   },
   language: {
     zhCN: '简体中文',
@@ -4337,8 +4339,8 @@ export default {
     builtin: 'Built-in'
   },
   modelSettings: {
-    title: 'Model Settings',
-    description: 'Manage different types of AI models, including local Ollama and remote APIs',
+    title: 'Platform Model Management',
+    description: 'System administrators maintain the AI models available to every workspace',
     typeShort: {
       chat: 'Chat',
       embedding: 'Embedding',
@@ -4400,12 +4402,12 @@ export default {
     },
     copySuffix: ' Copy',
     builtinModels: {
-      title: 'Built-in Models',
+      title: 'Shared Platform Models',
       description: 'Built-in models are visible to all workspaces. Sensitive information is hidden, and they cannot be edited or deleted.',
-      descriptionAdmin: 'Built-in models are visible to all workspaces. System administrators can edit configuration and credentials; deletion remains deployment-managed.',
+      descriptionAdmin: 'Models created here are visible to every workspace. Only system administrators maintain their configuration and credentials.',
       viewGuide: 'View Built-in Models Guide'
     },
-    builtinTag: 'Built-in',
+    builtinTag: 'Platform',
     confirmDelete: 'Delete model "{name}"?',
     debug: {
       title: 'Model Test',

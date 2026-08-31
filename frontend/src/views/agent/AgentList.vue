@@ -1093,7 +1093,7 @@ const showAgentListEmpty = computed(() => {
 })
 
 const showAgentTenantModelsGuide = computed(
-  () => modelsReadyLoaded.value && showAgentListEmpty.value && !isReadyForAgent.value,
+  () => authStore.isSystemAdmin && modelsReadyLoaded.value && showAgentListEmpty.value && !isReadyForAgent.value,
 )
 
 const showAgentListContextualGuide = computed(
@@ -1569,8 +1569,12 @@ const openCreateModal = () => {
 // 创建智能体
 const handleCreateAgent = () => {
   if (!isReadyForAgent.value) {
-    MessagePlugin.warning(t('contextualGuide.tenantModels.needChatModelFirst'))
-    uiStore.openSettings('models')
+    MessagePlugin.warning(t(authStore.isSystemAdmin
+      ? 'contextualGuide.tenantModels.needChatModelFirst'
+      : 'contextualGuide.tenantModels.contactSystemAdmin'))
+    if (authStore.isSystemAdmin) {
+      uiStore.openSettings('models')
+    }
     return
   }
   markContextualGuideDone('agentList')

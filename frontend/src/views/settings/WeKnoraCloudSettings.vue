@@ -99,6 +99,7 @@
 
     <!-- 云模型：凭证就绪后原地展示接入状态 -->
     <section
+      v-if="authStore.isSystemAdmin"
       class="models-section"
       :class="{ 'models-section--disabled': credentialState !== 'configured' }"
     >
@@ -196,7 +197,7 @@
     </section>
 
     <!-- 使用说明 -->
-    <div class="usage-hint">
+    <div v-if="authStore.isSystemAdmin" class="usage-hint">
       <p class="hint-title">{{ $t('settings.weknoraCloud.usageTitle') }}</p>
       <p class="hint-text" v-html="$t('settings.weknoraCloud.usageSteps').replace(/\n/g, '<br />')" />
     </div>
@@ -209,6 +210,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { saveWeKnoraCloudCredentials, getWeKnoraCloudStatus, createModel, listModels } from '@/api/model'
 import { testEmbeddingModel } from '@/api/initialization'
+import { useAuthStore } from '@/stores/auth'
 import {
   WKC_MODEL_KINDS,
   WKC_MODEL_NAME_BY_KIND,
@@ -220,6 +222,7 @@ import {
 } from '@/utils/weknoraCloudModels'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const form = ref({ appId: '', appSecret: '' })
 const saving = ref(false)
@@ -335,7 +338,9 @@ const handleSave = async () => {
     reinitReason.value = ''
     hasCredentials.value = true
     formExpanded.value = false
-    await refreshExistingKinds()
+    if (authStore.isSystemAdmin) {
+      await refreshExistingKinds()
+    }
   } catch (err: any) {
     MessagePlugin.error(err?.message || t('settings.weknoraCloud.saveFailed'))
   } finally {
@@ -351,7 +356,9 @@ const checkStatus = async () => {
     hasCredentials.value = status.has_models && !status.needs_reinit
     if (hasCredentials.value) {
       formExpanded.value = false
-      await refreshExistingKinds()
+      if (authStore.isSystemAdmin) {
+        await refreshExistingKinds()
+      }
     }
   } catch {
     // silent

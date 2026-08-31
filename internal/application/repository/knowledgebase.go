@@ -205,14 +205,17 @@ func (r *knowledgeBaseRepository) CountByVectorStoreID(
 }
 
 // CountByModelID counts active knowledge bases that reference modelID in any
-// model-binding column (scalar fields or JSON config blobs).
+// model-binding column (scalar fields or JSON config blobs). tenantID=0 scans
+// all workspaces for platform-model lifecycle checks.
 func (r *knowledgeBaseRepository) CountByModelID(
 	ctx context.Context, tenantID uint64, modelID string,
 ) (int64, error) {
 	var count int64
 	query := r.db.WithContext(ctx).
-		Model(&types.KnowledgeBase{}).
-		Where("tenant_id = ?", tenantID)
+		Model(&types.KnowledgeBase{})
+	if tenantID != 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
 	query = scopeKnowledgeBasesByModelID(query, modelID)
 	err := query.Count(&count).Error
 	return count, err

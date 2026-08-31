@@ -71,7 +71,7 @@
             <div class="settings-content">
               <div class="content-wrapper" :class="{
                 'content-wrapper--wide': currentSection === 'members',
-                'content-wrapper--full': SYSTEM_ADMIN_SECTIONS.has(currentSection) || isIntegrationSection(currentSection),
+                'content-wrapper--full': isSystemAdminSection(currentSection) || isIntegrationSection(currentSection),
               }">
                 <!-- 角色不允许访问当前 section（deep-link 进来 / 跨空间切换后角色降级）—— 优先于具体 section 渲染。
                      正常导航走 navItems filter 不会到这里，但 watch(navItems) 的 fallback 会在角色降级
@@ -282,11 +282,14 @@ type NavGroup = {
 // - chathistory 页面唯一的「启用消息索引」开关 PUT /tenants/kv/chat-history-config
 //   后端走 g.Admin()。给 viewer/contributor 看到入口、点开开关、保存时
 //   403，体验很差，所以入口本身归 admin。
-// - models 列表 viewer 可读，页面内的「+ 添加模型 / 编辑 / 删除」按钮在
-//   ModelSettings.vue 里另用 hasRole('admin') 自己 gate，所以入口保留
-//   viewer 是合理的（contributor 也能浏览模型列表）。
+// - models 是平台级配置，只允许系统管理员进入；普通用户仍可通过业务
+//   页面读取并选择平台模型，但不再接触模型凭据和连接配置。
 const SYSTEM_ADMIN_SECTIONS = SYSTEM_ADMIN_SETTINGS_SECTIONS
+const MODEL_ADMIN_SECTIONS = new Set(['models', 'ollama'])
 const INTEGRATION_SECTION_PREFIX = 'integration-'
+
+const isSystemAdminSection = (section: string) =>
+  MODEL_ADMIN_SECTIONS.has(section) || SYSTEM_ADMIN_SECTIONS.has(section)
 
 const integrationSectionKey = (tab: IntegrationTab) => `${INTEGRATION_SECTION_PREFIX}${tab}`
 
@@ -331,7 +334,7 @@ const canSeeSection = (key: string): boolean => {
     if (authStore.canAccessAllTenants) return true
     return authStore.hasRole(min)
   }
-  if (SYSTEM_ADMIN_SECTIONS.has(key)) {
+  if (isSystemAdminSection(key)) {
     return authStore.isSystemAdmin
   }
   const min = SETTINGS_SECTION_MIN_ROLE[key] ?? 'viewer'
@@ -387,7 +390,7 @@ const navItems = computed(() => {
 const navGroups = computed<NavGroup[]>(() => {
   const itemMap = new Map(navItems.value.map((item) => [item.key, item]))
   const pickItems = (keys: string[]) => keys.map((key) => itemMap.get(key)).filter(Boolean) as NavItem[]
-  // 分组：账户 → 空间 → 模型 → 发布集成 → 数据与扩展 → 系统管理 → 平台
+  // 分组：账户 → 空间 → 发布集成 → 数据与扩展 → 系统管理
   // 关键调整：把个人偏好(general)和用户信息收进「账户」；
   // 把空间内功能开关(chathistory)从「平台」挪到「空间」；
   // 把检索引擎和外部集成合并为「数据与扩展」，避免两个 2~3 项的窄分组。
@@ -401,11 +404,6 @@ const navGroups = computed<NavGroup[]>(() => {
       key: 'workspace',
       label: t('settings.navGroups.workspace'),
       items: pickItems(['tenant', 'members', 'chathistory', 'memory']),
-    },
-    {
-      key: 'models_runtime',
-      label: t('settings.navGroups.modelsRuntime'),
-      items: pickItems(['models']),
     },
     {
       key: 'integrations',
@@ -430,7 +428,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'system_administration',
       label: t('settings.navGroups.systemAdministration'),
-      items: pickItems(['system-global', 'runtime-queues', 'platform-api-keys', 'system-audit-log']),
+      items: pickItems(['models', 'system-global', 'runtime-queues', 'platform-api-keys', 'system-audit-log']),
     },
   ].filter((group) => group.items.length > 0)
 })
@@ -461,7 +459,7 @@ const handleNavClick = (item: any) => {
         tab: integrationTabFromSection(item.key),
       },
     })
-  } else if (route.path === '/platform/settings' && SYSTEM_ADMIN_SECTIONS.has(item.key)) {
+  } else if (route.path === '/platform/settings' && isSystemAdminSection(item.key)) {
     const query = { ...route.query }
     delete query.tab
     router.replace({
@@ -500,7 +498,7 @@ const handleClose = () => {
   // 如果当前路由是设置页，返回上一页
   if (route.path === '/platform/settings') {
     const sec = route.query.section
-    if (sec === 'system-global' || sec === 'runtime-queues' || sec === 'platform-api-keys' || sec === 'system-audit-log') {
+    if (typeof sec === 'string' && isSystemAdminSection(sec)) {
       router.push('/platform/knowledge-bases')
     } else {
       router.back()

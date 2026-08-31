@@ -98,6 +98,11 @@ func (s *modelService) resolveWeKnoraCloudCredentials(ctx context.Context, param
 // Remote models are immediately set to active status
 func (s *modelService) CreateModel(ctx context.Context, model *types.Model) error {
 	logger.Infof(ctx, "Creating model: %s, type: %s, source: %s", model.Name, model.Type, model.Source)
+	if model.IsBuiltin && provider.ProviderName(model.Parameters.Provider) == provider.ProviderWeKnoraCloud {
+		appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
+		model.Parameters.AppID = appID
+		model.Parameters.AppSecret = appSecret
+	}
 
 	// Handle remote models (e.g., OpenAI, Azure)
 	if model.Source == types.ModelSourceRemote {
@@ -359,7 +364,6 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	tenantID := types.MustTenantIDFromContext(ctx)
 	logger.Infof(ctx, "Tenant ID: %d", tenantID)
 
-	// Check if the model is builtin - builtin models cannot be deleted
 	existingModel, err := s.repo.GetByID(ctx, tenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -370,19 +374,28 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	if existingModel == nil {
 		return ErrModelNotFound
 	}
-	if existingModel.IsBuiltin {
-		logger.Warnf(ctx, "Attempted to delete builtin model: %s", id)
-		return apperrors.NewBadRequestError("builtin models cannot be deleted")
+	if existingModel.IsBuiltin && !types.IsSystemAdminFromContext(ctx) {
+		logger.Warnf(ctx, "Non-system-admin attempted to delete platform model: %s", id)
+		return apperrors.NewForbiddenError("only system administrators can delete platform models")
+	}
+	if strings.TrimSpace(existingModel.ManagedBy) != "" {
+		logger.Warnf(ctx, "Attempted to delete externally managed model: id=%s managed_by=%s", id, existingModel.ManagedBy)
+		return apperrors.NewBadRequestError("externally managed models must be removed from their source configuration")
 	}
 
-	kbCount, err := s.kbRepo.CountByModelID(ctx, tenantID, id)
+	usageTenantID := tenantID
+	if existingModel.IsBuiltin {
+		usageTenantID = 0
+	}
+
+	kbCount, err := s.kbRepo.CountByModelID(ctx, usageTenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id": id,
 		})
 		return err
 	}
-	agentCount, err := s.agentRepo.CountByModelID(ctx, tenantID, id)
+	agentCount, err := s.agentRepo.CountByModelID(ctx, usageTenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id": id,
@@ -395,7 +408,16 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	}
 
 	if s.tenantService != nil {
-		tenant, err := s.tenantService.GetTenantByID(ctx, tenantID)
+		var tenants []*types.Tenant
+		if existingModel.IsBuiltin {
+			tenants, err = s.tenantService.ListAllTenants(ctx)
+		} else {
+			var tenant *types.Tenant
+			tenant, err = s.tenantService.GetTenantByID(ctx, tenantID)
+			if tenant != nil {
+				tenants = []*types.Tenant{tenant}
+			}
+		}
 		if err != nil {
 			logger.ErrorWithFields(ctx, err, map[string]interface{}{
 				"model_id":  id,
@@ -403,20 +425,39 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 			})
 			return err
 		}
-		// Both models memory pins have to be checked. Deleting the extraction
-		// model leaves the workspace pointing at a model that no longer exists,
-		// and distillation only warns when it cannot resolve one, so auto
-		// extraction would stop with nothing surfaced to the admin who did it.
-		if tenant != nil && tenant.MemoryConfig != nil &&
-			(strings.TrimSpace(tenant.MemoryConfig.EmbeddingModelID) == id ||
-				strings.TrimSpace(tenant.MemoryConfig.ExtractModelID) == id) {
-			logger.Warnf(ctx, "Model %s is used by long-term memory", id)
-			return apperrors.NewBadRequestError(formatModelInUseMessage(0, 0, true))
+		for _, tenant := range tenants {
+			if tenant == nil {
+				continue
+			}
+			if tenant.MemoryConfig != nil &&
+				(strings.TrimSpace(tenant.MemoryConfig.EmbeddingModelID) == id ||
+					strings.TrimSpace(tenant.MemoryConfig.ExtractModelID) == id) {
+				logger.Warnf(ctx, "Model %s is used by long-term memory in tenant %d", id, tenant.ID)
+				return apperrors.NewBadRequestError(formatModelInUseMessage(0, 0, true))
+			}
+			if tenant.WebSearchConfig != nil &&
+				(strings.TrimSpace(tenant.WebSearchConfig.EmbeddingModelID) == id ||
+					strings.TrimSpace(tenant.WebSearchConfig.RerankModelID) == id) {
+				logger.Warnf(ctx, "Model %s is used by web search in tenant %d", id, tenant.ID)
+				return apperrors.NewBadRequestError(
+					"model is used by workspace web search settings; reconfigure that reference before deleting",
+				)
+			}
+			if tenant.RetrievalConfig != nil && strings.TrimSpace(tenant.RetrievalConfig.RerankModelID) == id {
+				logger.Warnf(ctx, "Model %s is used by retrieval settings in tenant %d", id, tenant.ID)
+				return apperrors.NewBadRequestError(
+					"model is used by workspace retrieval settings; reconfigure that reference before deleting",
+				)
+			}
 		}
 	}
 
 	// Delete model from repository
-	err = s.repo.Delete(ctx, tenantID, id)
+	deleteTenantID := tenantID
+	if existingModel.IsBuiltin {
+		deleteTenantID = existingModel.TenantID
+	}
+	err = s.repo.Delete(ctx, deleteTenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id":  id,

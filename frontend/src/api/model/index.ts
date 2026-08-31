@@ -40,6 +40,7 @@ export interface ModelConfig {
   };
   is_default?: boolean;
   is_builtin?: boolean;
+  can_delete?: boolean;
   status?: string;
   // Per-field configured? metadata from the main response. For builtin
   // models it is returned only to system administrators.
