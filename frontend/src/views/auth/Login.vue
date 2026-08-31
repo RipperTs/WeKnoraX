@@ -183,9 +183,9 @@
             <template v-if="!fushunSSOEnabled || loginMethod === 'password'">
               <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
                 label-align="top">
-              <t-form-item :label="$t('auth.email')" name="email">
-                <t-input v-model="formData.email" :placeholder="$t('auth.emailPlaceholder')" type="text"
-                  autocomplete="email" size="large" :disabled="loading" />
+              <t-form-item :label="$t('auth.loginAccount')" name="account">
+                <t-input v-model="formData.account" :placeholder="$t('auth.loginAccountPlaceholder')" type="text"
+                  autocomplete="username" size="large" :disabled="loading" />
               </t-form-item>
 
               <t-form-item :label="$t('auth.password')" name="password">
@@ -430,7 +430,7 @@ const currentLangOption = computed(() => languageOptions.find(l => l.value === c
 
 // Login form data
 const formData = reactive<{ [key: string]: any }>({
-  email: '',
+  account: '',
   password: '',
 })
 
@@ -444,9 +444,8 @@ const registerData = reactive<{ [key: string]: any }>({
 
 // Login form validation rules
 const formRules = computed(() => ({
-  email: [
-    { required: true, message: t('auth.emailRequired'), type: 'error' },
-    { email: true, message: t('auth.emailInvalid'), type: 'error' }
+  account: [
+    { required: true, message: t('auth.loginAccountRequired'), type: 'error' },
   ],
   password: [
     { required: true, message: t('auth.passwordRequired'), type: 'error' },
@@ -731,7 +730,7 @@ const handleLogin = async () => {
     loading.value = true
 
     const response = await login({
-      email: formData.email,
+      email: formData.account,
       password: formData.password,
     })
 

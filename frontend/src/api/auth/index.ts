@@ -5,6 +5,7 @@ const t = (key: string) => i18n.global.t(key)
 
 // 用户登录接口
 export interface LoginRequest {
+  // 登录接口沿用 email 字段名，值可为用户名或邮箱地址。
   email: string
   password: string
 }

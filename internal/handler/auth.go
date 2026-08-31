@@ -245,12 +245,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
-	email := secutils.SanitizeForLog(req.Email)
+	account := secutils.SanitizeForLog(req.Email)
 
 	// Validate required fields
 	if req.Email == "" || req.Password == "" {
 		logger.Error(ctx, "Missing required login fields")
-		appErr := errors.NewValidationError("Email and password are required")
+		appErr := errors.NewValidationError("Username/email and password are required")
 		c.Error(appErr)
 		return
 	}
@@ -273,7 +273,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// User is already in the correct format from service
 
-	logger.Infof(ctx, "User logged in successfully, email: %s", email)
+	logger.Infof(ctx, "User logged in successfully, account: %s", account)
 	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(response))
 }
 
