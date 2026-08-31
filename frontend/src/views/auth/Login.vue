@@ -1607,7 +1607,7 @@ onMounted(async () => {
 
   .fushun-sso-logo {
     display: block;
-    width: 128px;
+    width: 96px;
     max-width: 50%;
     height: auto;
     margin: 0 auto 18px;

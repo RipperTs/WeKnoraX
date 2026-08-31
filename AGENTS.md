@@ -24,6 +24,8 @@ Format Go files with `gofmt`; CI also checks `gofumpt`, `govet`, `revive`, and a
 
 Name Go tests `*_test.go` and frontend tests `*.test.ts`. Keep tests beside their source. Run focused tests first, then the relevant module suite. There is no global coverage threshold, but changed behavior should be tested. Document infrastructure-dependent failures in the pull request.
 
+When an approved behavior or permission contract changes, update the directly affected existing test assertions in the same change. Do not leave a known failing test or broaden production behavior merely to satisfy a stale expectation. This does not authorize unrelated test refactors or new test files.
+
 ## Commit & Pull Request Guidelines
 
 Use Conventional Commits, optionally with a scope: `feat(chat): add source filter`, `fix: handle empty upload`, or `docs: clarify setup`. Keep commits focused. Pull requests must explain the change, link issues with `Fixes #123` when applicable, list validation commands, and note failures. Complete `.github/pull_request_template.md`, call out breaking changes, and include screenshots or recordings for UI changes.

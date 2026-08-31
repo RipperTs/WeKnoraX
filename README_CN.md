@@ -229,13 +229,10 @@ docker compose up -d    # 用新镜像重建容器
 
 | Profile | 说明 | 启动命令 |
 |---------|------|----------|
-| _(默认)_ | 核心服务 | `docker compose pull && docker compose up -d` |
+| _(默认)_ | 核心服务（包含 MinIO） | `docker compose pull && docker compose up -d` |
 | `full` | 全部功能 | `docker compose --profile full pull && docker compose --profile full up -d` |
 | `neo4j` | 知识图谱 (Neo4j) | `docker compose --profile neo4j pull && docker compose --profile neo4j up -d` |
-| `minio` | 对象存储 (MinIO) | `docker compose --profile minio pull && docker compose --profile minio up -d` |
 | `langfuse` | 链路追踪 (Langfuse) | `docker compose --profile langfuse pull && docker compose --profile langfuse up -d` |
-
-组合示例：`docker compose --profile neo4j --profile minio pull && docker compose --profile neo4j --profile minio up -d`
 
 停止服务：`docker compose down`
 

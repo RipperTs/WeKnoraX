@@ -252,13 +252,10 @@ Add `--profile` flags to enable additional components. Multiple profiles can be 
 
 | Profile | Description | Command |
 |---------|-------------|---------|
-| _(default)_ | Core services | `docker compose pull && docker compose up -d` |
+| _(default)_ | Core services (including MinIO) | `docker compose pull && docker compose up -d` |
 | `full` | All features | `docker compose --profile full pull && docker compose --profile full up -d` |
 | `neo4j` | Knowledge Graph (Neo4j) | `docker compose --profile neo4j pull && docker compose --profile neo4j up -d` |
-| `minio` | Object Storage (MinIO) | `docker compose --profile minio pull && docker compose --profile minio up -d` |
 | `langfuse` | Tracing (Langfuse) | `docker compose --profile langfuse pull && docker compose --profile langfuse up -d` |
-
-Combine profiles: `docker compose --profile neo4j --profile minio pull && docker compose --profile neo4j --profile minio up -d`
 
 Stop services: `docker compose down`
 

@@ -581,9 +581,6 @@ services:
       retries: 3
     networks:
       - WeKnora-network
-    profiles:
-      - minio
-      - full
 
   neo4j:
     image: neo4j:2025.10.1
