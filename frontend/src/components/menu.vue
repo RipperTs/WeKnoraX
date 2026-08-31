@@ -3,7 +3,10 @@
         <!-- 展开时：Logo + 搜索/折叠按钮同行 -->
         <div class="logo_row" v-if="!uiStore.sidebarCollapsed">
             <div class="logo_box" @click="router.push('/platform/knowledge-bases')" style="cursor: pointer;">
-                <img class="logo" src="@/assets/img/weknora.png" alt="">
+                <span class="logo_icon" aria-hidden="true">
+                    <t-icon name="folder-open" size="18px" />
+                </span>
+                <span class="logo_text">企业知识库</span>
                 <sup v-if="isLiteEdition" class="lite-badge">Lite</sup>
             </div>
             <div class="logo_actions">
@@ -1272,9 +1275,29 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         min-width: 0;
         overflow: hidden;
 
-        .logo {
-            width: 128px;
-            height: auto;
+        .logo_icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            margin-right: 8px;
+            border-radius: 8px;
+            background: var(--td-success-color-light);
+            color: var(--td-brand-color);
+            flex-shrink: 0;
+        }
+
+        .logo_text {
+            overflow: hidden;
+            color: var(--td-text-color-primary);
+            font-family: var(--app-font-family);
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 28px;
+            letter-spacing: 0.04em;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .lite-badge {
@@ -1889,11 +1912,6 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
 }
 </style>
 <style lang="less">
-// Dark mode: invert dark logo to light
-html[theme-mode="dark"] .aside_box .logo_box .logo {
-    filter: invert(1) hue-rotate(180deg);
-}
-
 // Dark mode: 滚动条在深色背景下需要更亮的颜色才看得见
 html[theme-mode="dark"] .aside_box .menu_top:hover {
     scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
