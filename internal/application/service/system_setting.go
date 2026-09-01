@@ -539,7 +539,10 @@ func (s *systemSettingService) GetSiteLogoAsset(ctx context.Context) *SiteLogoAs
 	ready := s.logoReady
 	asset := s.siteLogoAsset
 	s.logoMu.RUnlock()
-	if ready {
+	// An empty asset is only final after the settings preload succeeds. If the
+	// preload failed, resolveRaw intentionally keeps using per-request DB reads,
+	// so a temporary startup outage must not permanently cache "no Logo".
+	if ready && (asset != nil || s.loaded.Load()) {
 		return asset
 	}
 
@@ -552,7 +555,7 @@ func (s *systemSettingService) GetSiteLogoAsset(ctx context.Context) *SiteLogoAs
 	ready = s.logoReady
 	asset = s.siteLogoAsset
 	s.logoMu.RUnlock()
-	if ready {
+	if ready && (asset != nil || s.loaded.Load()) {
 		return asset
 	}
 
