@@ -2620,6 +2620,14 @@ export default {
       badgeOverrideTooltip: '该值已由管理员保存到数据库，覆盖了环境变量与默认值',
       modifiedAt: '上次修改：{value}',
       tagInputPlaceholder: '回车添加条目，例：example.com / *.foo.com / 10.0.0.0/8',
+      branding: {
+        titlePlaceholder: '未设置时显示“企业知识库”',
+        uploadLogo: '上传 Logo',
+        changeLogo: '更换 Logo',
+        invalidLogoType: '仅支持 PNG、JPG 和 WebP 图片',
+        logoTooLarge: 'Logo 图片不能超过 1MB',
+        logoReadFailed: '读取 Logo 图片失败'
+      },
       audit: {
         tabLabel: '审计日志',
         description: '记录平台级操作：系统设置变更、系统管理员授予/回收、配额批量同步等。按时间倒序展示。',
@@ -2786,6 +2794,10 @@ export default {
         }
       },
       keyDescriptions: {
+        branding: {
+          site_title: '左侧边栏顶部显示的网站标题，最多 40 个字符。留空时显示默认标题“企业知识库”，修改后立即生效。',
+          site_logo_data_url: '左侧边栏顶部显示的网站 Logo。支持 PNG、JPG 和 WebP，最大 1MB；留空时显示默认文件夹图标。'
+        },
         model: {
           max_concurrency: '后台任务（文档入库/富化）对单个模型的默认并发上限，按模型 ID 全副本共享。每次调用实时读取，修改后立即生效、无需重启。0 或负数表示关闭默认限制（各模型仍会尊重自身在模型管理里配置的上限）。仅影响后台任务，不影响交互式对话。'
         },
@@ -2812,6 +2824,10 @@ export default {
         }
       },
       keyLabels: {
+        branding: {
+          site_title: '网站标题',
+          site_logo_data_url: '网站 Logo'
+        },
         model: {
           max_concurrency: '模型默认并发上限'
         },
@@ -3052,7 +3068,7 @@ export default {
         other: {
           tab: '其他 {count}',
           title: '其他配置',
-          description: '当前部署中未归入标准分组的配置项。'
+          description: '设置平台品牌展示，并保留当前部署中未归入标准分组的配置项。'
         },
         security: {
           tab: '网络安全 {count}',

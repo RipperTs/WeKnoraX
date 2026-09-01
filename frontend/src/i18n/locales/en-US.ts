@@ -3374,6 +3374,14 @@ export default {
       badgeOverrideTooltip: 'This value has been saved to the database by an administrator, overriding the environment variable and built-in default.',
       modifiedAt: 'Last modified: {value}',
       tagInputPlaceholder: 'Press Enter to add an entry, e.g. example.com / *.foo.com / 10.0.0.0/8',
+      branding: {
+        titlePlaceholder: 'Defaults to “企业知识库” when empty',
+        uploadLogo: 'Upload Logo',
+        changeLogo: 'Change Logo',
+        invalidLogoType: 'Only PNG, JPG, and WebP images are supported',
+        logoTooLarge: 'The Logo image must not exceed 1 MB',
+        logoReadFailed: 'Failed to read the Logo image'
+      },
       priorityHint: {
         disclosure: 'Configuration source and priority',
         tier1: 'Items saved on this page (marked "Overridden") always win — the environment variable is ignored for them.',
@@ -3405,7 +3413,7 @@ export default {
         other: {
           tab: 'Other {count}',
           title: 'Other settings',
-          description: 'Settings in this deployment that are not part of a standard product group.'
+          description: 'Configure platform branding and review deployment settings outside the standard product groups.'
         }
       },
       runtimeTable: {
@@ -3620,6 +3628,10 @@ export default {
         }
       },
       keyLabels: {
+        branding: {
+          site_title: 'Site title',
+          site_logo_data_url: 'Site Logo'
+        },
         auth: {
           registration_mode: 'Self-service registration mode',
           default_tenant_mode: 'Default workspace provisioning'
@@ -3646,6 +3658,10 @@ export default {
         }
       },
       keyDescriptions: {
+        branding: {
+          site_title: 'Site title shown at the top of the left sidebar, up to 40 characters. When empty, the built-in “企业知识库” title is used. Takes effect immediately.',
+          site_logo_data_url: 'Site Logo shown at the top of the left sidebar. Supports PNG, JPG, and WebP up to 1 MB; when empty, the built-in folder icon is used.'
+        },
         auth: {
           registration_mode: 'Self-service registration mode. self_serve = anyone can register an account; invite_only = public registration is disabled and only Owners/Admins can invite. Takes effect immediately after saving, but use self_serve with care (the public internet will send spam sign-ups).',
           default_tenant_mode: 'Workspace provisioning after public registration. create_personal creates an Owner workspace; tenantless creates only the account until the user accepts an invitation or creates a workspace. Applies to new users only.'

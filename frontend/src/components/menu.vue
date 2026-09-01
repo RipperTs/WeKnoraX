@@ -3,10 +3,17 @@
         <!-- 展开时：Logo + 搜索/折叠按钮同行 -->
         <div class="logo_row" v-if="!uiStore.sidebarCollapsed">
             <div class="logo_box" @click="router.push('/platform/knowledge-bases')" style="cursor: pointer;">
-                <span class="logo_icon" aria-hidden="true">
-                    <t-icon name="folder-open" size="18px" />
+                <span class="logo_icon" :class="{ 'logo_icon--custom': siteLogoURL }" aria-hidden="true">
+                    <img
+                        v-if="siteLogoURL"
+                        class="site_logo"
+                        :src="siteLogoURL"
+                        alt=""
+                        @error="systemBrandingStore.useDefaultLogo()"
+                    >
+                    <t-icon v-else name="folder-open" size="18px" />
                 </span>
-                <span class="logo_text">企业知识库</span>
+                <span class="logo_text">{{ siteTitle }}</span>
                 <sup v-if="isLiteEdition" class="lite-badge">Lite</sup>
             </div>
             <div class="logo_actions">
@@ -254,11 +261,11 @@ import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { useOrganizationStore } from '@/stores/organization';
 import { useUIStore } from '@/stores/ui';
 import { useCommandPaletteStore } from '@/stores/commandPalette';
+import { useSystemBrandingStore } from '@/stores/systemBranding';
 import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
 import UserMenu from '@/components/UserMenu.vue';
 import TenantSelector from '@/components/TenantSelector.vue';
 import { useI18n } from 'vue-i18n';
-import { getSystemInfo } from '@/api/system';
 
 const chatResources = useChatResourcesStore();
 // Platform logos reused from IMChannelsOverviewPanel — keeps the session list
@@ -294,6 +301,8 @@ const deploymentCapabilities = useDeploymentCapabilitiesStore();
 const orgStore = useOrganizationStore();
 const uiStore = useUIStore();
 const commandPaletteStore = useCommandPaletteStore();
+const systemBrandingStore = useSystemBrandingStore();
+const { siteTitle, siteLogoURL } = storeToRefs(systemBrandingStore);
 
 // Platform-aware label for the ⌘K hint. navigator.platform is deprecated but
 // the alternatives (userAgentData.platform) aren't universally available yet;
@@ -980,12 +989,12 @@ onMounted(async () => {
     window.addEventListener(SESSION_MUTATION_EVENT, handleSessionMutation);
 
     isLiteEdition.value = authStore.isLiteMode
-    getSystemInfo().then(res => {
-        if (res.data?.edition === 'lite') {
+    systemBrandingStore.ensureLoaded().then(info => {
+        if (info?.edition === 'lite') {
             isLiteEdition.value = true
             authStore.setLiteMode(true)
         }
-    }).catch(() => { })
+    })
 
     await loadCurrentKbInfo((route.params as any)?.kbId as string)
 
@@ -1286,6 +1295,17 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
             background: var(--td-brand-color-light);
             color: var(--td-brand-color);
             flex-shrink: 0;
+
+            &.logo_icon--custom {
+                background: transparent;
+            }
+
+            .site_logo {
+                width: 100%;
+                height: 100%;
+                border-radius: 6px;
+                object-fit: contain;
+            }
         }
 
         .logo_text {

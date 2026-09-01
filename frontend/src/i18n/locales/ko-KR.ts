@@ -2618,6 +2618,14 @@ export default {
       badgeOverrideTooltip: '이 값은 관리자가 DB에 저장하여 환경 변수 및 기본값을 덮어썼습니다.',
       modifiedAt: '마지막 수정: {value}',
       tagInputPlaceholder: '엔터로 항목 추가. 예: example.com / *.foo.com / 10.0.0.0/8',
+      branding: {
+        titlePlaceholder: '비워 두면 “企业知识库”로 표시됩니다',
+        uploadLogo: 'Logo 업로드',
+        changeLogo: 'Logo 변경',
+        invalidLogoType: 'PNG, JPG, WebP 이미지만 지원합니다',
+        logoTooLarge: 'Logo 이미지는 1MB를 초과할 수 없습니다',
+        logoReadFailed: 'Logo 이미지를 읽지 못했습니다'
+      },
       audit: {
         tabLabel: '감사 로그',
         description: '플랫폼 수준의 작업을 기록합니다: 시스템 설정 변경, 시스템 관리자 부여/회수, 할당량 일괄 동기화 등. 최신순으로 표시됩니다.',
@@ -2784,6 +2792,10 @@ export default {
         }
       },
       keyDescriptions: {
+        branding: {
+          site_title: '왼쪽 사이드바 상단에 표시되는 사이트 제목입니다. 최대 40자이며, 비워 두면 기본 제목 “企业知识库”를 사용합니다. 저장 즉시 적용됩니다.',
+          site_logo_data_url: '왼쪽 사이드바 상단에 표시되는 사이트 Logo입니다. PNG, JPG, WebP를 지원하며 최대 1MB입니다. 비워 두면 기본 폴더 아이콘을 사용합니다.'
+        },
         model: {
           max_concurrency: '백그라운드 작업(문서 색인/보강)이 단일 모델에 대해 갖는 기본 동시 호출 상한이며, 모델 ID 기준으로 모든 복제본이 공유합니다. 매 호출마다 실시간으로 읽고 재시작 없이 즉시 적용됩니다. 0 또는 음수는 기본 상한을 해제합니다(각 모델은 모델 관리에서 설정한 자체 상한을 계속 준수함). 백그라운드 작업에만 영향을 주며 대화형 채팅에는 영향을 주지 않습니다.'
         },
@@ -2810,6 +2822,10 @@ export default {
         }
       },
       keyLabels: {
+        branding: {
+          site_title: '사이트 제목',
+          site_logo_data_url: '사이트 Logo'
+        },
         model: {
           max_concurrency: '모델 기본 동시 처리 상한'
         },
@@ -3050,7 +3066,7 @@ export default {
         other: {
           tab: '기타 {count}',
           title: '기타 설정',
-          description: '표준 제품 그룹에 포함되지 않은 현재 배포의 설정입니다.'
+          description: '플랫폼 브랜딩과 표준 제품 그룹에 포함되지 않은 배포 설정을 관리합니다.'
         },
         security: {
           tab: '네트워크 보안 {count}',

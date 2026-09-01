@@ -36,6 +36,10 @@ type runtimeKnowledgeCanceller interface {
 	CancelKnowledgeParse(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
 }
 
+type siteLogoAssetProvider interface {
+	GetSiteLogoAsset(ctx context.Context) *service.SiteLogoAsset
+}
+
 // SystemHandler handles system-related requests
 type SystemHandler struct {
 	cfg              *config.Config
@@ -297,6 +301,11 @@ type GetSystemInfoResponse struct {
 	StartedAt string `json:"started_at,omitempty"`
 	// UptimeSeconds is seconds elapsed since process start.
 	UptimeSeconds int64 `json:"uptime_seconds,omitempty"`
+	// SiteTitle and SiteLogoURL are the user-facing brand values shown in
+	// the application sidebar. Empty values instruct the frontend to use
+	// the built-in title and folder icon.
+	SiteTitle   string `json:"site_title,omitempty"`
+	SiteLogoURL string `json:"site_logo_url,omitempty"`
 }
 
 // 编译时注入的版本信息
@@ -355,6 +364,17 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		uptimeSec = int64(runtime.ServerUptime().Seconds())
 	}
 
+	siteTitle := strings.TrimSpace(h.systemSettingSvc.GetString(
+		ctx,
+		service.SystemSettingSiteTitle,
+		"",
+		"",
+	))
+	siteLogoURL := ""
+	if logo := h.getSiteLogoAsset(ctx); logo != nil {
+		siteLogoURL = fmt.Sprintf("/api/v1/system/branding/logo?v=%s", logo.Version)
+	}
+
 	response := GetSystemInfoResponse{
 		Version:             Version,
 		Edition:             Edition,
@@ -369,6 +389,8 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		DBMigrationError:    dbMigrationErr,
 		StartedAt:           startedAt,
 		UptimeSeconds:       uptimeSec,
+		SiteTitle:           siteTitle,
+		SiteLogoURL:         siteLogoURL,
 	}
 
 	logger.Info(ctx, "System info retrieved successfully")
@@ -377,6 +399,36 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		"msg":  "success",
 		"data": response,
 	})
+}
+
+// GetSiteLogo returns the configured application Logo. The response URL
+// includes a content fingerprint from GetSystemInfo, so browsers can cache
+// each saved revision indefinitely while a new upload takes effect at once.
+func (h *SystemHandler) GetSiteLogo(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	logo := h.getSiteLogoAsset(ctx)
+	if logo == nil {
+		c.Header("Cache-Control", "no-store")
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if c.Query("v") != logo.Version {
+		c.Header("Cache-Control", "no-store")
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, logo.MediaType, logo.Content)
+}
+
+func (h *SystemHandler) getSiteLogoAsset(ctx context.Context) *service.SiteLogoAsset {
+	provider, ok := h.systemSettingSvc.(siteLogoAssetProvider)
+	if !ok {
+		return nil
+	}
+	return provider.GetSiteLogoAsset(ctx)
 }
 
 func (h *SystemHandler) getDocReaderConnInfo() (addr, transport string) {
