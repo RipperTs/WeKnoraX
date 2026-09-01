@@ -152,8 +152,13 @@
     <!-- Right Form Section -->
     <div class="form-section">
       <div class="form-panel">
+        <div v-if="isFushunSSOCallback" class="form-card fushun-sso-callback">
+          <t-loading size="medium" />
+          <p>{{ $t('auth.loggingIn') }}</p>
+        </div>
+
         <!-- Login Card -->
-        <div class="form-card" v-if="!isRegisterMode">
+        <div v-else-if="!isRegisterMode" class="form-card">
           <t-tabs v-if="fushunSSOEnabled" v-model="loginMethod" class="login-card-tabs">
             <t-tab-panel value="fushun-sso" :label="$t('auth.quickLogin')" />
             <t-tab-panel value="password" :label="$t('auth.passwordLogin')" />
@@ -394,6 +399,9 @@ const oidcProviderName = ref('')
 const fushunSSOEnabled = ref(false)
 const fushunSSOAuthURL = ref('')
 const fushunSSOStateStorageKey = 'weknora_fushun_sso_state'
+const isFushunSSOCallback = ref(
+  route.query.sso === 'fsxgt' && !!String(route.query.token || '').trim()
+)
 const loginMethod = ref('fushun-sso')
 // registrationEnabled defaults to true so that on first paint the Register
 // link is visible; the actual mode is fetched from /auth/config in onMounted.
@@ -666,7 +674,7 @@ const handleFushunSSOLogin = () => {
   authorizationURL.searchParams.set('systemId', 'login')
   authorizationURL.searchParams.set('mode', 'simple')
   authorizationURL.searchParams.set('redirect', redirectURL.toString())
-  window.location.href = authorizationURL.toString()
+  window.location.replace(authorizationURL.toString())
 }
 
 const handleFushunSSOCallback = async (token: string, state: string) => {
@@ -677,6 +685,7 @@ const handleFushunSSOCallback = async (token: string, state: string) => {
   if (!expectedState || state !== expectedState) {
     MessagePlugin.error(t('auth.loginErrorRetry'))
     fushunSSOLoading.value = false
+    isFushunSSOCallback.value = false
     return
   }
   try {
@@ -700,6 +709,7 @@ const handleFushunSSOCallback = async (token: string, state: string) => {
     MessagePlugin.error(error.message || t('auth.loginErrorRetry'))
   } finally {
     fushunSSOLoading.value = false
+    isFushunSSOCallback.value = false
   }
 }
 
@@ -819,7 +829,9 @@ onMounted(async () => {
   const ssoState = String(route.query.state || '').trim()
   if (route.query.sso === 'fsxgt' && ssoToken) {
     loginMethod.value = 'fushun-sso'
-    await loadFushunSSOConfig()
+    loadOIDCConfig()
+    loadFushunSSOConfig()
+    loadAuthConfig()
     await handleFushunSSOCallback(ssoToken, ssoState)
     return
   }
@@ -1625,6 +1637,20 @@ onMounted(async () => {
     color: var(--td-text-color-secondary);
     font-size: 14px;
     text-align: center;
+  }
+}
+
+.fushun-sso-callback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 64px 40px;
+
+  p {
+    margin: 0;
+    color: var(--td-text-color-secondary);
+    font-size: 14px;
   }
 }
 

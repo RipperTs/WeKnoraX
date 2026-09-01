@@ -196,7 +196,7 @@ export default {
     add: {
       button: '邀请成员',
       dialogTitle: '邀请成员',
-      accountLabel: '用户名或邮箱',
+      accountLabel: '账号',
       accountPlaceholder: '请输入用户名或邮箱',
       roleLabel: '角色'
     },
@@ -4488,7 +4488,7 @@ export default {
     fushunSSOLogin: '抚顺新钢铁 SSO 登录',
     fushunSSODescription: '使用抚顺新钢铁统一身份认证登录',
     username: '用户名',
-    loginAccount: '用户名或邮箱',
+    loginAccount: '账号',
     email: '邮箱',
     password: '密码',
     confirmPassword: '确认密码',
