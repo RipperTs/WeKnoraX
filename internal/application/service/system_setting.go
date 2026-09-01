@@ -29,11 +29,13 @@ import (
 	"github.com/Tencent/WeKnora/internal/utils"
 )
 
-// pubsubChannelBase is the Redis channel base for system_settings change
-// notifications. Mirrors the convention from approval/gate.go: optional
-// suffix WEKNORA_REDIS_NAMESPACE so two deployments sharing one Redis
-// instance don't cross-talk.
-const pubsubChannelBase = "weknora:system_settings:changed"
+// Redis names used by system settings. Mirrors the convention from
+// approval/gate.go: optional suffix WEKNORA_REDIS_NAMESPACE so two
+// deployments sharing one Redis instance don't cross-talk.
+const (
+	pubsubChannelBase      = "weknora:system_settings:changed"
+	siteLogoVersionKeyBase = "weknora:system_settings:branding:site_logo:version"
+)
 
 const (
 	SystemSettingSiteTitle  = "branding.site_title"
@@ -64,6 +66,13 @@ func pubsubChannel() string {
 		return pubsubChannelBase + ":" + ns
 	}
 	return pubsubChannelBase
+}
+
+func siteLogoVersionKey() string {
+	if ns := strings.TrimSpace(os.Getenv("WEKNORA_REDIS_NAMESPACE")); ns != "" {
+		return siteLogoVersionKeyBase + ":" + ns
+	}
+	return siteLogoVersionKeyBase
 }
 
 // changeMessage is the JSON payload published whenever a setting is
@@ -559,7 +568,7 @@ func (s *systemSettingService) GetSiteLogoAsset(ctx context.Context) *SiteLogoAs
 		return asset
 	}
 
-	s.prepareSiteLogoAsset(ctx)
+	s.prepareSiteLogoAsset(ctx, false)
 	s.logoMu.RLock()
 	defer s.logoMu.RUnlock()
 	return s.siteLogoAsset
@@ -577,6 +586,9 @@ func (s *systemSettingService) GetSiteLogoAssetByVersion(ctx context.Context, ve
 	asset := s.GetSiteLogoAsset(ctx)
 	if asset != nil && asset.Version == version {
 		return asset
+	}
+	if !s.isCurrentSiteLogoVersion(ctx, version) {
+		return nil
 	}
 
 	s.logoBuildMu.Lock()
@@ -631,16 +643,56 @@ func (s *systemSettingService) GetSiteLogoAssetByVersion(ctx context.Context, ve
 func (s *systemSettingService) refreshSiteLogoAsset(ctx context.Context) {
 	s.logoBuildMu.Lock()
 	defer s.logoBuildMu.Unlock()
-	s.prepareSiteLogoAsset(ctx)
+	s.prepareSiteLogoAsset(ctx, true)
 }
 
-func (s *systemSettingService) prepareSiteLogoAsset(ctx context.Context) {
+func (s *systemSettingService) prepareSiteLogoAsset(ctx context.Context, syncVersion bool) {
 	dataURL := s.GetString(ctx, SystemSettingSiteLogo, "", "")
 	asset, err := buildSiteLogoAsset(dataURL)
 	if err != nil {
 		logger.Warnf(ctx, "[system_settings] prepare site Logo failed: %v", err)
+		s.storeSiteLogoAsset(nil)
+		return
+	}
+	if syncVersion {
+		s.syncSiteLogoVersion(ctx, asset)
 	}
 	s.storeSiteLogoAsset(asset)
+}
+
+func (s *systemSettingService) syncSiteLogoVersion(ctx context.Context, asset *SiteLogoAsset) {
+	if s.rdb == nil {
+		return
+	}
+	redisCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	var err error
+	if asset == nil {
+		err = s.rdb.Del(redisCtx, siteLogoVersionKey()).Err()
+	} else {
+		err = s.rdb.Set(redisCtx, siteLogoVersionKey(), asset.Version, 0).Err()
+	}
+	if err != nil {
+		logger.Warnf(ctx, "[system_settings] sync site Logo revision: %v", err)
+	}
+}
+
+func (s *systemSettingService) isCurrentSiteLogoVersion(ctx context.Context, version string) bool {
+	if s.rdb == nil {
+		return false
+	}
+	redisCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	current, err := s.rdb.Get(redisCtx, siteLogoVersionKey()).Result()
+	if err != nil {
+		if !errors.Is(err, redis.Nil) {
+			logger.Warnf(ctx, "[system_settings] read current site Logo revision: %v", err)
+		}
+		return false
+	}
+	return current == version
 }
 
 func buildSiteLogoAsset(dataURL string) (*SiteLogoAsset, error) {
