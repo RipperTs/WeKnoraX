@@ -40,6 +40,10 @@ type siteLogoAssetProvider interface {
 	GetSiteLogoAsset(ctx context.Context) *service.SiteLogoAsset
 }
 
+type siteLogoVersionAssetProvider interface {
+	GetSiteLogoAssetByVersion(ctx context.Context, version string) *service.SiteLogoAsset
+}
+
 // SystemHandler handles system-related requests
 type SystemHandler struct {
 	cfg              *config.Config
@@ -403,13 +407,8 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 // each saved revision indefinitely while a new upload takes effect at once.
 func (h *SystemHandler) GetSiteLogo(c *gin.Context) {
 	ctx := logger.CloneContext(c.Request.Context())
-	logo := h.getSiteLogoAsset(ctx)
+	logo := h.getSiteLogoAssetByVersion(ctx, c.Query("v"))
 	if logo == nil {
-		c.Header("Cache-Control", "no-store")
-		c.Status(http.StatusNotFound)
-		return
-	}
-	if c.Query("v") != logo.Version {
 		c.Header("Cache-Control", "no-store")
 		c.Status(http.StatusNotFound)
 		return
@@ -426,6 +425,14 @@ func (h *SystemHandler) getSiteLogoAsset(ctx context.Context) *service.SiteLogoA
 		return nil
 	}
 	return provider.GetSiteLogoAsset(ctx)
+}
+
+func (h *SystemHandler) getSiteLogoAssetByVersion(ctx context.Context, version string) *service.SiteLogoAsset {
+	provider, ok := h.systemSettingSvc.(siteLogoVersionAssetProvider)
+	if !ok {
+		return nil
+	}
+	return provider.GetSiteLogoAssetByVersion(ctx, version)
 }
 
 func (h *SystemHandler) getSiteLogoURL(ctx context.Context) string {

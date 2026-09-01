@@ -565,6 +565,69 @@ func (s *systemSettingService) GetSiteLogoAsset(ctx context.Context) *SiteLogoAs
 	return s.siteLogoAsset
 }
 
+// GetSiteLogoAssetByVersion returns the exact immutable Logo revision named by
+// the public URL. A replica may still hold the previous revision briefly after
+// another replica updates the setting, so a local mismatch is reconciled from
+// the shared database before the request is rejected.
+func (s *systemSettingService) GetSiteLogoAssetByVersion(ctx context.Context, version string) *SiteLogoAsset {
+	if !validSiteLogoVersion(version) {
+		return nil
+	}
+
+	asset := s.GetSiteLogoAsset(ctx)
+	if asset != nil && asset.Version == version {
+		return asset
+	}
+
+	s.logoBuildMu.Lock()
+	defer s.logoBuildMu.Unlock()
+
+	// A concurrent request or Redis invalidation may have refreshed the asset
+	// while this request waited for the build lock.
+	s.logoMu.RLock()
+	asset = s.siteLogoAsset
+	s.logoMu.RUnlock()
+	if asset != nil && asset.Version == version {
+		return asset
+	}
+
+	row, err := s.repo.Get(ctx, SystemSettingSiteLogo)
+	if err != nil {
+		logger.Warnf(ctx, "[system_settings] refresh site Logo revision %q failed: %v", version, err)
+		return nil
+	}
+
+	dataURL := ""
+	if row != nil {
+		if err := json.Unmarshal(row.Value, &dataURL); err != nil {
+			logger.Warnf(ctx, "[system_settings] decode site Logo setting failed: %v", err)
+			return nil
+		}
+	}
+	refreshed, err := buildSiteLogoAsset(dataURL)
+	if err != nil {
+		logger.Warnf(ctx, "[system_settings] prepare site Logo failed: %v", err)
+		return nil
+	}
+
+	// Keep the normal settings cache and the decoded asset aligned with the
+	// authoritative row so subsequent system-info and image requests stay on
+	// the fast path even if Redis delivery is still pending.
+	s.mu.Lock()
+	if row == nil {
+		delete(s.cache, SystemSettingSiteLogo)
+	} else {
+		s.cache[SystemSettingSiteLogo] = row
+	}
+	s.mu.Unlock()
+	s.storeSiteLogoAsset(refreshed)
+
+	if refreshed != nil && refreshed.Version == version {
+		return refreshed
+	}
+	return nil
+}
+
 func (s *systemSettingService) refreshSiteLogoAsset(ctx context.Context) {
 	s.logoBuildMu.Lock()
 	defer s.logoBuildMu.Unlock()
@@ -573,23 +636,46 @@ func (s *systemSettingService) refreshSiteLogoAsset(ctx context.Context) {
 
 func (s *systemSettingService) prepareSiteLogoAsset(ctx context.Context) {
 	dataURL := s.GetString(ctx, SystemSettingSiteLogo, "", "")
-	mediaType, content, err := DecodeSiteLogoDataURL(dataURL)
-	var asset *SiteLogoAsset
+	asset, err := buildSiteLogoAsset(dataURL)
 	if err != nil {
 		logger.Warnf(ctx, "[system_settings] prepare site Logo failed: %v", err)
-	} else if len(content) > 0 {
-		fingerprint := sha256.Sum256(content)
-		asset = &SiteLogoAsset{
-			MediaType: mediaType,
-			Content:   content,
-			Version:   fmt.Sprintf("%x", fingerprint[:8]),
-		}
 	}
+	s.storeSiteLogoAsset(asset)
+}
 
+func buildSiteLogoAsset(dataURL string) (*SiteLogoAsset, error) {
+	mediaType, content, err := DecodeSiteLogoDataURL(dataURL)
+	if err != nil {
+		return nil, err
+	}
+	if len(content) == 0 {
+		return nil, nil
+	}
+	fingerprint := sha256.Sum256(content)
+	return &SiteLogoAsset{
+		MediaType: mediaType,
+		Content:   content,
+		Version:   fmt.Sprintf("%x", fingerprint[:8]),
+	}, nil
+}
+
+func (s *systemSettingService) storeSiteLogoAsset(asset *SiteLogoAsset) {
 	s.logoMu.Lock()
 	s.siteLogoAsset = asset
 	s.logoReady = true
 	s.logoMu.Unlock()
+}
+
+func validSiteLogoVersion(version string) bool {
+	if len(version) != 16 {
+		return false
+	}
+	for i := 0; i < len(version); i++ {
+		if (version[i] < '0' || version[i] > '9') && (version[i] < 'a' || version[i] > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // applySSRFWhitelist resolves the active ssrf.whitelist via the 3-tier
