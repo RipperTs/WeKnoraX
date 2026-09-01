@@ -654,7 +654,8 @@ const handleFushunSSOLogin = () => {
   }
 
   fushunSSOLoading.value = true
-  const state = crypto.randomUUID()
+  const stateBytes = crypto.getRandomValues(new Uint8Array(16))
+  const state = Array.from(stateBytes, byte => byte.toString(16).padStart(2, '0')).join('')
   sessionStorage.setItem(fushunSSOStateStorageKey, state)
   const redirectURL = new URL(window.location.href)
   redirectURL.search = ''
