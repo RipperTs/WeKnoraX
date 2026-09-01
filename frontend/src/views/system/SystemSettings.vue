@@ -922,11 +922,11 @@ async function onSiteTitleBlur(item: SystemSettingItem) {
   await onChange(item)
 }
 
-function applyBrandingSetting(key: string, value: unknown) {
+async function applyBrandingSetting(key: string, value: unknown) {
   if (key === SITE_TITLE_KEY) {
     systemBrandingStore.applySiteTitle(value)
   } else if (key === SITE_LOGO_KEY) {
-    systemBrandingStore.applySiteLogo(value)
+    await systemBrandingStore.applySiteLogo(value)
   }
 }
 
@@ -1259,7 +1259,7 @@ async function resetSetting(item: SystemSettingItem) {
   try {
     await resetSystemSetting(item.key)
     await loadSettings()
-    applyBrandingSetting(item.key, '')
+    await applyBrandingSetting(item.key, '')
     markSettingSaved(item)
     MessagePlugin.success(t('system.globalSettings.reset.success'))
   } catch (err: any) {
@@ -1286,7 +1286,7 @@ async function persistSetting(item: SystemSettingItem) {
     editValues[item.key] = Array.isArray(updated.value)
       ? [...(updated.value as unknown[])]
       : updated.value
-    applyBrandingSetting(updated.key, updated.value)
+    await applyBrandingSetting(updated.key, updated.value)
     markSettingSaved(updated)
     MessagePlugin.success(t('system.globalSettings.messages.saveSuccess'))
   } catch (err: any) {
