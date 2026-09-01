@@ -5718,12 +5718,12 @@ definitions:
     type: object
   internal_handler.addMemberRequest:
     properties:
-      email:
+      account:
         type: string
       role:
         $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole'
     required:
-    - email
+    - account
     - role
     type: object
   internal_handler.addSimilarQuestionsRequest:
@@ -5783,14 +5783,14 @@ definitions:
     type: object
   internal_handler.createInvitationRequest:
     properties:
-      email:
+      account:
         type: string
       message:
         type: string
       role:
         $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole'
     required:
-    - email
+    - account
     - role
     type: object
   internal_handler.createInviteLinkRequest:
@@ -14986,7 +14986,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在
+      description: Owner 通过用户名或邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在
         /me/invitations 接受后成为成员。
       parameters:
       - description: 空间 ID

@@ -57,11 +57,10 @@ func NewTenantInvitationHandler(
 }
 
 // createInvitationRequest is the JSON body for POST /tenants/:id/invitations.
-// Email is the user-facing identifier; the handler resolves it to a
-// User row before delegating to the service. The optional Message is
-// surfaced in the invitee's inbox.
+// Account is the registered username or email used to resolve the invitee.
+// The optional Message is surfaced in the invitee's inbox.
 type createInvitationRequest struct {
-	Email   string           `json:"email" binding:"required,email"`
+	Account string           `json:"account" binding:"required"`
 	Role    types.TenantRole `json:"role" binding:"required"`
 	Message string           `json:"message"`
 }
@@ -253,7 +252,7 @@ func (h *TenantInvitationHandler) ListTenantInvitations(c *gin.Context) {
 
 // CreateInvitation godoc
 // @Summary      发出空间邀请
-// @Description  Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。
+// @Description  Owner 通过用户名或邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。
 // @Tags         空间邀请
 // @Accept       json
 // @Produce      json
@@ -279,15 +278,20 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.GetUserByEmail(ctx, strings.TrimSpace(req.Email))
+	account := strings.TrimSpace(req.Account)
+	if account == "" {
+		c.Error(apperrors.NewValidationError("account is required"))
+		return
+	}
+	user, err := lookupUserByAccount(ctx, h.userService, account)
 	if err != nil {
 		if errors.Is(err, apprepo.ErrUserNotFound) {
 			c.Error(apperrors.NewNotFoundError(
-				"user with this email is not registered; ask them to sign up first"))
+				"user with this username or email is not registered"))
 			return
 		}
-		logger.Errorf(ctx, "GetUserByEmail failed: email=%s err=%v",
-			secutils.SanitizeForLog(req.Email), err)
+		logger.Errorf(ctx, "lookupUserByAccount failed: account=%s err=%v",
+			secutils.SanitizeForLog(account), err)
 		c.Error(apperrors.NewInternalServerError("failed to look up user").WithDetails(err.Error()))
 		return
 	}

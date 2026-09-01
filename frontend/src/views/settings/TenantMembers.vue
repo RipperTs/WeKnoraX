@@ -205,8 +205,8 @@
                   </div>
                   <t-form v-if="addDialogStep === 'form'" ref="addFormRef" :data="addForm" :rules="addFormRules"
                     :label-width="80" class="member-invite-form">
-                    <t-form-item :label="$t('tenantMember.add.emailLabel')" name="email">
-                      <t-input v-model="addForm.email" :placeholder="$t('tenantMember.add.emailPlaceholder')"
+                    <t-form-item :label="$t('tenantMember.add.accountLabel')" name="account">
+                      <t-input v-model="addForm.account" :placeholder="$t('tenantMember.add.accountPlaceholder')"
                         clearable />
                     </t-form-item>
                     <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
@@ -215,7 +215,7 @@
                   </t-form>
                   <div v-else class="invite-confirm-body">
                     {{ $t('tenantInvitation.confirmInviteBody', {
-                      email: addConfirmEmail,
+                      account: addConfirmAccount,
                       role: addConfirmRoleLabel,
                     }) }}
                   </div>
@@ -234,9 +234,9 @@
                 </div>
               </template>
             </t-popup>
-            <!-- Share-link generator. Sits next to the invite-by-email
+            <!-- Share-link generator. Sits next to the targeted-invite
                  popup so the two flows live side-by-side: "I know who"
-                 (email input) vs "I don't" (one link, group chat). -->
+                 (account input) vs "I don't" (one link, group chat). -->
             <t-popup v-if="canManage" v-model="shareLinkPopupVisible" trigger="click" placement="bottom-end"
               destroy-on-close overlay-class-name="member-invite-popup-overlay">
               <t-button theme="default" variant="outline" shape="square" size="small" class="members-list-add-btn"
@@ -550,14 +550,14 @@ const error = ref('')
 const adding = ref(false)
 /** 邀请流程：锚在列表头「+」按钮旁的弹出层（非居中模态）。 */
 const invitePopupVisible = ref(false)
-// share-link generator state (separate popup next to the email
+// share-link generator state (separate popup next to the targeted
 // invite). shareLinkResult is non-null after a successful create —
 // the popup then switches into "here's your link, copy it" mode.
 const shareLinkPopupVisible = ref(false)
 const shareLinkForm = reactive<{ role: TenantRole }>({ role: 'contributor' })
 const creatingShareLink = ref(false)
 const shareLinkResult = ref<TenantInvitation | null>(null)
-// Two-step invite inside the popup: 'form' renders the email/role inputs;
+// Two-step invite inside the popup: 'form' renders the account/role inputs;
 // 'confirm' swaps the body for an in-place summary; primary CTA toggles label.
 const addDialogStep = ref<'form' | 'confirm'>('form')
 const addFormRef = ref<any>(null)
@@ -623,8 +623,8 @@ let auditScrollObserver: IntersectionObserver | null = null
 // inviting a fresh member with viewer is too restrictive for the
 // expected "let them collaborate on KBs" use case, and admin/owner
 // should be a deliberate promote step after the user accepts.
-const addForm = reactive<{ email: string; role: TenantRole }>({
-  email: '',
+const addForm = reactive<{ account: string; role: TenantRole }>({
+  account: '',
   role: 'contributor',
 })
 
@@ -738,10 +738,7 @@ function memberSecondary(row: { username?: string; email?: string }) {
 }
 
 const addFormRules = {
-  email: [
-    { required: true, message: t('tenantMember.errors.emailRequired'), trigger: 'blur' },
-    { email: true, message: t('tenantMember.errors.emailFormat'), trigger: 'blur' },
-  ],
+  account: [{ required: true, message: t('tenantMember.errors.accountRequired'), trigger: 'blur' }],
   role: [{ required: true, message: t('tenantMember.errors.roleRequired'), trigger: 'change' }],
 }
 
@@ -1232,7 +1229,7 @@ onUnmounted(() => detachAuditInfiniteScroll())
 
 watch(invitePopupVisible, (open) => {
   if (!open) return
-  addForm.email = ''
+  addForm.account = ''
   addForm.role = 'contributor'
   addDialogStep.value = 'form'
 })
@@ -1281,7 +1278,7 @@ async function submitShareLink() {
 // Live display strings for the in-place confirm step. Recomputed
 // every time the user goes Back, tweaks the form, and re-advances —
 // the summary always mirrors the current form state.
-const addConfirmEmail = computed(() => addForm.email.trim())
+const addConfirmAccount = computed(() => addForm.account.trim())
 const addConfirmRoleLabel = computed(() => t('tenantMember.role.' + addForm.role))
 
 // submitAdd is wired to the popup footer primary CTA. On step='form' it
@@ -1293,13 +1290,13 @@ async function submitAdd() {
     const valid = await addFormRef.value?.validate?.()
     if (valid !== true) return
     if (authStore.autoAcceptInvitation) {
-      await sendInvitation(addForm.email.trim(), addForm.role)
+      await sendInvitation(addForm.account.trim(), addForm.role)
       return
     }
     addDialogStep.value = 'confirm'
     return
   }
-  await sendInvitation(addForm.email.trim(), addForm.role)
+  await sendInvitation(addForm.account.trim(), addForm.role)
 }
 
 // goBackToForm un-advances from confirm to form inside the popup.
@@ -1316,10 +1313,10 @@ const dialogConfirmLabel = computed(() =>
 )
 
 // sendInvitation actually fires the create-invitation API call.
-async function sendInvitation(email: string, role: TenantRole) {
+async function sendInvitation(account: string, role: TenantRole) {
   adding.value = true
   try {
-    const resp = await createInvitation(activeTenantId.value, { email, role })
+    const resp = await createInvitation(activeTenantId.value, { account, role })
     if (resp.success) {
       // auto-accept returns a member (user_id) instead of an invitation (id)
       const autoJoined = !!resp.data && 'user_id' in resp.data

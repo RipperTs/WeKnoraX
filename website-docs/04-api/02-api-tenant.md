@@ -231,14 +231,14 @@ curl $BASE/api/v1/tenants/1/members -H "Authorization: Bearer $TOKEN"
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `email` | string | 是（`binding:"required,email"`） | 成员邮箱（须已注册） |
+| `account` | string | 是（`binding:"required"`） | 成员用户名或邮箱（须已注册） |
 | `role` | string | 是（`binding:"required"`） | `owner/admin/contributor/viewer` |
 
 响应：201 `{"success":true,"data":{成员对象}}`
 
 ```bash
 curl -X POST $BASE/api/v1/tenants/1/members -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"email":"b@ex.com","role":"contributor"}'
+  -H 'Content-Type: application/json' -d '{"account":"bob","role":"contributor"}'
 ```
 
 ### PUT /api/v1/tenants/:id/members/:user_id
@@ -297,7 +297,7 @@ curl $BASE/api/v1/tenants/1/invitations -H "Authorization: Bearer $TOKEN"
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `email` | string | 是（`binding:"required,email"`） | 被邀请邮箱 |
+| `account` | string | 是（`binding:"required"`） | 被邀请人的用户名或邮箱 |
 | `role` | string | 是（`binding:"required"`） | 授予角色 |
 | `message` | string | 否 | 附言 |
 
@@ -305,7 +305,7 @@ curl $BASE/api/v1/tenants/1/invitations -H "Authorization: Bearer $TOKEN"
 
 ```bash
 curl -X POST $BASE/api/v1/tenants/1/invitations -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"email":"c@ex.com","role":"viewer"}'
+  -H 'Content-Type: application/json' -d '{"account":"carol@example.com","role":"viewer"}'
 ```
 
 ### DELETE /api/v1/tenants/:id/invitations/:inv_id

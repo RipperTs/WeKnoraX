@@ -71,7 +71,7 @@ function buildTenantInvitationsQuery(options: ListTenantInvitationsParams): stri
 }
 
 export interface CreateInvitationRequest {
-  email: string
+  account: string
   role: TenantRole
   message?: string
 }
@@ -144,7 +144,7 @@ export async function listTenantInvitations(
  * and must accept before they actually become a member.
  * Backend: POST /api/v1/tenants/:id/invitations (Owner+).
  *
- * 404 when the email is not a registered user (ask them to register).
+ * 404 when the username or email does not identify a registered user.
  * 409 when an existing pending invitation already covers this pair, or
  * when the invitee is already an active member.
  */

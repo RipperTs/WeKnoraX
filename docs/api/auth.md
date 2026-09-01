@@ -40,7 +40,7 @@ WeKnora 的 `/auth/*` 端点本身**不需要 X-API-Key**，但部分端点需�
 
 | 字段     | 类型   | 必填 | 校验                       | 说明      |
 | -------- | ------ | ---- | -------------------------- | --------- |
-| username | string | 是   | 长度 2-50                   | 用户名    |
+| username | string | 是   | 长度 2-50，不能包含 `@`     | 用户名    |
 | email    | string | 是   | 邮箱格式                   | 邮箱      |
 | password | string | 是   | 最少 6 位                   | 密码      |
 
@@ -330,7 +330,7 @@ curl --location 'http://localhost:8080/api/v1/auth/me' \
 | 字段 | 说明 |
 | ---- | ---- |
 | `can_create_tenant` | 当前用户是否可自助创建空间 |
-| `auto_accept_invitation` | 全局 `tenant.auto_accept_invitation`：邮箱邀请已注册用户时是否直接加入（无需收件箱确认） |
+| `auto_accept_invitation` | 全局 `tenant.auto_accept_invitation`：通过用户名或邮箱邀请已注册用户时是否直接加入（无需收件箱确认） |
 
 ---
 

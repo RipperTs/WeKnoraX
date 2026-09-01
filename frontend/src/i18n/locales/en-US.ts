@@ -1929,7 +1929,7 @@ export default {
       inviteOnlyDescription: 'Personal workspace creation is disabled. View and accept an invitation from a workspace administrator.',
       inviteOnlyNotice: 'This account can only join an existing workspace by invitation',
       help: 'You can create a workspace now or return later to accept an invitation.',
-      inviteOnlyHelp: 'No invitation yet? Send your registered email address to a workspace administrator and ask them to invite you.'
+      inviteOnlyHelp: 'No invitation yet? Send your username or registered email address to a workspace administrator and ask them to invite you.'
     }
   },
   authStore: {
@@ -6217,8 +6217,8 @@ export default {
     add: {
       button: 'Add Member',
       dialogTitle: 'Invite Member',
-      emailLabel: 'Email',
-      emailPlaceholder: 'invitee{\'@\'}example.com',
+      accountLabel: 'Username or email',
+      accountPlaceholder: 'Enter a username or email',
       roleLabel: 'Role'
     },
     remove: {
@@ -6237,10 +6237,9 @@ export default {
       success: 'Role updated'
     },
     errors: {
-      emailRequired: 'Email is required',
-      emailFormat: 'Invalid email address',
+      accountRequired: 'Username or email is required',
       roleRequired: 'Role is required',
-      userNotFound: 'No registered user with this email. Ask them to sign up first.',
+      userNotFound: 'No registered user matches this username or email.',
       lastOwner: 'Cannot demote, remove, or leave as the last Owner. Promote another member to Owner first.',
       notFound: 'Membership not found.',
       invalidRole: 'Role must be one of owner / admin / contributor / viewer.',
@@ -6296,7 +6295,7 @@ export default {
     inviteSubmit: 'Send invitation',
     inviteSuccess: 'Invitation sent. Waiting for the invitee to accept.',
     confirmInviteTitle: 'Send invitation?',
-    confirmInviteBody: 'Send an invitation to {email} (role: {role}). They will join the workspace only after accepting.',
+    confirmInviteBody: 'Send an invitation to {account} (role: {role}). They will join the workspace only after accepting.',
     confirmSend: 'Send',
     copyLink: 'Copy invite link',
     copied: 'Copied to clipboard',

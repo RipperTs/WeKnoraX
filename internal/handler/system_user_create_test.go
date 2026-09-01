@@ -288,7 +288,7 @@ func TestCreateSystemUserMapsInternalErrorTo500(t *testing.T) {
 	}
 }
 
-func TestCreateSystemUserRejectsMissingFields(t *testing.T) {
+func TestCreateSystemUserRejectsInvalidUsernameOrMissingFields(t *testing.T) {
 	h := &SystemHandler{}
 	r := createSystemUserRouter(h, "admin-user")
 
@@ -298,6 +298,7 @@ func TestCreateSystemUserRejectsMissingFields(t *testing.T) {
 		{"username": "", "email": "alice@example.com"},
 		{"username": "alice", "email": ""},
 		{"username": "   ", "email": "alice@example.com"},
+		{"username": "alice@example.com", "email": "alice@example.com"},
 		// Binding's min=2 ran on the raw JSON; the trimmed value "a" (1
 		// rune) must be rejected by the post-trim re-check.
 		{"username": "  a  ", "email": "alice@example.com"},

@@ -195,7 +195,7 @@ type OIDCUserInfo struct {
 
 // RegisterRequest represents a registration request
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=2,max=50"`
+	Username string `json:"username" binding:"required,min=2,max=50,excludes=@"`
 	Email    string `json:"email"    binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
 	Name     string `json:"-"`
@@ -214,7 +214,7 @@ type RegisterRequest struct {
 // random one and returns it exactly once. Any provided value, the
 // empty string included, is subject to the password policy.
 type AdminCreateUserRequest struct {
-	Username string  `json:"username" binding:"required,min=2,max=50"`
+	Username string  `json:"username" binding:"required,min=2,max=50,excludes=@"`
 	Email    string  `json:"email"    binding:"required,email"`
 	Password *string `json:"password"`
 }

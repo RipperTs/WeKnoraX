@@ -40,6 +40,10 @@ var (
 	// username already exists.
 	ErrUserUsernameExists = errors.New("user with this username already exists")
 
+	// ErrUsernameContainsAt is returned when a registration request uses "@"
+	// in the username. Account lookup reserves "@" for email identifiers.
+	ErrUsernameContainsAt = errors.New("username must not contain @")
+
 	// ErrUserIdentityConflict is returned by AdminCreateUser when only part
 	// of the requested identity (email or username) collides with an existing
 	// user, so a blind idempotent retry would return the wrong account.
@@ -144,6 +148,9 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	// Validate input
 	if req.Username == "" || req.Email == "" || req.Password == "" {
 		return nil, errors.New("username, email and password are required")
+	}
+	if strings.Contains(req.Username, "@") {
+		return nil, ErrUsernameContainsAt
 	}
 
 	// Check if user already exists

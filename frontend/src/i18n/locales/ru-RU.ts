@@ -57,7 +57,7 @@ export default {
     inviteSubmit: 'Send invitation',
     inviteSuccess: 'Invitation sent. Waiting for the invitee to accept.',
     confirmInviteTitle: 'Send invitation?',
-    confirmInviteBody: 'Send an invitation to {email} (role: {role}). They will join the workspace only after accepting.',
+    confirmInviteBody: 'Send an invitation to {account} (role: {role}). They will join the workspace only after accepting.',
     confirmSend: 'Send',
     copyLink: 'Copy invite link',
     copied: 'Copied to clipboard',
@@ -170,10 +170,9 @@ export default {
       }
     },
     errors: {
-      emailRequired: 'Укажите email',
-      emailFormat: 'Неверный формат email',
+      accountRequired: 'Введите имя пользователя или email',
       roleRequired: 'Выберите роль',
-      userNotFound: 'Пользователь с таким email не зарегистрирован. Попросите его зарегистрироваться.',
+      userNotFound: 'Нет зарегистрированного пользователя с таким именем или email.',
       lastOwner: 'Нельзя понизить, удалить или покинуть как последний Владелец. Сначала повысьте кого-то ещё до Владельца.',
       notFound: 'Участник не найден.',
       invalidRole: 'Роль должна быть owner / admin / contributor / viewer.',
@@ -197,8 +196,8 @@ export default {
     add: {
       button: 'Пригласить',
       dialogTitle: 'Пригласить участника',
-      emailLabel: 'Email',
-      emailPlaceholder: 'invitee{\'@\'}example.com',
+      accountLabel: 'Имя пользователя или email',
+      accountPlaceholder: 'Введите имя пользователя или email',
       roleLabel: 'Роль'
     },
     role: {
@@ -4539,7 +4538,7 @@ export default {
       inviteOnlyDescription: 'Создание личных пространств отключено. Просмотрите и примите приглашение администратора.',
       inviteOnlyNotice: 'Этот аккаунт может присоединиться к существующему пространству только по приглашению',
       help: 'Вы можете создать рабочее пространство сейчас или вернуться позже, чтобы принять приглашение.',
-      inviteOnlyHelp: 'Нет приглашения? Сообщите администратору пространства свой регистрационный адрес электронной почты.'
+      inviteOnlyHelp: 'Нет приглашения? Сообщите администратору пространства своё имя пользователя или регистрационный email.'
     }
   },
   inviteRegister: {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -56,10 +57,24 @@ func (s *provisioningMemberService) ListByUser(context.Context, string) ([]*type
 	return s.members, nil
 }
 
-func TestUserServiceRegisterTenantlessSkipsTenantCreation(t *testing.T) {
+func TestUserServiceRegisterValidatesUsernameAndTenantlessProvisioning(t *testing.T) {
 	repo := &provisioningUserRepo{}
 	tenantSvc := &provisioningTenantService{}
 	svc := &userService{userRepo: repo, tenantService: tenantSvc}
+
+	_, err := svc.Register(context.Background(), &types.RegisterRequest{
+		Username:           "alice@example.com",
+		Email:              "alice@example.com",
+		Password:           "supersecret",
+		TenantProvisioning: types.TenantProvisioningTenantless,
+	})
+	if !errors.Is(err, ErrUsernameContainsAt) {
+		t.Fatalf("Register username containing @ error = %v, want %v", err, ErrUsernameContainsAt)
+	}
+	if repo.created != nil || tenantSvc.createCalls != 0 {
+		t.Fatalf("invalid username reached persistence: created=%v tenant_calls=%d",
+			repo.created, tenantSvc.createCalls)
+	}
 
 	user, err := svc.Register(context.Background(), &types.RegisterRequest{
 		Username:           "alice",

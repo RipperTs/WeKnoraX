@@ -14098,7 +14098,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。",
+                "description": "Owner 通过用户名或邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22833,11 +22833,11 @@ const docTemplate = `{
         "internal_handler.addMemberRequest": {
             "type": "object",
             "required": [
-                "email",
+                "account",
                 "role"
             ],
             "properties": {
-                "email": {
+                "account": {
                     "type": "string"
                 },
                 "role": {
@@ -22932,11 +22932,11 @@ const docTemplate = `{
         "internal_handler.createInvitationRequest": {
             "type": "object",
             "required": [
-                "email",
+                "account",
                 "role"
             ],
             "properties": {
-                "email": {
+                "account": {
                     "type": "string"
                 },
                 "message": {

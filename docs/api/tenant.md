@@ -637,9 +637,9 @@ curl --location --request PUT 'http://localhost:8080/api/v1/tenants/kv/agent-con
 - `storage-engine-config`: `default_provider` 必须在 `STORAGE_ALLOW_LIST` 允许的列表内。
 - `chat-history-config`: 启用且设置了 `embedding_model_id` 而尚未关联知识库时，会自动创建一个隐藏知识库并将其 ID 写入配置。
 
-## 空间邀请（邮箱邀请已注册用户）
+## 空间邀请（邀请已注册用户）
 
-`POST /tenants/:id/invitations` 通过邮箱邀请**已注册**用户。全局开关 `tenant.auto_accept_invitation`（环境变量 `WEKNORA_TENANT_AUTO_ACCEPT_INVITATION`，默认 `false`）控制行为：
+`POST /tenants/:id/invitations` 通过用户名或邮箱邀请**已注册**用户，请求字段为 `account`。全局开关 `tenant.auto_accept_invitation`（环境变量 `WEKNORA_TENANT_AUTO_ACCEPT_INVITATION`，默认 `false`）控制行为：
 
 | 开关 | 行为 | 成功响应 `data` 形状 |
 | ---- | ---- | -------------------- |

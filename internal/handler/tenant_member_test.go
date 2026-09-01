@@ -84,13 +84,13 @@ func (s *stubMemberService) RemoveMember(ctx context.Context, userID string, ten
 	return s.remove(ctx, userID, tenantID)
 }
 
-// stubMemberUserService satisfies just the two UserService methods the
-// handler reaches: GetUserByEmail (AddMember translation) and
-// GetUserByID (ListMembers hydration).
+// stubMemberUserService satisfies the UserService methods used for account
+// lookup (AddMember translation) and member-list hydration.
 type stubMemberUserService struct {
 	interfaces.UserService
-	getByEmail func(ctx context.Context, email string) (*types.User, error)
-	getByID    func(ctx context.Context, id string) (*types.User, error)
+	getByEmail    func(ctx context.Context, email string) (*types.User, error)
+	getByUsername func(ctx context.Context, username string) (*types.User, error)
+	getByID       func(ctx context.Context, id string) (*types.User, error)
 	// getByIDs lets tests override the batched lookup; when unset the
 	// stub falls back to fanning out to getByID so existing tests stay
 	// green without changes.
@@ -99,6 +99,10 @@ type stubMemberUserService struct {
 
 func (s *stubMemberUserService) GetUserByEmail(ctx context.Context, email string) (*types.User, error) {
 	return s.getByEmail(ctx, email)
+}
+
+func (s *stubMemberUserService) GetUserByUsername(ctx context.Context, username string) (*types.User, error) {
+	return s.getByUsername(ctx, username)
 }
 
 func (s *stubMemberUserService) GetUserByID(ctx context.Context, id string) (*types.User, error) {
@@ -318,23 +322,22 @@ func TestTenantMember_AddMember_HappyPath(t *testing.T) {
 		},
 	}
 	us := &stubMemberUserService{
-		getByEmail: func(_ context.Context, email string) (*types.User, error) {
-			return &types.User{ID: "u-bob", Email: email, Username: "bob"}, nil
+		getByUsername: func(_ context.Context, username string) (*types.User, error) {
+			return &types.User{ID: "u-bob", Email: "bob@x.com", Username: username}, nil
 		},
 	}
 	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"account": "bob", "role": "contributor"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, caller)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 
-func TestTenantMember_AddMember_UnknownEmailReturns404(t *testing.T) {
-	// PR 3 requires the invitee to already have an account; mapping
-	// ErrUserNotFound to 404 lets the UI prompt "ask them to sign up
-	// first" rather than the generic "something failed".
+func TestTenantMember_AddMember_UnknownAccountReturns404(t *testing.T) {
+	// The target must already have an account; unknown identifiers map to
+	// 404 so the UI can show a specific message instead of a generic error.
 	us := &stubMemberUserService{
 		getByEmail: func(_ context.Context, _ string) (*types.User, error) {
 			return nil, apprepo.ErrUserNotFound
@@ -342,10 +345,10 @@ func TestTenantMember_AddMember_UnknownEmailReturns404(t *testing.T) {
 	}
 	h := newTestMemberHandler(&stubMemberService{}, us)
 
-	body := map[string]any{"email": "ghost@x.com", "role": "viewer"}
+	body := map[string]any{"account": "ghost@x.com", "role": "viewer"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("unknown email must surface as 404, got %d body=%s", w.Code, w.Body.String())
+		t.Fatalf("unknown account must surface as 404, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -362,7 +365,7 @@ func TestTenantMember_AddMember_DuplicateMaps409(t *testing.T) {
 	}
 	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"account": "bob@x.com", "role": "contributor"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
 	if w.Code != http.StatusConflict {
 		t.Fatalf("duplicate must surface as 409, got %d", w.Code)
@@ -380,7 +383,7 @@ func TestTenantMember_AddMember_InvalidRoleRejectedUpfront(t *testing.T) {
 	}
 	h := newTestMemberHandler(&stubMemberService{}, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "wizard"}
+	body := map[string]any{"account": "bob@x.com", "role": "wizard"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("invalid role must 400, got %d", w.Code)
@@ -583,7 +586,7 @@ func TestTenantMember_RejectsCrossTenantURL_Add(t *testing.T) {
 		},
 	}
 	h := newTestMemberHandler(ms, us)
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"account": "bob@x.com", "role": "contributor"}
 	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/5/members", body,
 		memberCtxOpts{callerID: "u1", tenantID: 1})
 	if w.Code != http.StatusForbidden {
@@ -764,7 +767,7 @@ func TestTenantMember_AddMember_SyntheticCallerLeavesInvitedByNull(t *testing.T)
 		},
 	}
 	h := newTestMemberHandler(ms, us)
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"account": "bob@x.com", "role": "contributor"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "system-1")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
