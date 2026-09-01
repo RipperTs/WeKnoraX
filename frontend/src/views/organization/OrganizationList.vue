@@ -8,17 +8,19 @@
           <div class="title-row" style="--wails-draggable: drag">
             <h2 style="--wails-draggable: drag">{{ $t('organization.title') }}</h2>
             <div class="header-actions" style="--wails-draggable: no-drag">
-              <t-tooltip :content="canManageOrg ? $t('organization.joinOrg') : noPermissionTip" placement="bottom">
-                <t-button variant="text" theme="default" size="small" class="header-action-btn"
+              <t-tooltip :content="noPermissionTip" placement="bottom" :disabled="canManageOrg">
+                <t-button variant="outline" theme="default" size="small" class="org-join-btn"
                   style="--wails-draggable: no-drag" :disabled="!canManageOrg" @click="handleJoinOrganization">
                   <template #icon><t-icon name="enter" size="16px" /></template>
+                  {{ $t('organization.joinOrg') }}
                 </t-button>
               </t-tooltip>
-              <t-tooltip :content="canManageOrg ? $t('organization.createOrg') : noPermissionTip" placement="bottom">
-                <t-button variant="text" theme="default" size="small" class="header-action-btn"
+              <t-tooltip :content="noPermissionTip" placement="bottom" :disabled="canManageOrg">
+                <t-button theme="primary" size="small" class="org-create-btn"
                   style="--wails-draggable: no-drag" :disabled="!canManageOrg" @click="handleCreateOrganization">
                   <template #icon><img src="@/assets/img/organization-blue.svg" class="org-create-icon" alt=""
                       aria-hidden="true" /></template>
+                  {{ $t('organization.createOrg') }}
                 </t-button>
               </t-tooltip>
             </div>
@@ -1155,11 +1157,14 @@ onUnmounted(() => {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    width: 100%;
+    min-width: 0;
   }
 
   .title-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
   }
 
@@ -1228,40 +1233,6 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
-}
-
-.header-action-btn {
-  padding: 0 !important;
-  min-width: 28px !important;
-  width: 28px !important;
-  height: 28px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  background: var(--td-bg-color-secondarycontainer) !important;
-  border: 1px solid var(--td-component-stroke) !important;
-  border-radius: 6px !important;
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--td-bg-color-container) 72%, transparent);
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
-
-  &:hover {
-    background: var(--td-bg-color-secondarycontainer) !important;
-    border-color: var(--td-component-stroke) !important;
-    color: var(--td-text-color-primary);
-  }
-
-  :deep(.t-icon),
-  :deep(.btn-icon-wrapper),
-  :deep(.org-create-icon) {
-    color: var(--td-brand-color);
-  }
-
-  :deep(.org-create-icon) {
-    width: 16px;
-    height: 16px;
-  }
 }
 
 // Tab 切换样式（下划线式，与整体协作感一致）
