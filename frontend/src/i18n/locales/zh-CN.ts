@@ -5008,7 +5008,7 @@ export default {
       legacyConfig: '已废弃',
       namedBackendHint: '空间配置是唯一运行时来源；智能体没有选择配置时不会执行技能脚本。',
       weknoraTemplateTitle: 'WeKnora 标准模板',
-      weknoraDockerImage: 'WeKnora 标准镜像',
+      weknoraDockerImage: 'Sandbox 标准镜像',
       weknoraDockerImageHint: '每次会话独占一个长驻容器，脚本、shell 命令与文件都在同一个容器内，会话结束或空闲超时后回收。',
       localRuntimeWarning: '本地进程会直接在 WeKnora 服务器上执行技能脚本，不具备容器或 MicroVM 隔离。仅建议在可信的开发空间使用。',
       weknoraTemplateOverview: 'WeKnora 负责提供标准运行环境。连接集群后会自动发现模板，缺少标准模板时自动创建。',

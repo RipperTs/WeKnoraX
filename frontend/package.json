@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:backend": "VITE_DEV_PROXY_TARGET=http://10.6.181.60:8080 vite",
     "build": "vite build",
     "build-with-types": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",

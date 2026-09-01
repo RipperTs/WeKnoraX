@@ -38,6 +38,8 @@
 
     <t-dialog
       v-model:visible="urlDialogVisible"
+      attach="body"
+      :z-index="3100"
       :header="t('knowledgeBase.importURLTitle')"
       :confirm-btn="{ content: t('common.confirm'), theme: 'primary' }"
       :cancel-btn="{ content: t('common.cancel') }"

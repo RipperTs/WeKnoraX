@@ -217,7 +217,10 @@ import {
 
 const { t } = useI18n()
 
-const backendTypes = NAMED_SANDBOX_BACKEND_TYPES
+const backendTypes = [
+  'docker',
+  ...NAMED_SANDBOX_BACKEND_TYPES.filter((type) => type !== 'docker'),
+]
 
 const loading = ref(false)
 const policySaving = ref(false)

@@ -173,7 +173,7 @@
           </div>
           <t-form-item :label="requiredLabel('dockerImage')" :status="fieldStatus('image')"
             :tips="fieldTip('image')">
-            <t-input v-model="docker.image" placeholder="wechatopenai/weknora-sandbox:latest"
+            <t-input v-model="docker.image" :placeholder="defaultDockerImage"
               @input="onFieldInput('image')" />
           </t-form-item>
           <t-form-item :label="$t('settings.sandbox.dockerHost')" :help="$t('settings.sandbox.dockerHostHelp')">
@@ -457,6 +457,7 @@ const { t } = useI18n()
 // form as visible text: inputs stay empty and say "configured", and the
 // placeholder is only re-attached on submit so the stored value survives.
 const secretPlaceholder = '***'
+const defaultDockerImage = 'registry.cn-hangzhou.aliyuncs.com/ripper/weknora-sandbox:latest'
 const isMaskedSecret = (value?: string) => value === secretPlaceholder
 
 const backendOptions = [...NAMED_SANDBOX_BACKEND_TYPES]
@@ -632,7 +633,7 @@ function reset() {
   Object.assign(e2b, cfg.e2b || {})
   Object.assign(docker, cfg.docker || {})
   if (backend.value === 'docker' && !docker.image) {
-    docker.image = 'wechatopenai/weknora-sandbox:latest'
+    docker.image = defaultDockerImage
   }
   storedSecrets.cube = isMaskedSecret(cube.api_key)
   storedSecrets.e2b = isMaskedSecret(e2b.api_key)
@@ -655,7 +656,7 @@ function selectBackend(value: string) {
   if (backend.value === value) return
   backend.value = value
   if (value === 'docker' && !docker.image) {
-    docker.image = 'wechatopenai/weknora-sandbox:latest'
+    docker.image = defaultDockerImage
   }
   onBackendChange()
 }
