@@ -89,7 +89,7 @@
                     {{ $t('mentionDetail.kbCount', { count: detailCache[item.id].data.knowledge_count ?? detailCache[item.id].data.count ?? 0 }) }}
                   </span>
                   <span v-if="detailCache[item.id].data.org_name || item.orgName" class="detail-org">
-                    <img src="@/assets/img/organization-green.svg" class="detail-icon-img" alt="" aria-hidden="true" />
+                    <img src="@/assets/img/organization-blue.svg" class="detail-icon-img" alt="" aria-hidden="true" />
                     <span class="detail-label">{{ $t('mentionDetail.belongsToOrg') }}</span>
                     <span
                       class="detail-value clickable"
@@ -229,7 +229,7 @@
                     </span>
                   </span>
                   <span v-if="item.orgName" class="detail-org">
-                    <img src="@/assets/img/organization-green.svg" class="detail-icon-img" alt="" aria-hidden="true" />
+                    <img src="@/assets/img/organization-blue.svg" class="detail-icon-img" alt="" aria-hidden="true" />
                     <span class="detail-label">{{ $t('mentionDetail.belongsToOrg') }}</span>
                     <span
                       class="detail-value clickable"
@@ -726,7 +726,7 @@ const scrollToItem = (index: number) => {
   font-size: 16px;
 }
 
-/* 右下角组织角标：柔和小圆 + 绿色/灰色 icon，不刺眼 */
+/* 右下角组织角标：柔和小圆 + 品牌色/灰色 icon，不刺眼 */
 .org-badge-wrap {
   position: absolute;
   right: 0;
@@ -965,7 +965,7 @@ const scrollToItem = (index: number) => {
   transition: color 0.2s, text-decoration-color 0.2s;
 }
 .mention-detail-content .detail-value.clickable:hover {
-  color: var(--td-brand-color, #07c05f);
-  text-decoration-color: var(--td-brand-color, #07c05f);
+  color: var(--td-brand-color, #3370ff);
+  text-decoration-color: var(--td-brand-color, #3370ff);
 }
 </style>

@@ -24,9 +24,9 @@ function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-/** Wails：与原生窗口底色 / 系统深浅色一致，减轻 Ctrl+R 整窗白闪（浅色与 --td-bg-color-page #eee 对齐） */
+/** Wails：与原生窗口底色 / 系统深浅色一致，减轻 Ctrl+R 整窗闪动 */
 function syncWailsNativeChrome(effective: 'light' | 'dark') {
-  const bg = effective === 'dark' ? '#181818' : '#eeeeee'
+  const bg = effective === 'dark' ? '#091022' : '#f8fbff'
   document.documentElement.style.background = bg
   document.documentElement.style.minHeight = '100%'
   document.documentElement.style.colorScheme = effective === 'dark' ? 'dark' : 'light'
@@ -50,10 +50,10 @@ function syncWailsNativeChrome(effective: 'light' | 'dark') {
   try {
     if (effective === 'dark') {
       w.WindowSetDarkTheme?.()
-      w.WindowSetBackgroundColour(24, 24, 24, 255)
+      w.WindowSetBackgroundColour(9, 16, 34, 255)
     } else {
       w.WindowSetLightTheme?.()
-      w.WindowSetBackgroundColour(238, 238, 238, 255)
+      w.WindowSetBackgroundColour(248, 251, 255, 255)
     }
   } catch {
     /* 非桌面壳或未注入 runtime */

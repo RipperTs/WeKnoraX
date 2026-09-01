@@ -5604,7 +5604,7 @@ onUnmounted(() => {
   :deep(.t-input:focus-within),
   :deep(.t-textarea:focus-within) {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 2px rgba(7, 192, 95, 0.1);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--td-brand-color) 10%, transparent);
   }
 }
 
@@ -5780,12 +5780,12 @@ onUnmounted(() => {
   font-family: var(--app-font-family-mono);
   font-size: 12px;
   padding: 2px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, transparent);
   border-radius: 4px;
   transition: background 0.15s;
 
   &:hover {
-    background: rgba(7, 192, 95, 0.12);
+    background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
   }
 }
 

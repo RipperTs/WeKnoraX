@@ -1231,7 +1231,7 @@ onMounted(loadAll)
 
   &--active {
     border-color: var(--td-brand-color);
-    background: var(--td-brand-color-1, rgba(7, 192, 95, 0.06));
+    background: var(--td-brand-color-light);
   }
 }
 

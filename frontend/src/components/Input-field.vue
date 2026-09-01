@@ -2519,7 +2519,7 @@ defineExpose({
               <t-icon v-else :name="getMentionIcon(item)" />
             </span>
             <span v-if="item.org_name" class="mention-chip__org-badge">
-              <img :src="getImgSrc(item.type === 'file' ? 'organization-grey.svg' : 'organization-green.svg')"
+              <img :src="getImgSrc(item.type === 'file' ? 'organization-grey.svg' : 'organization-blue.svg')"
                 class="mention-chip__org-img" alt="" aria-hidden="true" />
             </span>
           </span>
@@ -2777,7 +2777,7 @@ const getImgSrc = (url: string) => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 16px -4px rgba(0, 0, 0, 0.06);
 
   &:focus-within {
-    border-color: var(--td-brand-color, #07C05F);
+    border-color: var(--td-brand-color, #3370FF);
   }
 }
 
@@ -2897,7 +2897,7 @@ const getImgSrc = (url: string) => {
 }
 
 .mention-chip--kb .mention-chip__icon-wrap {
-  color: var(--td-brand-color, #07c05f);
+  color: var(--td-brand-color, #3370ff);
 }
 
 .mention-chip--faq {
@@ -3154,15 +3154,15 @@ const getImgSrc = (url: string) => {
   }
 
   &.active {
-    background: rgba(16, 185, 129, 0.1);
-    color: #07C05F;
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+    color: var(--td-brand-color);
   }
 
   .image-count {
     position: absolute;
     top: -2px;
     right: -2px;
-    background: #07C05F;
+    background: var(--td-brand-color);
     color: #fff;
     font-size: 10px;
     width: 14px;
@@ -3193,15 +3193,15 @@ const getImgSrc = (url: string) => {
   }
 
   &.active {
-    background: rgba(16, 185, 129, 0.1);
-    color: #07C05F;
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+    color: var(--td-brand-color);
   }
 
   .attachment-count {
     position: absolute;
     top: -2px;
     right: -2px;
-    background: #07C05F;
+    background: var(--td-brand-color);
     color: #fff;
     font-size: 10px;
     width: 14px;
@@ -3268,14 +3268,14 @@ const getImgSrc = (url: string) => {
   position: relative;
 
   &.active {
-    background: rgba(16, 185, 129, 0.1);
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
 
     .websearch-icon {
       color: var(--td-brand-color);
     }
 
     &:hover {
-      background: rgba(16, 185, 129, 0.15);
+      background: color-mix(in srgb, var(--td-brand-color) 15%, transparent);
     }
   }
 
@@ -3302,7 +3302,7 @@ const getImgSrc = (url: string) => {
     }
 
     &.active:hover {
-      background: rgba(16, 185, 129, 0.1);
+      background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
     }
   }
 }
@@ -3359,21 +3359,21 @@ const getImgSrc = (url: string) => {
   width: 28px;
   height: 28px;
   padding: 0;
-  background: rgba(16, 185, 129, 0.08);
+  background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
   color: var(--td-brand-color);
-  border: 1.5px solid rgba(16, 185, 129, 0.2);
+  border: 1.5px solid color-mix(in srgb, var(--td-brand-color) 20%, transparent);
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
 
   &:hover {
-    background: rgba(16, 185, 129, 0.12);
+    background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
     border-color: var(--td-brand-color);
   }
 
   &:active {
-    background: rgba(16, 185, 129, 0.15);
+    background: color-mix(in srgb, var(--td-brand-color) 15%, transparent);
   }
 
   svg {
@@ -3416,7 +3416,7 @@ const getImgSrc = (url: string) => {
   }
 
   &.disabled {
-    background-color: var(--td-success-color-light);
+    background-color: var(--td-brand-color-light);
   }
 
   img {
@@ -3699,7 +3699,7 @@ const getImgSrc = (url: string) => {
   }
 
   &.selected {
-    background: var(--td-brand-color-light, #eefdf5);
+    background: var(--td-brand-color-light, #ebf1ff);
 
     .agent-mode-option-name {
       color: var(--td-success-color);

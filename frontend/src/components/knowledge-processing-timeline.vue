@@ -2441,12 +2441,9 @@ const processConfigLines = computed<string[]>(() => {
   top: calc(100% + 8px);
 }
 
-/* Status palette — NOT all green. The project brand color happens
-   to be green, which made done/running visually identical (both
-   solid green). Done stays green (universal "success" semantic);
-   running goes amber + striped (CI-style "in progress" — recognized
-   everywhere from GitHub Actions to Jenkins). The two are now
-   unmistakably different at a glance. */
+/* Status palette stays semantic and independent from the blue brand.
+   Done remains green (universal "success" semantic); running uses
+   amber + stripes (CI-style "in progress") so states stay distinct. */
 .kp-bar-done {
   background: var(--td-success-color);
 }

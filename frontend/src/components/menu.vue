@@ -1031,7 +1031,7 @@ watch([() => route.name, () => route.params], (newvalue, oldvalue) => {
         loadCurrentKbInfo((newvalue[1] as any)?.kbId as string);
     }
 });
-let knowledgeIcon = ref('zhishiku-green.svg');
+let knowledgeIcon = ref('zhishiku-blue.svg');
 let prefixIcon = ref('prefixIcon.svg');
 let logoutIcon = ref('logout.svg');
 let settingIcon = ref('setting.svg');
@@ -1046,20 +1046,20 @@ const getIcon = (path: string) => {
     const agentsActiveState = route.name === 'agentList';
     const organizationsActiveState = route.name === 'organizationList';
 
-    // 知识库图标：只在知识库页面显示绿色
-    knowledgeIcon.value = kbActiveState.isKbActive ? 'zhishiku-green.svg' : 'zhishiku.svg';
+    // 知识库图标：只在知识库页面显示品牌色
+    knowledgeIcon.value = kbActiveState.isKbActive ? 'zhishiku-blue.svg' : 'zhishiku.svg';
 
-    // 智能体图标：只在智能体页面显示绿色
-    agentIcon.value = agentsActiveState ? 'agent-green.svg' : 'agent.svg';
+    // 智能体图标：只在智能体页面显示品牌色
+    agentIcon.value = agentsActiveState ? 'agent-blue.svg' : 'agent.svg';
 
-    // 组织图标：只在组织页面显示绿色
-    organizationIcon.value = organizationsActiveState ? 'organization-green.svg' : 'organization.svg';
+    // 组织图标：只在组织页面显示品牌色
+    organizationIcon.value = organizationsActiveState ? 'organization-blue.svg' : 'organization.svg';
 
-    // 对话图标：只在对话创建页面显示绿色，其他情况显示默认
-    prefixIcon.value = creatChatActiveState.isCreatChatActive ? 'prefixIcon-green.svg' : 'prefixIcon.svg';
+    // 对话图标：只在对话创建页面显示品牌色，其他情况显示默认
+    prefixIcon.value = creatChatActiveState.isCreatChatActive ? 'prefixIcon-blue.svg' : 'prefixIcon.svg';
 
-    // 设置图标：只在设置页面显示绿色
-    settingIcon.value = settingsActiveState.isSettingsActive ? 'setting-green.svg' : 'setting.svg';
+    // 设置图标：只在设置页面显示品牌色
+    settingIcon.value = settingsActiveState.isSettingsActive ? 'setting-blue.svg' : 'setting.svg';
 
     // 退出图标：始终显示默认
     logoutIcon.value = 'logout.svg';
@@ -1283,7 +1283,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
             height: 28px;
             margin-right: 8px;
             border-radius: 8px;
-            background: var(--td-success-color-light);
+            background: var(--td-brand-color-light);
             color: var(--td-brand-color);
             flex-shrink: 0;
         }
@@ -1660,7 +1660,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         }
 
         &.session-chat-row--selected .session-list-row {
-            background: rgba(7, 192, 95, 0.05);
+            background: color-mix(in srgb, var(--td-brand-color) 5%, transparent);
         }
     }
 
@@ -1951,7 +1951,7 @@ html[theme-mode="dark"] .aside_box .menu_item_c_active .menu_icon img.icon {
     opacity: 0.9;
 }
 
-// Active (green) icons should not be inverted
+// Active brand icons should not be inverted
 html[theme-mode="dark"] .aside_box .menu_item_active .menu_icon img.icon {
     filter: none;
     opacity: 1;

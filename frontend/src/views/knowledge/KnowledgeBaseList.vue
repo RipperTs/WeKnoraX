@@ -362,7 +362,7 @@
                 <div class="bottom-right">
                   <t-tooltip :content="kb.org_name" placement="top">
                     <div class="org-source">
-                      <img src="@/assets/img/organization-green.svg" class="org-source-icon" alt=""
+                      <img src="@/assets/img/organization-blue.svg" class="org-source-icon" alt=""
                         aria-hidden="true" />
                       <span>{{ kb.org_name }}</span>
                     </div>
@@ -736,7 +736,7 @@
                 <span class="shared-detail-label">{{ currentSharedKbForDetail.source_from_agent ?
                   $t('knowledgeList.detail.sourceFromAgent') : $t('knowledgeList.detail.sourceOrg') }}</span>
                 <span class="shared-detail-value shared-detail-org">
-                  <img src="@/assets/img/organization-green.svg" class="shared-detail-org-icon" alt=""
+                  <img src="@/assets/img/organization-blue.svg" class="shared-detail-org-icon" alt=""
                     aria-hidden="true" />
                   {{ currentSharedKbForDetail.source_from_agent ? currentSharedKbForDetail.source_from_agent.agent_name
                     :
@@ -1375,7 +1375,7 @@ function isMyKb(kb: { creator_id?: string }): boolean {
 }
 
 // kbOriginVariant 决定卡片右下角徽章的展示形态：
-//   - 我自己创建的：mine（绿色 "我创建"）
+//   - 我自己创建的：mine（品牌色 "我创建"）
 //   - 同空间他人创建的：creator 变体——只显示创建者名字。用户始终在
 //     某个工作空间内浏览（顶部 TenantSelector 已经标了空间身份），右下
 //     角再贴一遍空间名属于重复信息；contributor / admin / owner / viewer
@@ -1880,7 +1880,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  background: rgba(7, 192, 95, 0.1);
+  background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1967,7 +1967,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 
 
 // 共享知识库卡片样式
-// 共享标识（文档类型默认绿色，位置贴右上角）
+// 共享标识（文档类型使用品牌色，位置贴右上角）
 .shared-badge {
   position: absolute;
   top: 8px;
@@ -1976,7 +1976,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(7, 192, 95, 0.1);
+  background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1993,7 +1993,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, transparent);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.4;
@@ -2021,13 +2021,13 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 }
 
-// 「我的」知识库标签（与 .org-source 同套样式：灰字 + 绿标 + 浅绿底）
+// 「我的」知识库标签（与 .org-source 同套样式：灰字 + 品牌色标记和浅色背景）
 .personal-source {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, transparent);
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.4;
@@ -2050,16 +2050,16 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   // 共享知识库根据类型显示不同样式
   &.kb-type-document {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.04) 100%) !important;
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 4%, transparent) 100%) !important;
 
     &:hover {
       border-color: var(--td-brand-color) !important;
-      box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12) !important;
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.08) 100%) !important;
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--td-brand-color) 12%, transparent) !important;
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 100%) !important;
     }
 
     &::after {
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%) !important;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 0%, transparent 100%) !important;
     }
   }
 
@@ -2326,7 +2326,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--td-brand-color) 12%, transparent);
   }
 
   &.uninitialized {
@@ -2335,11 +2335,11 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   // 文档类型样式
   &.kb-type-document {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.04) 100%);
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 4%, transparent) 100%);
 
     &:hover {
       border-color: var(--td-brand-color);
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.08) 100%);
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 100%);
     }
 
     // 右上角装饰
@@ -2350,7 +2350,7 @@ const handleUploadFinishedEvent = (event: Event) => {
       right: 0;
       width: 60px;
       height: 60px;
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 0%, transparent 100%);
       border-radius: 0 12px 0 100%;
       pointer-events: none;
       z-index: 0;
@@ -2632,14 +2632,14 @@ const handleUploadFinishedEvent = (event: Event) => {
   transition: background 0.2s ease;
 
   &.type-document {
-    background: rgba(7, 192, 95, 0.08);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     color: var(--td-brand-color-active);
     width: auto;
     padding: 0 6px;
     gap: 3px;
 
     &:hover {
-      background: rgba(7, 192, 95, 0.12);
+      background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
     }
 
     .badge-count {
@@ -2710,11 +2710,11 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &.role-admin {
-    background: rgba(7, 192, 95, 0.1);
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
     color: var(--td-brand-color-active);
 
     &:hover {
-      background: rgba(7, 192, 95, 0.15);
+      background: color-mix(in srgb, var(--td-brand-color) 15%, transparent);
     }
   }
 
@@ -2750,19 +2750,19 @@ const handleUploadFinishedEvent = (event: Event) => {
 @keyframes highlightFlash {
   0% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0.4);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--td-brand-color) 40%, transparent);
     transform: scale(1);
   }
 
   50% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 8px rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--td-brand-color) 0%, transparent);
     transform: scale(1.02);
   }
 
   100% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--td-brand-color) 0%, transparent);
     transform: scale(1);
   }
 }
@@ -2770,7 +2770,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 .kb-card.highlight-flash {
   animation: highlightFlash 0.6s ease-in-out 3;
   border-color: var(--td-brand-color) !important;
-  box-shadow: 0 0 12px rgba(7, 192, 95, 0.3) !important;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--td-brand-color) 30%, transparent) !important;
 }
 
 .card-time {
@@ -2957,7 +2957,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &:hover {
-    background: rgba(7, 192, 95, 0.08);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     color: var(--td-brand-color);
   }
 }

@@ -3648,7 +3648,7 @@ async function createNewSession(value: string): Promise<void> {
   padding: 0;
 
   &:hover:not(:disabled) {
-    background: var(--td-success-color-light);
+    background: var(--td-brand-color-light);
     color: var(--td-brand-color);
     box-shadow: none;
   }

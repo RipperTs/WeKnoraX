@@ -148,7 +148,7 @@ const tooltipText = computed(() => {
 
   &.origin-mine {
     color: var(--td-brand-color);
-    background: var(--td-success-color-light);
+    background: var(--td-brand-color-light);
   }
 
   &.origin-tenant {

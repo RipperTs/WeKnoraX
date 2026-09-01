@@ -165,7 +165,7 @@
           <div v-if="activeDetail.sharedMeta?.org_name || activeDetail.sharedMeta?.shared_by_username"
             class="detail-meta">
             <div v-if="activeDetail.sharedMeta.org_name" class="detail-meta-row">
-              <img src="@/assets/img/organization-green.svg" class="detail-meta-icon" alt="" aria-hidden="true" />
+              <img src="@/assets/img/organization-blue.svg" class="detail-meta-icon" alt="" aria-hidden="true" />
               <span>{{ activeDetail.sharedMeta.org_name }}</span>
             </div>
             <div v-if="activeDetail.sharedMeta.shared_by_username" class="detail-meta-row">

@@ -1162,7 +1162,7 @@ onUnmounted(() => {
     align-items: center;
     justify-content: center;
     pointer-events: none;
-    box-shadow: 0 0 0 0.5px var(--td-success-color-light);
+    box-shadow: 0 0 0 0.5px var(--td-brand-color-light);
   }
 
   .tenant-submenu-empty {
@@ -1187,7 +1187,7 @@ onUnmounted(() => {
     transition: background 0.15s;
 
     &:hover {
-      background: rgba(7, 192, 95, 0.08);
+      background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     }
 
     .tenant-submenu-create-icon {

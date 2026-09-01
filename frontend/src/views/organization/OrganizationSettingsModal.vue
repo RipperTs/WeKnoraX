@@ -839,7 +839,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import agentIconSrc from '@/assets/img/agent.svg'
-import agentIconActiveSrc from '@/assets/img/agent-green.svg'
+import agentIconActiveSrc from '@/assets/img/agent-blue.svg'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -2426,12 +2426,12 @@ watch(addMemberPopupVisible, (visible) => {
 
 .avatar-popover-content .avatar-emoji-btn:hover {
   border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.06);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, transparent);
 }
 
 .avatar-popover-content .avatar-emoji-btn.is-selected {
   border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.12);
+  background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
 }
 
 .avatar-popover-content .avatar-clear-btn {
