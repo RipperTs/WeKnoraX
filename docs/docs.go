@@ -18984,6 +18984,7 @@ const docTemplate = `{
                     "minLength": 6
                 },
                 "username": {
+                    "description": "Username must not contain \"@\" because account lookup reserves it for email identifiers.",
                     "type": "string",
                     "maxLength": 50,
                     "minLength": 2
@@ -23043,6 +23044,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "username": {
+                    "description": "Username must not contain \"@\" because account lookup reserves it for email identifiers.",
                     "type": "string"
                 }
             }

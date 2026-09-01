@@ -20,8 +20,9 @@ import (
 // IS the authorisation; the email is whatever account the invitee
 // wants to register.
 type registerByInviteRequest struct {
-	Token    string `json:"token"    binding:"required"`
-	Email    string `json:"email"    binding:"required,email"`
+	Token string `json:"token"    binding:"required"`
+	Email string `json:"email"    binding:"required,email"`
+	// Username must not contain "@" because account lookup reserves it for email identifiers.
 	Username string `json:"username" binding:"required,excludes=@"`
 	Password string `json:"password" binding:"required,min=6"`
 }

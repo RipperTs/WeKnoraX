@@ -2850,6 +2850,8 @@ definitions:
         minLength: 6
         type: string
       username:
+        description: Username must not contain "@" because account lookup reserves
+          it for email identifiers.
         maxLength: 50
         minLength: 2
         type: string
@@ -5853,6 +5855,8 @@ definitions:
       token:
         type: string
       username:
+        description: Username must not contain "@" because account lookup reserves
+          it for email identifiers.
         type: string
     required:
     - email

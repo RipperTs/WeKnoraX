@@ -195,6 +195,7 @@ type OIDCUserInfo struct {
 
 // RegisterRequest represents a registration request
 type RegisterRequest struct {
+	// Username must not contain "@" because account lookup reserves it for email identifiers.
 	Username string `json:"username" binding:"required,min=2,max=50,excludes=@"`
 	Email    string `json:"email"    binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
