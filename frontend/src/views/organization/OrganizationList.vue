@@ -9,14 +9,14 @@
             <h2 style="--wails-draggable: drag">{{ $t('organization.title') }}</h2>
             <div class="header-actions" style="--wails-draggable: no-drag">
               <t-tooltip :content="noPermissionTip" placement="bottom" :disabled="canManageOrg">
-                <t-button variant="outline" theme="default" size="small" class="org-join-btn"
+                <t-button variant="outline" theme="default" class="org-join-btn"
                   style="--wails-draggable: no-drag" :disabled="!canManageOrg" @click="handleJoinOrganization">
                   <template #icon><t-icon name="enter" size="16px" /></template>
                   {{ $t('organization.joinOrg') }}
                 </t-button>
               </t-tooltip>
               <t-tooltip :content="noPermissionTip" placement="bottom" :disabled="canManageOrg">
-                <t-button theme="primary" size="small" class="org-create-btn"
+                <t-button theme="primary" class="org-create-btn"
                   style="--wails-draggable: no-drag" :disabled="!canManageOrg" @click="handleCreateOrganization">
                   <template #icon><img src="@/assets/img/organization-blue.svg" class="org-create-icon" alt=""
                       aria-hidden="true" /></template>
@@ -1150,7 +1150,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--td-component-stroke);
   flex-shrink: 0;
 
   .header-title {

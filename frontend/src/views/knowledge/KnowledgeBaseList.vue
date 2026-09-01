@@ -8,7 +8,7 @@
         <div class="header-title" style="--wails-draggable: drag">
           <div class="title-row" style="--wails-draggable: drag">
             <h2 style="--wails-draggable: drag">{{ $t('knowledgeBase.title') }}</h2>
-            <t-button v-if="authStore.hasRole('contributor')" theme="primary" size="small" class="kb-create-btn"
+            <t-button v-if="authStore.hasRole('contributor')" theme="primary" class="kb-create-btn"
               data-guide="kb-list-create" style="--wails-draggable: no-drag" @click="handleCreateKnowledgeBase">
               <template #icon><t-icon name="folder-add" size="16px" /></template>
               {{ $t('knowledgeList.create') }}
@@ -1818,8 +1818,11 @@ const handleUploadFinishedEvent = (event: Event) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-  padding-right: 28px;
+  margin-right: 28px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--td-component-stroke);
+  flex-shrink: 0;
 
   .header-title {
     display: flex;

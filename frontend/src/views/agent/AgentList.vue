@@ -8,7 +8,7 @@
         <div class="header-title" style="--wails-draggable: drag">
           <div class="title-row" style="--wails-draggable: drag">
             <h2 style="--wails-draggable: drag">{{ $t('agent.title') }}</h2>
-            <t-button v-if="authStore.hasRole('contributor')" theme="primary" size="small" class="agent-create-btn"
+            <t-button v-if="authStore.hasRole('contributor')" theme="primary" class="agent-create-btn"
               data-guide="agent-list-create" style="--wails-draggable: no-drag" @click="handleCreateAgent">
               <template #icon>
                 <span class="btn-icon-wrapper">
@@ -1640,8 +1640,11 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-  padding-right: 28px;
+  margin-right: 28px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--td-component-stroke);
+  flex-shrink: 0;
 
   .header-title {
     display: flex;
