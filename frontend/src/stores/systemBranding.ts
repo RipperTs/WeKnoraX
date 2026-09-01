@@ -70,8 +70,8 @@ export const useSystemBrandingStore = defineStore('systemBranding', () => {
     hasStoredBranding = true
   }
 
-  async function ensureLoaded(force = false): Promise<SystemInfo | null> {
-    if (loaded.value && !force) {
+  async function ensureLoaded(): Promise<SystemInfo | null> {
+    if (loaded.value) {
       return {
         version: '',
         edition: edition.value,
@@ -80,8 +80,7 @@ export const useSystemBrandingStore = defineStore('systemBranding', () => {
       }
     }
     if (loadingPromise) {
-      const current = await loadingPromise
-      return force ? ensureLoaded(true) : current
+      return loadingPromise
     }
 
     const requestSiteTitleRevision = siteTitleRevision
@@ -135,21 +134,16 @@ export const useSystemBrandingStore = defineStore('systemBranding', () => {
     loaded.value = true
   }
 
-  async function applySiteLogo(value: unknown) {
+  function applySiteLogo(displayValue: unknown, storedValue: unknown) {
     siteLogoRevision += 1
-    const nextSiteLogoPath = normalizeSiteLogoPath(value)
-    siteLogoURL.value = resolveLogoURL(nextSiteLogoPath)
+    siteLogoURL.value = resolveLogoURL(normalizeSiteLogoPath(displayValue))
     loaded.value = true
 
-    if (!nextSiteLogoPath.startsWith('data:') && storedSiteLogoPath !== nextSiteLogoPath) {
-      storedSiteLogoPath = nextSiteLogoPath
+    const nextStoredSiteLogoPath = normalizeSiteLogoPath(storedValue)
+    if (storedSiteLogoPath !== nextStoredSiteLogoPath) {
+      storedSiteLogoPath = nextStoredSiteLogoPath
       persistStoredBranding()
     }
-
-    // The settings API returns the uploaded Logo as a data URL. Fetch the
-    // public fingerprinted URL before the save flow completes so localStorage
-    // stays small and subsequent page loads can use the browser image cache.
-    await ensureLoaded(true)
   }
 
   function useDefaultLogo() {

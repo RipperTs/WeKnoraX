@@ -370,10 +370,7 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		"",
 		"",
 	))
-	siteLogoURL := ""
-	if logo := h.getSiteLogoAsset(ctx); logo != nil {
-		siteLogoURL = fmt.Sprintf("/api/v1/system/branding/logo?v=%s", logo.Version)
-	}
+	siteLogoURL := h.getSiteLogoURL(ctx)
 
 	response := GetSystemInfoResponse{
 		Version:             Version,
@@ -429,6 +426,14 @@ func (h *SystemHandler) getSiteLogoAsset(ctx context.Context) *service.SiteLogoA
 		return nil
 	}
 	return provider.GetSiteLogoAsset(ctx)
+}
+
+func (h *SystemHandler) getSiteLogoURL(ctx context.Context) string {
+	logo := h.getSiteLogoAsset(ctx)
+	if logo == nil {
+		return ""
+	}
+	return fmt.Sprintf("/api/v1/system/branding/logo?v=%s", logo.Version)
 }
 
 func (h *SystemHandler) getDocReaderConnInfo() (addr, transport string) {
@@ -2313,6 +2318,13 @@ type UpdateSystemSettingRequest struct {
 	Value any `json:"value"`
 }
 
+// UpdateSystemSettingResponse keeps the setting row shape intact and adds the
+// public Logo URL only when the branding Logo is updated.
+type UpdateSystemSettingResponse struct {
+	*types.SystemSetting
+	SiteLogoURL string `json:"site_logo_url,omitempty"`
+}
+
 // UpdateSystemSetting godoc
 // @Summary      Update a system setting value
 // @Description  Persist a new value for :key. Service validates the
@@ -2324,7 +2336,7 @@ type UpdateSystemSettingRequest struct {
 // @Produce      json
 // @Param        key     path string                       true "Setting key"
 // @Param        request body UpdateSystemSettingRequest   true "New value"
-// @Success      200 {object} types.SystemSetting "the updated row"
+// @Success      200 {object} UpdateSystemSettingResponse "the updated row"
 // @Failure      400 {object} map[string]interface{} "Bad request / unknown key / type mismatch"
 // @Failure      403 {object} map[string]interface{} "Forbidden: not a system admin"
 // @Router       /system/admin/settings/{key} [put]
@@ -2351,7 +2363,14 @@ func (h *SystemHandler) UpdateSystemSetting(c *gin.Context) {
 		return
 	}
 	h.enrichSettingsModifiedBy(ctx, []*types.SystemSetting{row})
-	c.JSON(http.StatusOK, row)
+	response := UpdateSystemSettingResponse{SystemSetting: row}
+	if key == service.SystemSettingSiteLogo {
+		// Update refreshes this replica's Logo asset synchronously before it
+		// publishes the asynchronous invalidation to peers. Returning that URL
+		// avoids an immediately-following read from a lagging replica.
+		response.SiteLogoURL = h.getSiteLogoURL(ctx)
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // ApplyDefaultStorageQuotaToAllTenants godoc
