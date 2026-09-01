@@ -36,6 +36,14 @@ type runtimeKnowledgeCanceller interface {
 	CancelKnowledgeParse(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
 }
 
+type siteLogoAssetProvider interface {
+	GetSiteLogoAsset(ctx context.Context) *service.SiteLogoAsset
+}
+
+type siteLogoVersionAssetProvider interface {
+	GetSiteLogoAssetByVersion(ctx context.Context, version string) *service.SiteLogoAsset
+}
+
 // SystemHandler handles system-related requests
 type SystemHandler struct {
 	cfg              *config.Config
@@ -297,6 +305,11 @@ type GetSystemInfoResponse struct {
 	StartedAt string `json:"started_at,omitempty"`
 	// UptimeSeconds is seconds elapsed since process start.
 	UptimeSeconds int64 `json:"uptime_seconds,omitempty"`
+	// SiteTitle and SiteLogoURL are the user-facing brand values shown in
+	// the application sidebar. Empty values instruct the frontend to use
+	// the built-in title and folder icon.
+	SiteTitle   string `json:"site_title,omitempty"`
+	SiteLogoURL string `json:"site_logo_url,omitempty"`
 }
 
 // 编译时注入的版本信息
@@ -355,6 +368,14 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		uptimeSec = int64(runtime.ServerUptime().Seconds())
 	}
 
+	siteTitle := strings.TrimSpace(h.systemSettingSvc.GetString(
+		ctx,
+		service.SystemSettingSiteTitle,
+		"",
+		"",
+	))
+	siteLogoURL := h.getSiteLogoURL(ctx)
+
 	response := GetSystemInfoResponse{
 		Version:             Version,
 		Edition:             Edition,
@@ -369,6 +390,8 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		DBMigrationError:    dbMigrationErr,
 		StartedAt:           startedAt,
 		UptimeSeconds:       uptimeSec,
+		SiteTitle:           siteTitle,
+		SiteLogoURL:         siteLogoURL,
 	}
 
 	logger.Info(ctx, "System info retrieved successfully")
@@ -377,6 +400,47 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		"msg":  "success",
 		"data": response,
 	})
+}
+
+// GetSiteLogo returns the configured application Logo. The response URL
+// includes a content fingerprint from GetSystemInfo, so browsers can cache
+// each saved revision indefinitely while a new upload takes effect at once.
+func (h *SystemHandler) GetSiteLogo(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	logo := h.getSiteLogoAssetByVersion(ctx, c.Query("v"))
+	if logo == nil {
+		c.Header("Cache-Control", "no-store")
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, logo.MediaType, logo.Content)
+}
+
+func (h *SystemHandler) getSiteLogoAsset(ctx context.Context) *service.SiteLogoAsset {
+	provider, ok := h.systemSettingSvc.(siteLogoAssetProvider)
+	if !ok {
+		return nil
+	}
+	return provider.GetSiteLogoAsset(ctx)
+}
+
+func (h *SystemHandler) getSiteLogoAssetByVersion(ctx context.Context, version string) *service.SiteLogoAsset {
+	provider, ok := h.systemSettingSvc.(siteLogoVersionAssetProvider)
+	if !ok {
+		return nil
+	}
+	return provider.GetSiteLogoAssetByVersion(ctx, version)
+}
+
+func (h *SystemHandler) getSiteLogoURL(ctx context.Context) string {
+	logo := h.getSiteLogoAsset(ctx)
+	if logo == nil {
+		return ""
+	}
+	return fmt.Sprintf("/api/v1/system/branding/logo?v=%s", logo.Version)
 }
 
 func (h *SystemHandler) getDocReaderConnInfo() (addr, transport string) {
@@ -2261,6 +2325,13 @@ type UpdateSystemSettingRequest struct {
 	Value any `json:"value"`
 }
 
+// UpdateSystemSettingResponse keeps the setting row shape intact and adds the
+// public Logo URL only when the branding Logo is updated.
+type UpdateSystemSettingResponse struct {
+	*types.SystemSetting
+	SiteLogoURL string `json:"site_logo_url,omitempty"`
+}
+
 // UpdateSystemSetting godoc
 // @Summary      Update a system setting value
 // @Description  Persist a new value for :key. Service validates the
@@ -2272,7 +2343,7 @@ type UpdateSystemSettingRequest struct {
 // @Produce      json
 // @Param        key     path string                       true "Setting key"
 // @Param        request body UpdateSystemSettingRequest   true "New value"
-// @Success      200 {object} types.SystemSetting "the updated row"
+// @Success      200 {object} UpdateSystemSettingResponse "the updated row"
 // @Failure      400 {object} map[string]interface{} "Bad request / unknown key / type mismatch"
 // @Failure      403 {object} map[string]interface{} "Forbidden: not a system admin"
 // @Router       /system/admin/settings/{key} [put]
@@ -2299,7 +2370,14 @@ func (h *SystemHandler) UpdateSystemSetting(c *gin.Context) {
 		return
 	}
 	h.enrichSettingsModifiedBy(ctx, []*types.SystemSetting{row})
-	c.JSON(http.StatusOK, row)
+	response := UpdateSystemSettingResponse{SystemSetting: row}
+	if key == service.SystemSettingSiteLogo {
+		// Update refreshes this replica's Logo asset synchronously before it
+		// publishes the asynchronous invalidation to peers. Returning that URL
+		// avoids an immediately-following read from a lagging replica.
+		response.SiteLogoURL = h.getSiteLogoURL(ctx)
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // ApplyDefaultStorageQuotaToAllTenants godoc

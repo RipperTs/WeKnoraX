@@ -27,6 +27,8 @@ export async function deletePlatformAPIKey(keyId: number): Promise<{ success: bo
 export interface SystemInfo {
   version: string
   edition?: string
+  site_title?: string
+  site_logo_url?: string
   commit_id?: string
   build_time?: string
   go_version?: string
@@ -453,6 +455,11 @@ export interface SystemSettingItem {
   enum?: string[]
 }
 
+export interface UpdatedSystemSetting extends SystemSettingItem {
+  /** Public fingerprinted URL returned when the site Logo is updated. */
+  site_logo_url?: string
+}
+
 /**
  * List every system setting row (system-scope, not tenant-scope).
  * Backend returns the array directly; we cast through `unknown` to match
@@ -483,12 +490,12 @@ export async function getSystemSetting(key: string): Promise<SystemSettingItem> 
 export async function updateSystemSetting(
   key: string,
   value: unknown,
-): Promise<SystemSettingItem> {
+): Promise<UpdatedSystemSetting> {
   const response = await put(
     `/api/v1/system/admin/settings/${encodeURIComponent(key)}`,
     { value },
   )
-  return response as unknown as SystemSettingItem
+  return response as unknown as UpdatedSystemSetting
 }
 
 /**

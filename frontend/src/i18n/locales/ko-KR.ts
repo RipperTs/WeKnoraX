@@ -2618,6 +2618,14 @@ export default {
       badgeOverrideTooltip: '이 값은 관리자가 DB에 저장하여 환경 변수 및 기본값을 덮어썼습니다.',
       modifiedAt: '마지막 수정: {value}',
       tagInputPlaceholder: '엔터로 항목 추가. 예: example.com / *.foo.com / 10.0.0.0/8',
+      branding: {
+        titlePlaceholder: '비워 두면 “企业知识库”로 표시됩니다',
+        uploadLogo: 'Logo 업로드',
+        changeLogo: 'Logo 변경',
+        invalidLogoType: 'PNG, JPG, WebP 이미지만 지원합니다',
+        logoTooLarge: 'Logo 이미지는 1MB를 초과할 수 없습니다',
+        logoReadFailed: 'Logo 이미지를 읽지 못했습니다'
+      },
       audit: {
         tabLabel: '감사 로그',
         description: '플랫폼 수준의 작업을 기록합니다: 시스템 설정 변경, 시스템 관리자 부여/회수, 할당량 일괄 동기화 등. 최신순으로 표시됩니다.',
@@ -2784,6 +2792,10 @@ export default {
         }
       },
       keyDescriptions: {
+        branding: {
+          site_title: '왼쪽 사이드바 상단에 표시되는 사이트 제목입니다. 최대 40자이며, 비워 두면 기본 제목 “企业知识库”를 사용합니다. 저장 즉시 적용됩니다.',
+          site_logo_data_url: '왼쪽 사이드바 상단에 표시되는 사이트 Logo입니다. PNG, JPG, WebP를 지원하며 최대 1MB입니다. 비워 두면 기본 폴더 아이콘을 사용합니다.'
+        },
         model: {
           max_concurrency: '백그라운드 작업(문서 색인/보강)이 단일 모델에 대해 갖는 기본 동시 호출 상한이며, 모델 ID 기준으로 모든 복제본이 공유합니다. 매 호출마다 실시간으로 읽고 재시작 없이 즉시 적용됩니다. 0 또는 음수는 기본 상한을 해제합니다(각 모델은 모델 관리에서 설정한 자체 상한을 계속 준수함). 백그라운드 작업에만 영향을 주며 대화형 채팅에는 영향을 주지 않습니다.'
         },
@@ -2799,7 +2811,8 @@ export default {
           max_owned_per_user: '슈퍼유저가 아닌 사용자가 셀프 서비스로 소유할 수 있는 최대 워크스페이스 수입니다. 워크스페이스 생성 시마다 읽으며 저장 즉시 적용됩니다. 0은 내장 기본값 10을 사용하고, 음수는 제한을 완전히 해제합니다(공개 배포에는 권장하지 않음).',
           self_service_creation_enabled: '비슈퍼유저가 공간을 직접 만들 수 있는지 설정합니다. 비활성화하면 일반 사용자는 초대로만 기존 공간에 참여할 수 있으며, 크로스 워크스페이스 슈퍼유저는 계속 만들 수 있습니다.',
           default_storage_quota_gb: '신규 워크스페이스 생성 시 기본으로 할당되는 저장 용량(GB)으로, 벡터·원본·텍스트·인덱스 등을 포함합니다. 생성 시에만 읽으며, 변경은 이후 생성되는 워크스페이스에만 적용되고 기존 워크스페이스에는 소급되지 않습니다. 0 또는 음수는 내장 기본값 10GB를 사용합니다.',
-          auto_create_api_key: '신규 워크스페이스에 full_access API Key를 자동 생성하고 생성 응답에 평문 token을 반환합니다. 기존 동작에 의존하는 연동에만 사용하세요. 기본값은 비활성화입니다.'
+          auto_create_api_key: '신규 워크스페이스에 full_access API Key를 자동 생성하고 생성 응답에 평문 token을 반환합니다. 기존 동작에 의존하는 연동에만 사용하세요. 기본값은 비활성화입니다.',
+          auto_accept_invitation: '활성화하면 등록된 사용자를 초대할 때 수동 수락이나 대기 중인 초대 없이 즉시 워크스페이스에 추가됩니다. 비활성화하면 초대받은 사용자가 직접 수락해야 합니다. 저장 즉시 적용됩니다.'
         },
         ssrf: {
           whitelist: 'SSRF 보호 허용 목록입니다. example.com / *.foo.com / 10.0.0.0/8 / 2001:db8::1 형식을 입력할 수 있습니다. 저장 즉시 적용됩니다. SSRF_WHITELIST_EXTRA 환경 변수는 배포자가 관리하며 여기서 덮어쓰지 않습니다.'
@@ -2810,6 +2823,10 @@ export default {
         }
       },
       keyLabels: {
+        branding: {
+          site_title: '사이트 제목',
+          site_logo_data_url: '사이트 Logo'
+        },
         model: {
           max_concurrency: '모델 기본 동시 처리 상한'
         },
@@ -2825,7 +2842,8 @@ export default {
           max_owned_per_user: '사용자당 최대 워크스페이스 수',
           self_service_creation_enabled: '사용자 공간 직접 생성 허용',
           default_storage_quota_gb: '신규 워크스페이스 기본 저장 용량 (GB)',
-          auto_create_api_key: '신규 워크스페이스 API Key 자동 생성'
+          auto_create_api_key: '신규 워크스페이스 API Key 자동 생성',
+          auto_accept_invitation: '초대 시 워크스페이스 자동 가입'
         },
         ssrf: {
           whitelist: 'SSRF 보호 허용 목록'
@@ -3050,7 +3068,7 @@ export default {
         other: {
           tab: '기타 {count}',
           title: '기타 설정',
-          description: '표준 제품 그룹에 포함되지 않은 현재 배포의 설정입니다.'
+          description: '플랫폼 브랜딩과 표준 제품 그룹에 포함되지 않은 배포 설정을 관리합니다.'
         },
         security: {
           tab: '네트워크 보안 {count}',

@@ -174,6 +174,11 @@ func NewRouter(params RouterParams) *gin.Engine {
 	// WeKnora authentication headers.
 	serveResourceGrants(r, params.ResourceCatalog, params.TenantService, params.FileService, params.StorageBackendResolver)
 
+	// Application branding is intentionally public: browsers load the Logo
+	// through an <img> element, which cannot attach the JWT stored by the SPA.
+	// The endpoint only exposes the administrator-selected public brand image.
+	r.GET("/api/v1/system/branding/logo", params.SystemHandler.GetSiteLogo)
+
 	// 认证中间件
 	r.Use(middleware.Auth(params.TenantService, params.UserService, params.TenantMemberService, params.TenantAPIKeyService, params.Config))
 

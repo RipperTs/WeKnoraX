@@ -2620,6 +2620,14 @@ export default {
       badgeOverrideTooltip: '该值已由管理员保存到数据库，覆盖了环境变量与默认值',
       modifiedAt: '上次修改：{value}',
       tagInputPlaceholder: '回车添加条目，例：example.com / *.foo.com / 10.0.0.0/8',
+      branding: {
+        titlePlaceholder: '未设置时显示“企业知识库”',
+        uploadLogo: '上传 Logo',
+        changeLogo: '更换 Logo',
+        invalidLogoType: '仅支持 PNG、JPG 和 WebP 图片',
+        logoTooLarge: 'Logo 图片不能超过 1MB',
+        logoReadFailed: '读取 Logo 图片失败'
+      },
       audit: {
         tabLabel: '审计日志',
         description: '记录平台级操作：系统设置变更、系统管理员授予/回收、配额批量同步等。按时间倒序展示。',
@@ -2786,6 +2794,10 @@ export default {
         }
       },
       keyDescriptions: {
+        branding: {
+          site_title: '左侧边栏顶部显示的网站标题，最多 40 个字符。留空时显示默认标题“企业知识库”，修改后立即生效。',
+          site_logo_data_url: '左侧边栏顶部显示的网站 Logo。支持 PNG、JPG 和 WebP，最大 1MB；留空时显示默认文件夹图标。'
+        },
         model: {
           max_concurrency: '后台任务（文档入库/富化）对单个模型的默认并发上限，按模型 ID 全副本共享。每次调用实时读取，修改后立即生效、无需重启。0 或负数表示关闭默认限制（各模型仍会尊重自身在模型管理里配置的上限）。仅影响后台任务，不影响交互式对话。'
         },
@@ -2801,7 +2813,8 @@ export default {
           max_owned_per_user: '每个非超管用户通过自助创建可拥有的最大空间数。每次创建空间时实时读取，修改后立即生效。0 表示使用内置默认值 10；负数表示完全关闭限制（不建议在公开部署使用）。',
           self_service_creation_enabled: '是否允许非超管用户主动创建空间。关闭后，普通用户只能通过邀请加入已有空间；跨空间超管仍可创建。修改后立即生效。',
           default_storage_quota_gb: '新建空间时默认分配的存储配额（GB），包含向量、原文、文本、索引等。仅在创建时读取，修改后只对之后新建的空间生效，不会回写已存在的空间。0 或负数表示使用内置默认值 10GB。',
-          auto_create_api_key: '为新空间自动生成 full_access API Key，并在创建响应中返回明文 token。仅用于兼容依赖旧行为的集成；默认关闭，建议通过 API Key 管理显式创建。'
+          auto_create_api_key: '为新空间自动生成 full_access API Key，并在创建响应中返回明文 token。仅用于兼容依赖旧行为的集成；默认关闭，建议通过 API Key 管理显式创建。',
+          auto_accept_invitation: '开启后，空间管理员邀请已注册用户时，用户将立即加入空间，无需手动接受，也不会生成待处理邀请；关闭后仍需用户确认邀请。修改后立即生效。'
         },
         ssrf: {
           whitelist: 'SSRF 防护白名单。可填入 example.com / *.foo.com / 10.0.0.0/8 / 2001:db8::1。修改后立即生效。SSRF_WHITELIST_EXTRA 环境变量仍由部署方维护，不在此处覆盖。'
@@ -2812,6 +2825,10 @@ export default {
         }
       },
       keyLabels: {
+        branding: {
+          site_title: '网站标题',
+          site_logo_data_url: '网站 Logo'
+        },
         model: {
           max_concurrency: '模型默认并发上限'
         },
@@ -2827,7 +2844,8 @@ export default {
           max_owned_per_user: '每用户最大空间数',
           self_service_creation_enabled: '允许用户自助创建空间',
           default_storage_quota_gb: '新空间默认存储配额 (GB)',
-          auto_create_api_key: '创建空间时自动生成 API Key'
+          auto_create_api_key: '创建空间时自动生成 API Key',
+          auto_accept_invitation: '邀请后自动加入空间'
         },
         ssrf: {
           whitelist: 'SSRF 防护白名单'
@@ -3052,7 +3070,7 @@ export default {
         other: {
           tab: '其他 {count}',
           title: '其他配置',
-          description: '当前部署中未归入标准分组的配置项。'
+          description: '设置平台品牌展示，并保留当前部署中未归入标准分组的配置项。'
         },
         security: {
           tab: '网络安全 {count}',

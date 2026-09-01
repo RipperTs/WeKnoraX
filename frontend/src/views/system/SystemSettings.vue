@@ -66,11 +66,7 @@
         <t-tab-panel value="tenant" :label="sectionTabLabel('tenant')" />
         <t-tab-panel value="runtime" :label="sectionTabLabel('runtime')" />
         <t-tab-panel value="security" :label="sectionTabLabel('security')" />
-        <t-tab-panel
-          v-if="hasUnknownSettings"
-          value="other"
-          :label="sectionTabLabel('other')"
-        />
+        <t-tab-panel value="other" :label="sectionTabLabel('other')" />
       </t-tabs>
 
       <section class="settings-section-panel" :aria-labelledby="`settings-section-${activeSettingsSection}`">
@@ -232,8 +228,41 @@
             action close to the value it affects.
           -->
           <div class="setting-control-row">
+          <div v-if="item.key === SITE_LOGO_KEY" class="site-logo-control">
+            <div class="site-logo-preview" aria-hidden="true">
+              <img v-if="siteLogoPreview()" :src="siteLogoPreview()" alt="">
+              <t-icon v-else name="folder-open" size="20px" />
+            </div>
+            <input
+              :ref="setSiteLogoInput"
+              class="site-logo-file-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              @change="onSiteLogoSelected"
+            >
+            <t-button
+              variant="outline"
+              :disabled="savingKey === item.key"
+              @click="openSiteLogoPicker"
+            >
+              {{ siteLogoPreview()
+                ? t('system.globalSettings.branding.changeLogo')
+                : t('system.globalSettings.branding.uploadLogo') }}
+            </t-button>
+          </div>
+          <t-input
+            v-else-if="item.key === SITE_TITLE_KEY"
+            v-model="editValues[item.key]"
+            :maxlength="SITE_TITLE_MAX_LENGTH"
+            :placeholder="t('system.globalSettings.branding.titlePlaceholder')"
+            :aria-label="keyLabel(item.key)"
+            :disabled="savingKey === item.key"
+            class="setting-input"
+            clearable
+            @blur="onSiteTitleBlur(item)"
+          />
           <t-popconfirm
-            v-if="hasEnum(item) && isHighRiskKey(item.key)"
+            v-else-if="hasEnum(item) && isHighRiskKey(item.key)"
             v-model:visible="highRiskPopconfirm.visible"
             :content="highRiskPopconfirm.content"
             :theme="highRiskPopconfirm.theme"
@@ -480,7 +509,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import {
+  ref,
+  reactive,
+  onMounted,
+  onUnmounted,
+  computed,
+  watch,
+  nextTick,
+  type ComponentPublicInstance,
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
@@ -496,8 +534,10 @@ import {
   type SystemSettingItem,
 } from '@/api/system'
 import { useAuthStore } from '@/stores/auth'
+import { useSystemBrandingStore } from '@/stores/systemBranding'
 
 const authStore = useAuthStore()
+const systemBrandingStore = useSystemBrandingStore()
 const currentUserId = computed(() => authStore.currentUserId)
 
 const { t, tm, te, locale } = useI18n()
@@ -613,11 +653,16 @@ let savedKeyTimer: ReturnType<typeof setTimeout> | null = null
 
 type SettingsSection = 'access' | 'tenant' | 'runtime' | 'security' | 'other'
 
+const SITE_TITLE_KEY = 'branding.site_title'
+const SITE_LOGO_KEY = 'branding.site_logo_data_url'
+const SITE_TITLE_MAX_LENGTH = 40
+const SITE_LOGO_MAX_BYTES = 1024 * 1024
+
 // Product-oriented order, rather than the registry's alphabetical key order.
-// Unknown/out-of-band rows remain visible in a conditional "Other" tab so the
-// backend's diagnostic contract is preserved when a deployment contains an
-// unexpected key.
-const SETTINGS_SECTION_KEYS: Record<Exclude<SettingsSection, 'other'>, readonly string[]> = {
+// Unknown/out-of-band rows remain visible after the branding controls in the
+// "Other" tab so the backend's diagnostic contract is preserved when a
+// deployment contains an unexpected key.
+const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly string[]> = {
   access: [
     'auth.registration_mode',
     'auth.default_tenant_mode',
@@ -627,6 +672,7 @@ const SETTINGS_SECTION_KEYS: Record<Exclude<SettingsSection, 'other'>, readonly 
   tenant: [
     'tenant.default_storage_quota_gb',
     'tenant.auto_create_api_key',
+    'tenant.auto_accept_invitation',
   ],
   runtime: [
     'asynq.core_concurrency',
@@ -638,25 +684,21 @@ const SETTINGS_SECTION_KEYS: Record<Exclude<SettingsSection, 'other'>, readonly 
     'model.max_concurrency',
   ],
   security: ['ssrf.whitelist'],
+  other: [SITE_TITLE_KEY, SITE_LOGO_KEY],
 }
 
 const activeSettingsSection = ref<SettingsSection>('access')
 const knownSettingKeys = new Set(Object.values(SETTINGS_SECTION_KEYS).flat())
 const settingsByKey = computed(() => new Map(settings.value.map((item) => [item.key, item])))
 const unknownSettings = computed(() => settings.value.filter((item) => !knownSettingKeys.has(item.key)))
-const hasUnknownSettings = computed(() => unknownSettings.value.length > 0)
-
-watch(hasUnknownSettings, (hasUnknown) => {
-  if (!hasUnknown && activeSettingsSection.value === 'other') {
-    activeSettingsSection.value = 'access'
-  }
-})
 
 const activeSectionSettings = computed(() => {
-  if (activeSettingsSection.value === 'other') return unknownSettings.value
-  return SETTINGS_SECTION_KEYS[activeSettingsSection.value]
+  const configured = SETTINGS_SECTION_KEYS[activeSettingsSection.value]
     .map((key) => settingsByKey.value.get(key))
     .filter((item): item is SystemSettingItem => Boolean(item))
+  return activeSettingsSection.value === 'other'
+    ? [...configured, ...unknownSettings.value]
+    : configured
 })
 
 const activeSectionTitle = computed(() =>
@@ -669,7 +711,7 @@ const activeSectionDescription = computed(() =>
 
 function sectionTabLabel(section: SettingsSection): string {
   const count = section === 'other'
-    ? unknownSettings.value.length
+    ? SETTINGS_SECTION_KEYS.other.filter((key) => settingsByKey.value.has(key)).length + unknownSettings.value.length
     : SETTINGS_SECTION_KEYS[section].filter((key) => settingsByKey.value.has(key)).length + (section === 'access' ? 2 : 0)
   return t(`system.globalSettings.sections.${section}.tab`, { count })
 }
@@ -782,6 +824,111 @@ const ssrfSnapLocked = ref(false)
 // Initialised lazily in loadSettings; setting.value is the JSON-decoded
 // form (number / boolean / string / string[]).
 const editValues = reactive<Record<string, unknown>>({})
+const siteLogoInput = ref<HTMLInputElement | null>(null)
+
+function setSiteLogoInput(element: Element | ComponentPublicInstance | null) {
+  siteLogoInput.value = element instanceof HTMLInputElement ? element : null
+}
+
+function openSiteLogoPicker() {
+  siteLogoInput.value?.click()
+}
+
+function siteLogoPreview(): string {
+  const value = editValues[SITE_LOGO_KEY]
+  return typeof value === 'string' ? value : ''
+}
+
+async function detectSiteLogoMediaType(file: File): Promise<string> {
+  const header = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  if (
+    header.length >= 8 &&
+    header[0] === 0x89 &&
+    header[1] === 0x50 &&
+    header[2] === 0x4e &&
+    header[3] === 0x47 &&
+    header[4] === 0x0d &&
+    header[5] === 0x0a &&
+    header[6] === 0x1a &&
+    header[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    header.length >= 12 &&
+    header[0] === 0x52 &&
+    header[1] === 0x49 &&
+    header[2] === 0x46 &&
+    header[3] === 0x46 &&
+    header[8] === 0x57 &&
+    header[9] === 0x45 &&
+    header[10] === 0x42 &&
+    header[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  return ''
+}
+
+function readFileAsDataURL(file: File, mediaType: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      const separatorIndex = result.indexOf(',')
+      if (separatorIndex < 0) {
+        reject(new Error('invalid image data URL'))
+        return
+      }
+      resolve(`data:${mediaType};base64,${result.slice(separatorIndex + 1)}`)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onSiteLogoSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (file.size > SITE_LOGO_MAX_BYTES) {
+    MessagePlugin.error(t('system.globalSettings.branding.logoTooLarge'))
+    return
+  }
+
+  const item = settings.value.find((setting) => setting.key === SITE_LOGO_KEY)
+  if (!item) return
+  try {
+    const mediaType = await detectSiteLogoMediaType(file)
+    if (!mediaType) {
+      MessagePlugin.error(t('system.globalSettings.branding.invalidLogoType'))
+      return
+    }
+    editValues[SITE_LOGO_KEY] = await readFileAsDataURL(file, mediaType)
+    await persistSetting(item)
+  } catch {
+    editValues[SITE_LOGO_KEY] = item.value
+    MessagePlugin.error(t('system.globalSettings.branding.logoReadFailed'))
+  }
+}
+
+async function onSiteTitleBlur(item: SystemSettingItem) {
+  const value = editValues[item.key]
+  editValues[item.key] = typeof value === 'string' ? value.trim() : ''
+  await onChange(item)
+}
+
+function applyBrandingSetting(key: string, value: unknown, siteLogoURL?: string) {
+  if (key === SITE_TITLE_KEY) {
+    systemBrandingStore.applySiteTitle(value)
+  } else if (key === SITE_LOGO_KEY) {
+    systemBrandingStore.applySiteLogo(value, siteLogoURL)
+  }
+}
 
 function hasEnum(item: SystemSettingItem): boolean {
   return Array.isArray(item.enum) && item.enum.length > 0
@@ -1112,6 +1259,7 @@ async function resetSetting(item: SystemSettingItem) {
   try {
     await resetSystemSetting(item.key)
     await loadSettings()
+    applyBrandingSetting(item.key, '')
     markSettingSaved(item)
     MessagePlugin.success(t('system.globalSettings.reset.success'))
   } catch (err: any) {
@@ -1138,6 +1286,7 @@ async function persistSetting(item: SystemSettingItem) {
     editValues[item.key] = Array.isArray(updated.value)
       ? [...(updated.value as unknown[])]
       : updated.value
+    applyBrandingSetting(updated.key, updated.value, updated.site_logo_url)
     markSettingSaved(updated)
     MessagePlugin.success(t('system.globalSettings.messages.saveSuccess'))
   } catch (err: any) {
@@ -1595,6 +1744,37 @@ onUnmounted(() => {
   width: 320px;
 }
 
+.site-logo-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 240px;
+}
+
+.site-logo-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  overflow: hidden;
+  color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.site-logo-file-input {
+  display: none;
+}
+
 .password-reset-trigger {
   min-width: 112px;
   height: 32px;
@@ -1674,6 +1854,10 @@ onUnmounted(() => {
   .setting-input--wide {
     width: 100%;
     flex: 1;
+  }
+
+  .site-logo-control {
+    width: 100%;
   }
 
   .desc {

@@ -3,9 +3,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -13,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -25,11 +29,34 @@ import (
 	"github.com/Tencent/WeKnora/internal/utils"
 )
 
-// pubsubChannelBase is the Redis channel base for system_settings change
-// notifications. Mirrors the convention from approval/gate.go: optional
-// suffix WEKNORA_REDIS_NAMESPACE so two deployments sharing one Redis
-// instance don't cross-talk.
-const pubsubChannelBase = "weknora:system_settings:changed"
+// Redis names used by system settings. Mirrors the convention from
+// approval/gate.go: optional suffix WEKNORA_REDIS_NAMESPACE so two
+// deployments sharing one Redis instance don't cross-talk.
+const (
+	pubsubChannelBase      = "weknora:system_settings:changed"
+	siteLogoVersionKeyBase = "weknora:system_settings:branding:site_logo:version"
+)
+
+const (
+	SystemSettingSiteTitle  = "branding.site_title"
+	SystemSettingSiteLogo   = "branding.site_logo_data_url"
+	SiteTitleMaxRunes       = 40
+	SiteLogoMaxDecodedBytes = 1 << 20
+)
+
+var siteLogoDataURLPrefixes = map[string]string{
+	"image/png":  "data:image/png;base64,",
+	"image/jpeg": "data:image/jpeg;base64,",
+	"image/webp": "data:image/webp;base64,",
+}
+
+// SiteLogoAsset is the decoded, immutable representation served by the
+// branding endpoint. It is rebuilt only when the underlying setting changes.
+type SiteLogoAsset struct {
+	MediaType string
+	Content   []byte
+	Version   string
+}
 
 // pubsubChannel resolves the effective channel name (with optional
 // namespace suffix). Called both at publish time and inside the
@@ -39,6 +66,13 @@ func pubsubChannel() string {
 		return pubsubChannelBase + ":" + ns
 	}
 	return pubsubChannelBase
+}
+
+func siteLogoVersionKey() string {
+	if ns := strings.TrimSpace(os.Getenv("WEKNORA_REDIS_NAMESPACE")); ns != "" {
+		return siteLogoVersionKeyBase + ":" + ns
+	}
+	return siteLogoVersionKeyBase
 }
 
 // changeMessage is the JSON payload published whenever a setting is
@@ -118,6 +152,18 @@ var registry = map[string]settingSpec{
 	// docreader / the in-page bundle is worse than not having it.
 	// Keep MAX_FILE_SIZE_MB as a deploy-time env var until all four
 	// layers can be reconfigured in lockstep without restarts.
+	SystemSettingSiteTitle: {
+		Type:        "string",
+		Default:     "",
+		Category:    "branding",
+		Description: "左侧边栏顶部显示的网站标题。留空时显示默认标题“企业知识库”，修改后立即生效。",
+	},
+	SystemSettingSiteLogo: {
+		Type:        "string",
+		Default:     "",
+		Category:    "branding",
+		Description: "左侧边栏顶部显示的网站 Logo。支持 PNG、JPG 和 WebP，最大 1MB；留空时显示默认文件夹图标。",
+	},
 	"ssrf.whitelist": {
 		Type:     "string_list",
 		EnvName:  "SSRF_WHITELIST",
@@ -319,6 +365,14 @@ type systemSettingService struct {
 	// and the resolver should fall through to ENV/default".
 	mu    sync.RWMutex
 	cache map[string]*types.SystemSetting
+	// siteLogoAsset is prepared when the Logo setting is loaded or changed.
+	// Public image requests read it directly instead of repeatedly decoding a
+	// potentially 1MB Base64 value. logoBuildMu serialises the initial lazy
+	// build with update/pubsub refreshes.
+	logoMu        sync.RWMutex
+	logoBuildMu   sync.Mutex
+	logoReady     bool
+	siteLogoAsset *SiteLogoAsset
 
 	// loaded flips true once the initial preload finishes. Reads
 	// before this point fall through to the DB so the very first
@@ -387,6 +441,7 @@ func (s *systemSettingService) preload(ctx context.Context) {
 	// Add new bridges here as more env vars get migrated.
 	s.applySSRFWhitelist(ctx)
 	s.applyModelMaxConcurrency(ctx)
+	s.refreshSiteLogoAsset(ctx)
 }
 
 // encodeDefault produces the JSONB encoding for a spec's built-in
@@ -480,7 +535,199 @@ func (s *systemSettingService) dispatchSideEffects(ctx context.Context, changedK
 		s.applySSRFWhitelist(ctx)
 	case "model.max_concurrency":
 		s.applyModelMaxConcurrency(ctx)
+	case SystemSettingSiteLogo:
+		s.refreshSiteLogoAsset(ctx)
 	}
+}
+
+// GetSiteLogoAsset returns the prepared Logo resource. The first caller may
+// build it lazily while the asynchronous settings preload is still running;
+// subsequent requests only take a read lock.
+func (s *systemSettingService) GetSiteLogoAsset(ctx context.Context) *SiteLogoAsset {
+	s.logoMu.RLock()
+	ready := s.logoReady
+	asset := s.siteLogoAsset
+	s.logoMu.RUnlock()
+	// An empty asset is only final after the settings preload succeeds. If the
+	// preload failed, resolveRaw intentionally keeps using per-request DB reads,
+	// so a temporary startup outage must not permanently cache "no Logo".
+	if ready && (asset != nil || s.loaded.Load()) {
+		return asset
+	}
+
+	s.logoBuildMu.Lock()
+	defer s.logoBuildMu.Unlock()
+	// Another first request may have completed the build while this caller
+	// waited for logoBuildMu. Re-check under the serialisation lock so a cold
+	// start cannot queue one Base64 decode per concurrent public request.
+	s.logoMu.RLock()
+	ready = s.logoReady
+	asset = s.siteLogoAsset
+	s.logoMu.RUnlock()
+	if ready && (asset != nil || s.loaded.Load()) {
+		return asset
+	}
+
+	s.prepareSiteLogoAsset(ctx, false)
+	s.logoMu.RLock()
+	defer s.logoMu.RUnlock()
+	return s.siteLogoAsset
+}
+
+// GetSiteLogoAssetByVersion returns the exact immutable Logo revision named by
+// the public URL. A replica may still hold the previous revision briefly after
+// another replica updates the setting, so a local mismatch is reconciled from
+// the shared database before the request is rejected.
+func (s *systemSettingService) GetSiteLogoAssetByVersion(ctx context.Context, version string) *SiteLogoAsset {
+	if !validSiteLogoVersion(version) {
+		return nil
+	}
+
+	asset := s.GetSiteLogoAsset(ctx)
+	if asset != nil && asset.Version == version {
+		return asset
+	}
+	if !s.isCurrentSiteLogoVersion(ctx, version) {
+		return nil
+	}
+
+	s.logoBuildMu.Lock()
+	defer s.logoBuildMu.Unlock()
+
+	// A concurrent request or Redis invalidation may have refreshed the asset
+	// while this request waited for the build lock.
+	s.logoMu.RLock()
+	asset = s.siteLogoAsset
+	s.logoMu.RUnlock()
+	if asset != nil && asset.Version == version {
+		return asset
+	}
+
+	row, err := s.repo.Get(ctx, SystemSettingSiteLogo)
+	if err != nil {
+		logger.Warnf(ctx, "[system_settings] refresh site Logo revision %q failed: %v", version, err)
+		return nil
+	}
+
+	dataURL := ""
+	if row != nil {
+		if err := json.Unmarshal(row.Value, &dataURL); err != nil {
+			logger.Warnf(ctx, "[system_settings] decode site Logo setting failed: %v", err)
+			return nil
+		}
+	}
+	refreshed, err := buildSiteLogoAsset(dataURL)
+	if err != nil {
+		logger.Warnf(ctx, "[system_settings] prepare site Logo failed: %v", err)
+		return nil
+	}
+
+	// Keep the normal settings cache and the decoded asset aligned with the
+	// authoritative row so subsequent system-info and image requests stay on
+	// the fast path even if Redis delivery is still pending.
+	s.mu.Lock()
+	if row == nil {
+		delete(s.cache, SystemSettingSiteLogo)
+	} else {
+		s.cache[SystemSettingSiteLogo] = row
+	}
+	s.mu.Unlock()
+	s.storeSiteLogoAsset(refreshed)
+
+	if refreshed != nil && refreshed.Version == version {
+		return refreshed
+	}
+	return nil
+}
+
+func (s *systemSettingService) refreshSiteLogoAsset(ctx context.Context) {
+	s.logoBuildMu.Lock()
+	defer s.logoBuildMu.Unlock()
+	s.prepareSiteLogoAsset(ctx, true)
+}
+
+func (s *systemSettingService) prepareSiteLogoAsset(ctx context.Context, syncVersion bool) {
+	dataURL := s.GetString(ctx, SystemSettingSiteLogo, "", "")
+	asset, err := buildSiteLogoAsset(dataURL)
+	if err != nil {
+		logger.Warnf(ctx, "[system_settings] prepare site Logo failed: %v", err)
+		s.storeSiteLogoAsset(nil)
+		return
+	}
+	if syncVersion {
+		s.syncSiteLogoVersion(ctx, asset)
+	}
+	s.storeSiteLogoAsset(asset)
+}
+
+func (s *systemSettingService) syncSiteLogoVersion(ctx context.Context, asset *SiteLogoAsset) {
+	if s.rdb == nil {
+		return
+	}
+	redisCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	var err error
+	if asset == nil {
+		err = s.rdb.Del(redisCtx, siteLogoVersionKey()).Err()
+	} else {
+		err = s.rdb.Set(redisCtx, siteLogoVersionKey(), asset.Version, 0).Err()
+	}
+	if err != nil {
+		logger.Warnf(ctx, "[system_settings] sync site Logo revision: %v", err)
+	}
+}
+
+func (s *systemSettingService) isCurrentSiteLogoVersion(ctx context.Context, version string) bool {
+	if s.rdb == nil {
+		return false
+	}
+	redisCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	current, err := s.rdb.Get(redisCtx, siteLogoVersionKey()).Result()
+	if err != nil {
+		if !errors.Is(err, redis.Nil) {
+			logger.Warnf(ctx, "[system_settings] read current site Logo revision: %v", err)
+		}
+		return false
+	}
+	return current == version
+}
+
+func buildSiteLogoAsset(dataURL string) (*SiteLogoAsset, error) {
+	mediaType, content, err := DecodeSiteLogoDataURL(dataURL)
+	if err != nil {
+		return nil, err
+	}
+	if len(content) == 0 {
+		return nil, nil
+	}
+	fingerprint := sha256.Sum256(content)
+	return &SiteLogoAsset{
+		MediaType: mediaType,
+		Content:   content,
+		Version:   fmt.Sprintf("%x", fingerprint[:8]),
+	}, nil
+}
+
+func (s *systemSettingService) storeSiteLogoAsset(asset *SiteLogoAsset) {
+	s.logoMu.Lock()
+	s.siteLogoAsset = asset
+	s.logoReady = true
+	s.logoMu.Unlock()
+}
+
+func validSiteLogoVersion(version string) bool {
+	if len(version) != 16 {
+		return false
+	}
+	for i := 0; i < len(version); i++ {
+		if (version[i] < '0' || version[i] > '9') && (version[i] < 'a' || version[i] > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // applySSRFWhitelist resolves the active ssrf.whitelist via the 3-tier
@@ -1158,8 +1405,8 @@ func (s *systemSettingService) emitChangeAudit(
 	details, _ := json.Marshal(map[string]any{
 		"key":        key,
 		"value_type": valueType,
-		"old_value":  json.RawMessage(oldValue),
-		"new_value":  json.RawMessage(newValue),
+		"old_value":  auditSettingValue(key, oldValue),
+		"new_value":  auditSettingValue(key, newValue),
 	})
 	_ = s.audit.Log(ctx, &types.AuditLog{
 		// tenant_id=0 marks the row as system-scope (the audit_logs
@@ -1174,6 +1421,35 @@ func (s *systemSettingService) emitChangeAudit(
 		Outcome:     types.AuditOutcomeSuccess,
 		Details:     types.JSON(details),
 	})
+}
+
+func auditSettingValue(key string, value types.JSON) any {
+	if key != SystemSettingSiteLogo {
+		return json.RawMessage(value)
+	}
+	if len(value) == 0 {
+		return nil
+	}
+
+	var dataURL string
+	if err := json.Unmarshal(value, &dataURL); err != nil {
+		return map[string]any{"configured": true, "valid": false}
+	}
+	if dataURL == "" {
+		return map[string]any{"configured": false}
+	}
+
+	mediaType, logoBytes, err := DecodeSiteLogoDataURL(dataURL)
+	if err != nil {
+		return map[string]any{"configured": true, "valid": false}
+	}
+	fingerprint := sha256.Sum256(logoBytes)
+	return map[string]any{
+		"configured":   true,
+		"content_type": mediaType,
+		"size_bytes":   len(logoBytes),
+		"sha256":       fmt.Sprintf("%x", fingerprint[:]),
+	}
 }
 
 // encodeForType validates rawValue against the declared type and
@@ -1285,6 +1561,27 @@ func encodeForType(declared string, rawValue any) (types.JSON, error) {
 //     400 body verbatim).
 func validateRegistryEntry(key string, rawValue any) error {
 	switch key {
+	case SystemSettingSiteTitle:
+		title, ok := rawValue.(string)
+		if !ok {
+			return fmt.Errorf("expected string, got %T", rawValue)
+		}
+		if title != strings.TrimSpace(title) {
+			return errors.New("site title must not start or end with whitespace")
+		}
+		if strings.ContainsAny(title, "\r\n\t") {
+			return errors.New("site title must be a single line")
+		}
+		if utf8.RuneCountInString(title) > SiteTitleMaxRunes {
+			return fmt.Errorf("site title must not exceed %d characters", SiteTitleMaxRunes)
+		}
+	case SystemSettingSiteLogo:
+		logo, ok := rawValue.(string)
+		if !ok {
+			return fmt.Errorf("expected string, got %T", rawValue)
+		}
+		_, _, err := DecodeSiteLogoDataURL(logo)
+		return err
 	case "asynq.core_concurrency", "asynq.postprocess_concurrency",
 		"asynq.enrichment_concurrency", "asynq.maintenance_concurrency",
 		"asynq.shared_concurrency", "asynq.wiki_concurrency":
@@ -1306,6 +1603,41 @@ func validateRegistryEntry(key string, rawValue any) error {
 		return utils.ValidateSSRFWhitelistEntries(entries)
 	}
 	return nil
+}
+
+// DecodeSiteLogoDataURL validates and decodes the persisted site Logo.
+// Empty input represents the built-in folder icon and is therefore valid.
+func DecodeSiteLogoDataURL(raw string) (string, []byte, error) {
+	if raw == "" {
+		return "", nil, nil
+	}
+
+	var mediaType, payload string
+	for candidateType, prefix := range siteLogoDataURLPrefixes {
+		if strings.HasPrefix(raw, prefix) {
+			mediaType = candidateType
+			payload = strings.TrimPrefix(raw, prefix)
+			break
+		}
+	}
+	if mediaType == "" {
+		return "", nil, errors.New("site logo must be a PNG, JPG, or WebP image")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return "", nil, errors.New("site logo contains invalid base64 data")
+	}
+	if len(decoded) == 0 {
+		return "", nil, errors.New("site logo must not be empty")
+	}
+	if len(decoded) > SiteLogoMaxDecodedBytes {
+		return "", nil, fmt.Errorf("site logo must not exceed %d bytes", SiteLogoMaxDecodedBytes)
+	}
+	if detected := http.DetectContentType(decoded); detected != mediaType {
+		return "", nil, fmt.Errorf("site logo content type %q does not match %q", detected, mediaType)
+	}
+	return mediaType, decoded, nil
 }
 
 // coerceToPositiveInt64 accepts int / int64 / float64 from JSON decoding.
