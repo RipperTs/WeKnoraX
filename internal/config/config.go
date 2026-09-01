@@ -326,6 +326,7 @@ type FushunSSOConfig struct {
 	AuthURL        string `yaml:"auth_url"          json:"auth_url"`
 	DoLoginURL     string `yaml:"do_login_url"      json:"do_login_url"`
 	GetUserInfoURL string `yaml:"get_user_info_url" json:"get_user_info_url"`
+	EmailSuffix    string `yaml:"email_suffix"      json:"email_suffix"`
 }
 
 // PromptTemplateI18n holds localized name and description for a prompt template.
@@ -775,6 +776,9 @@ func applyFushunSSOEnvOverrides(cfg *Config) {
 	}
 	if value := strings.TrimSpace(os.Getenv("SSO_GET_USER_INFO_URL")); value != "" {
 		cfg.FushunSSO.GetUserInfoURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SSO_EMAIL_SUFFIX")); value != "" {
+		cfg.FushunSSO.EmailSuffix = value
 	}
 }
 

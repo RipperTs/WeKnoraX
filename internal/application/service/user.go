@@ -337,6 +337,8 @@ type fushunSSOUserInfoResponse struct {
 	} `json:"data"`
 }
 
+const defaultFushunSSOEmailSuffix = "example.com"
+
 // LoginWithFushunSSO exchanges the remote SSO token for a local session.
 func (s *userService) LoginWithFushunSSO(
 	ctx context.Context,
@@ -368,7 +370,7 @@ func (s *userService) LoginWithFushunSSO(
 		user, err = s.Register(ctx, &types.RegisterRequest{
 			Username:           info.Data.EmployeeNo,
 			Name:               info.Data.Name,
-			Email:              fushunSSOPlaceholderEmail(info.Data.EmployeeNo),
+			Email:              fushunSSOEmail(info.Data.EmployeeNo, cfg.EmailSuffix),
 			Password:           randomPassword,
 			TenantProvisioning: provisioning,
 		})
@@ -409,6 +411,10 @@ func (s *userService) getFushunSSOConfig() (*config.FushunSSOConfig, error) {
 	if strings.TrimSpace(cfg.AuthURL) == "" || strings.TrimSpace(cfg.DoLoginURL) == "" ||
 		strings.TrimSpace(cfg.GetUserInfoURL) == "" {
 		return nil, errors.New("Fushun SSO login is disabled")
+	}
+	cfg.EmailSuffix = strings.TrimSpace(cfg.EmailSuffix)
+	if cfg.EmailSuffix == "" {
+		cfg.EmailSuffix = defaultFushunSSOEmailSuffix
 	}
 	if err := secutils.ValidateURLForSSRF(cfg.GetUserInfoURL); err != nil {
 		return nil, fmt.Errorf("Fushun SSO userinfo URL failed SSRF validation: %w", err)
@@ -452,8 +458,8 @@ func fetchFushunSSOUserInfo(ctx context.Context, endpoint, remoteToken string) (
 	return &result, nil
 }
 
-func fushunSSOPlaceholderEmail(employeeNo string) string {
-	return employeeNo + "@fsxgt.sso.invalid"
+func fushunSSOEmail(employeeNo, emailSuffix string) string {
+	return employeeNo + "@" + emailSuffix
 }
 
 // buildMembershipsForUser returns the user's tenant memberships projected

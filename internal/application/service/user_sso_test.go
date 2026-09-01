@@ -106,7 +106,7 @@ func TestLoginWithFushunSSOAutoProvisionsWorkIDUser(t *testing.T) {
 	if repo.created.Name != "张三" {
 		t.Fatalf("name = %q, want SSO Chinese name", repo.created.Name)
 	}
-	if repo.created.Email != "10001@fsxgt.sso.invalid" {
-		t.Fatalf("email = %q, want internal placeholder", repo.created.Email)
+	if repo.created.Email != "10001@example.com" {
+		t.Fatalf("email = %q, want default SSO email suffix", repo.created.Email)
 	}
 }
