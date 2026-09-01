@@ -1656,6 +1656,8 @@ func (h *SystemHandler) CreateSystemUser(c *gin.Context) {
 			c.JSON(http.StatusOK, CreateSystemUserResponse{User: user.ToUserInfo()})
 		case errors.Is(err, service.ErrPasswordPolicy):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrUsernameContainsAt):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, service.ErrUserIdentityConflict):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		default:

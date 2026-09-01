@@ -530,10 +530,10 @@ Handler：`internal/handler/tenant_member.go`、`tenant_invitation.go`。`/tenan
 | 端点 | 最低角色 | 说明 |
 | --- | --- | --- |
 | `GET /tenants/:id/members` | Viewer | 分页列出 active 成员，`q` 按邮箱/用户名模糊过滤 |
-| `POST /tenants/:id/members` | Owner | 直接添加现有用户 `{email, role}` |
+| `POST /tenants/:id/members` | Owner | 通过用户名或邮箱直接添加现有用户 `{account, role}` |
 | `PUT /tenants/:id/members/:user_id` | Owner | 修改角色 |
 | `DELETE /tenants/:id/members/:user_id` | Owner | 移除成员 |
-| `POST /tenants/:id/invitations` | Owner | 定向邀请现有用户 `{email, role, message}` |
+| `POST /tenants/:id/invitations` | Owner | 通过用户名或邮箱定向邀请现有用户 `{account, role, message}` |
 | `GET /tenants/:id/invitations` | Viewer | 列出邀请 |
 | `DELETE /tenants/:id/invitations/:inv_id` | Owner | 撤销邀请 |
 | `GET /me/invitations` | 本人 | 邀请收件箱 |

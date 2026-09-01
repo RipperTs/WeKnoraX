@@ -57,7 +57,7 @@ export default {
     inviteSubmit: '초대 보내기',
     inviteSuccess: '초대가 전송되었습니다.',
     confirmInviteTitle: '초대를 보내시겠습니까?',
-    confirmInviteBody: '{email}에게 초대를 보냅니다(역할: {role}). 수락 후 멤버가 됩니다.',
+    confirmInviteBody: '{account}에게 초대를 보냅니다(역할: {role}). 수락 후 멤버가 됩니다.',
     confirmSend: '보내기',
     copyLink: '초대 링크 복사',
     copied: '클립보드에 복사됨',
@@ -170,10 +170,9 @@ export default {
       }
     },
     errors: {
-      emailRequired: '이메일을 입력하세요',
-      emailFormat: '올바른 이메일 형식이 아닙니다',
+      accountRequired: '사용자 이름 또는 이메일을 입력하세요',
       roleRequired: '역할을 선택하세요',
-      userNotFound: '해당 이메일로 가입된 사용자가 없습니다. 먼저 가입을 요청하세요.',
+      userNotFound: '해당 사용자 이름 또는 이메일과 일치하는 가입 사용자가 없습니다.',
       lastOwner: '마지막 소유자를 강등, 제거, 또는 떠날 수 없습니다. 다른 멤버를 먼저 소유자로 승격하세요.',
       notFound: '멤버를 찾을 수 없습니다.',
       invalidRole: '역할은 owner / admin / contributor / viewer 중 하나여야 합니다.',
@@ -197,8 +196,8 @@ export default {
     add: {
       button: '멤버 초대',
       dialogTitle: '멤버 초대',
-      emailLabel: '이메일',
-      emailPlaceholder: 'invitee{\'@\'}example.com',
+      accountLabel: '사용자 이름 또는 이메일',
+      accountPlaceholder: '사용자 이름 또는 이메일 입력',
       roleLabel: '역할'
     },
     role: {
@@ -4539,7 +4538,7 @@ export default {
       inviteOnlyDescription: '개인 공간 만들기가 비활성화되어 있습니다. 관리자가 보낸 초대를 확인하고 수락하세요.',
       inviteOnlyNotice: '이 계정은 초대를 통해서만 기존 공간에 참여할 수 있습니다',
       help: '지금 작업 공간을 만들거나 나중에 돌아와 초대를 수락할 수 있습니다.',
-      inviteOnlyHelp: '초대가 없다면 등록 이메일을 공간 관리자에게 전달하고 초대를 요청하세요.'
+      inviteOnlyHelp: '초대가 없다면 사용자 이름 또는 등록 이메일을 공간 관리자에게 전달하고 초대를 요청하세요.'
     }
   },
   inviteRegister: {

@@ -53,19 +53,28 @@ func NewTenantMemberHandler(
 }
 
 // addMemberRequest is the JSON body for POST /tenants/:id/members.
-// Email is the user-facing invite identifier; the handler resolves it to a
-// User via UserService.GetUserByEmail. PR 3 does not implement
-// email-based invitations for users that don't exist yet — the invitee
-// must already have an account. Sending an email invite is tracked as a
-// PR 4 candidate.
+// Account is the registered username or email used to resolve the target user.
 type addMemberRequest struct {
-	Email string           `json:"email" binding:"required,email"`
-	Role  types.TenantRole `json:"role" binding:"required"`
+	Account string           `json:"account" binding:"required"`
+	Role    types.TenantRole `json:"role" binding:"required"`
 }
 
 // updateMemberRoleRequest is the JSON body for PUT /tenants/:id/members/:user_id.
 type updateMemberRoleRequest struct {
 	Role types.TenantRole `json:"role" binding:"required"`
+}
+
+// lookupUserByAccount reserves "@" for email identifiers; all other values
+// are treated as usernames.
+func lookupUserByAccount(
+	ctx context.Context,
+	userService interfaces.UserService,
+	account string,
+) (*types.User, error) {
+	if strings.Contains(account, "@") {
+		return userService.GetUserByEmail(ctx, account)
+	}
+	return userService.GetUserByUsername(ctx, account)
 }
 
 // parseTenantIDFromPath reads :id from the gin route and validates it as
@@ -166,7 +175,7 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 // @Summary      直接添加空间成员（直加路径）
 // @Description
 //
-//	Owner 通过 email 直接把用户作为 active 成员添加进当前空间。
+//	Owner 通过用户名或邮箱直接把用户作为 active 成员添加进当前空间。
 //
 //	这是【直加路径】，被加入的用户没有任何确认机会就出现在空间里——
 //	保留它是为了三类不需要走邀请确认的场景：
@@ -207,18 +216,20 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.GetUserByEmail(ctx, strings.TrimSpace(req.Email))
+	account := strings.TrimSpace(req.Account)
+	if account == "" {
+		c.Error(apperrors.NewValidationError("account is required"))
+		return
+	}
+	user, err := lookupUserByAccount(ctx, h.userService, account)
 	if err != nil {
-		// ErrUserNotFound is the deliberate "not registered yet" signal;
-		// mapping it to 404 lets the UI render "ask them to sign up first"
-		// instead of a generic failure.
 		if errors.Is(err, apprepo.ErrUserNotFound) {
 			c.Error(apperrors.NewNotFoundError(
-				"user with this email is not registered; ask them to sign up first"))
+				"user with this username or email is not registered"))
 			return
 		}
-		logger.Errorf(ctx, "GetUserByEmail failed: email=%s err=%v",
-			secutils.SanitizeForLog(req.Email), err)
+		logger.Errorf(ctx, "lookupUserByAccount failed: account=%s err=%v",
+			secutils.SanitizeForLog(account), err)
 		c.Error(apperrors.NewInternalServerError("failed to look up user").WithDetails(err.Error()))
 		return
 	}

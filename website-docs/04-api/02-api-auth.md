@@ -12,7 +12,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `username` | string | 是（`binding:"required"`） | 用户名 |
+| `username` | string | 是（`binding:"required,min=2,max=50,excludes=@"`） | 用户名（不能包含 `@`） |
 | `email` | string | 是（`binding:"required"`） | 邮箱 |
 | `password` | string | 是（`binding:"required"`） | 密码 |
 | `tenant_provisioning` | string | 否 | 空间开通策略 |
@@ -32,7 +32,7 @@ curl -X POST $BASE/api/v1/auth/register -H 'Content-Type: application/json' \
 | --- | --- | --- | --- |
 | `token` | string | 是（`binding:"required"`） | 邀请 token |
 | `email` | string | 是（`binding:"required,email"`） | 邮箱 |
-| `username` | string | 是（`binding:"required"`） | 用户名 |
+| `username` | string | 是（`binding:"required,excludes=@"`） | 用户名（不能包含 `@`） |
 | `password` | string | 是（`binding:"required,min=6"`） | 密码（≥6 位） |
 
 响应：201，同 Login（`user/active_tenant/memberships/token/refresh_token`）。

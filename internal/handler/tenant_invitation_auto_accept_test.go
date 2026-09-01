@@ -50,16 +50,24 @@ func (s *autoAcceptMemberSvc) AddMember(_ context.Context, userID string, _ uint
 	}, nil
 }
 
-// autoAcceptUserSvc resolves GetUserByEmail for the 404 / happy paths.
+// autoAcceptUserSvc resolves username/email accounts for the 404 / happy paths.
 type autoAcceptUserSvc struct {
 	interfaces.UserService
-	user          *types.User
-	uerr          error
-	updatedTenant uint64
-	updateCalled  bool
+	user            *types.User
+	uerr            error
+	emailLookups    int
+	usernameLookups int
+	updatedTenant   uint64
+	updateCalled    bool
 }
 
 func (s *autoAcceptUserSvc) GetUserByEmail(_ context.Context, _ string) (*types.User, error) {
+	s.emailLookups++
+	return s.user, s.uerr
+}
+
+func (s *autoAcceptUserSvc) GetUserByUsername(_ context.Context, _ string) (*types.User, error) {
+	s.usernameLookups++
 	return s.user, s.uerr
 }
 
@@ -128,12 +136,16 @@ func TestCreateInvitation_AutoAcceptEnabled_AddsMemberDirectly(t *testing.T) {
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"contributor"}`)
+	w := postAutoAcceptInvitation(t, r, `{"account":"bob","role":"contributor"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	if !members.addCalled {
 		t.Fatal("auto-accept should call memberService.AddMember")
+	}
+	if users.usernameLookups != 1 || users.emailLookups != 0 {
+		t.Fatalf("username account should use username lookup, got username=%d email=%d",
+			users.usernameLookups, users.emailLookups)
 	}
 	if invites.created {
 		t.Fatal("auto-accept must not create a pending invitation row")
@@ -172,12 +184,16 @@ func TestCreateInvitation_AutoAcceptDisabled_UsesInvitationFlow(t *testing.T) {
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"viewer"}`)
+	w := postAutoAcceptInvitation(t, r, `{"account":"bob@x.com","role":"viewer"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	if members.addCalled {
 		t.Fatal("auto-accept disabled must NOT call AddMember")
+	}
+	if users.emailLookups != 1 || users.usernameLookups != 0 {
+		t.Fatalf("email account should use email lookup, got email=%d username=%d",
+			users.emailLookups, users.usernameLookups)
 	}
 	if !invites.created {
 		t.Fatal("disabled switch should fall through to the pending-invitation flow")
@@ -209,13 +225,13 @@ func TestCreateInvitation_AutoAccept_AlreadyMemberReturns409(t *testing.T) {
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"viewer"}`)
+	w := postAutoAcceptInvitation(t, r, `{"account":"bob@x.com","role":"viewer"}`)
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s, want 409", w.Code, w.Body.String())
 	}
 }
 
-func TestCreateInvitation_AutoAccept_UnknownEmailReturns404(t *testing.T) {
+func TestCreateInvitation_AutoAccept_UnknownAccountReturns404(t *testing.T) {
 	users := &autoAcceptUserSvc{uerr: apprepo.ErrUserNotFound}
 	members := &autoAcceptMemberSvc{}
 	invites := &autoAcceptInvitationSvc{}
@@ -227,7 +243,7 @@ func TestCreateInvitation_AutoAccept_UnknownEmailReturns404(t *testing.T) {
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"ghost@x.com","role":"viewer"}`)
+	w := postAutoAcceptInvitation(t, r, `{"account":"ghost@x.com","role":"viewer"}`)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s, want 404", w.Code, w.Body.String())
 	}
@@ -245,7 +261,7 @@ func TestCreateInvitation_AutoAccept_APICannotAssignOwnerReturns403(t *testing.T
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"owner"}`)
+	w := postAutoAcceptInvitation(t, r, `{"account":"bob@x.com","role":"owner"}`)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s, want 403", w.Code, w.Body.String())
 	}
@@ -261,7 +277,7 @@ func TestCreateInvitation_AutoAcceptEnabled_NilMemberServiceReturns500(t *testin
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"viewer"}`)
+	w := postAutoAcceptInvitation(t, r, `{"account":"bob@x.com","role":"viewer"}`)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s, want 500", w.Code, w.Body.String())
 	}
@@ -284,7 +300,7 @@ func TestCreateInvitation_AutoAccept_AdoptsTenantlessInviteeHomeTenant(t *testin
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"contributor"}`)
+	w := postAutoAcceptInvitation(t, r, `{"account":"bob@x.com","role":"contributor"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}

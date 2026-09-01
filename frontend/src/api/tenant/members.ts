@@ -49,7 +49,7 @@ function buildMembersQuery(params: ListMembersParams | undefined): string {
 }
 
 export interface AddMemberRequest {
-  email: string
+  account: string
   role: TenantRole
 }
 
@@ -101,12 +101,10 @@ export async function fetchAllTenantMembers(tenantId: number): Promise<TenantMem
 }
 
 /**
- * Invite an existing user (by email) to the tenant with the given role.
+ * Add an existing user (by username or email) to the tenant with the given role.
  * Backend: POST /api/v1/tenants/:id/members (Owner+).
  *
- * Returns 404 when the email does not match any registered user — the
- * caller should ask the invitee to register first. PR 3 does not yet
- * support email-based invites for users who don't have an account.
+ * Returns 404 when the account does not match any registered user.
  */
 export async function addMember(
   tenantId: number,

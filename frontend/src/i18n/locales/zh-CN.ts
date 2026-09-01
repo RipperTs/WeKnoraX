@@ -57,7 +57,7 @@ export default {
     inviteSubmit: '发送邀请',
     inviteSuccess: '邀请已发出，等待对方接受。',
     confirmInviteTitle: '确认发送邀请？',
-    confirmInviteBody: '将向 {email} 发出加入邀请（角色：{role}）。TA 在站内接受后才会成为成员。',
+    confirmInviteBody: '将向 {account} 发出加入邀请（角色：{role}）。TA 在站内接受后才会成为成员。',
     confirmSend: '发送',
     copyLink: '复制邀请链接',
     copied: '已复制到剪贴板',
@@ -170,10 +170,9 @@ export default {
       }
     },
     errors: {
-      emailRequired: '请输入邮箱',
-      emailFormat: '邮箱格式不正确',
+      accountRequired: '请输入用户名或邮箱',
       roleRequired: '请选择角色',
-      userNotFound: '该邮箱尚未注册，请先邀请对方注册账号。',
+      userNotFound: '未找到该用户名或邮箱对应的已注册用户。',
       lastOwner: '无法降级、移除或退出最后一位 Owner，请先把其他成员提升为 Owner。',
       notFound: '未找到对应的成员。',
       invalidRole: '角色必须是 owner / admin / contributor / viewer 之一。',
@@ -197,8 +196,8 @@ export default {
     add: {
       button: '邀请成员',
       dialogTitle: '邀请成员',
-      emailLabel: '邮箱',
-      emailPlaceholder: 'invitee{\'@\'}example.com',
+      accountLabel: '用户名或邮箱',
+      accountPlaceholder: '请输入用户名或邮箱',
       roleLabel: '角色'
     },
     role: {
@@ -4541,7 +4540,7 @@ export default {
       inviteOnlyDescription: '当前系统不开放个人创建空间。你可以查看并接受管理员发来的空间邀请。',
       inviteOnlyNotice: '此账户只能通过邀请加入已有空间',
       help: '你现在可以创建空间，也可以稍后回来接受邀请。',
-      inviteOnlyHelp: '还没有邀请？请把你的注册邮箱提供给空间管理员，由管理员向你发送邀请。'
+      inviteOnlyHelp: '还没有邀请？请把你的用户名或注册邮箱提供给空间管理员，由管理员向你发送邀请。'
     }
   },
   inviteRegister: {
