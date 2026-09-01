@@ -39,5 +39,19 @@ if [ -d "$BUILTIN_DIR" ]; then
     chown -R appuser:appuser "$PRELOADED_DIR"
 fi
 
+# ─── Grant appuser access to the mounted Docker socket ───
+DOCKER_SOCKET="/var/run/docker.sock"
+if [ -S "$DOCKER_SOCKET" ]; then
+    docker_socket_gid="$(stat -c '%g' "$DOCKER_SOCKET")"
+    docker_socket_group="$(getent group "$docker_socket_gid" | cut -d: -f1)"
+
+    if [ -z "$docker_socket_group" ]; then
+        docker_socket_group="docker-host-${docker_socket_gid}"
+        groupadd --gid "$docker_socket_gid" "$docker_socket_group"
+    fi
+
+    usermod --append --groups "$docker_socket_group" appuser
+fi
+
 # ─── Drop privileges and exec the main process ───
 exec gosu appuser "$@"
