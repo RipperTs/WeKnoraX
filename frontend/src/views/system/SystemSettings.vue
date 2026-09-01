@@ -672,6 +672,7 @@ const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly string[]> = {
   tenant: [
     'tenant.default_storage_quota_gb',
     'tenant.auto_create_api_key',
+    'tenant.auto_accept_invitation',
   ],
   runtime: [
     'asynq.core_concurrency',
