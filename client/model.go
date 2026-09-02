@@ -83,6 +83,7 @@ type Model struct {
 	Description string          `json:"description"`
 	Parameters  ModelParameters `json:"parameters"`
 	IsDefault   bool            `json:"is_default"`
+	SortOrder   int             `json:"sort_order"`
 	CreatedAt   string          `json:"created_at"`
 	UpdatedAt   string          `json:"updated_at"`
 }
@@ -96,6 +97,7 @@ type CreateModelRequest struct {
 	Description string          `json:"description"`
 	Parameters  ModelParameters `json:"parameters"`
 	IsDefault   bool            `json:"is_default"`
+	SortOrder   *int            `json:"sort_order,omitempty"`
 }
 
 // UpdateModelRequest model update request
@@ -105,6 +107,7 @@ type UpdateModelRequest struct {
 	Description string          `json:"description"`
 	Parameters  ModelParameters `json:"parameters"`
 	IsDefault   bool            `json:"is_default"`
+	SortOrder   *int            `json:"sort_order,omitempty"`
 }
 
 // ModelResponse model response
