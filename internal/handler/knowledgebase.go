@@ -659,6 +659,21 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 		})
 		return
 	}
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
+		scope, _ := types.TenantAPIKeyScopeFromContext(ctx)
+		kbs, err := h.service.GetKnowledgeBasesByIDsOnly(ctx, scope.KnowledgeBaseIDs)
+		if err != nil {
+			logger.ErrorWithFields(ctx, err, nil)
+			_ = c.Error(apperrors.NewInternalServerError(err.Error()))
+			return
+		}
+		callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    h.buildKBListResponse(ctx, filterKnowledgeBasesForAPIKeyScope(ctx, kbs), callerTenantID),
+		})
+		return
+	}
 
 	// Get all knowledge bases for this tenant
 	kbs, err := h.service.ListKnowledgeBases(ctx)
@@ -728,7 +743,7 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 
 func filterKnowledgeBasesForAPIKeyScope(ctx context.Context, kbs []*types.KnowledgeBase) []*types.KnowledgeBase {
 	scope, ok := types.TenantAPIKeyScopeFromContext(ctx)
-	if !ok || len(scope.KnowledgeBaseIDs) == 0 {
+	if !ok || !scope.IsKnowledgeBaseRestricted() {
 		return kbs
 	}
 	filtered := make([]*types.KnowledgeBase, 0, len(kbs))

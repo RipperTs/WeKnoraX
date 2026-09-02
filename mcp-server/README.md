@@ -26,6 +26,11 @@ set WEKNORA_BASE_URL=http://localhost:8080/api/v1
 set WEKNORA_API_KEY=your_api_key_here
 ```
 
+第三方连接请把授权码换取到的 `wkic_...` 凭证配置为
+`WEKNORA_API_KEY`。不要使用浏览器 JWT 或 OIDC Token。使用 `wkic_`
+凭证时，MCP 会自动只注册读取工具，且每次调用都由 WeKnora 重新计算
+当前有效的知识库范围。
+
 ### 3. 运行服务器
 
 **推荐方式 - 使用主入口点：**
@@ -118,6 +123,7 @@ python test_module.py
 - `get_knowledge_base` - 获取知识库详情
 - `delete_knowledge_base` - 删除知识库
 - `hybrid_search` - 混合搜索
+- `knowledge_search` - 跨当前凭证允许的多个知识库搜索；第三方连接可省略知识库 ID
 
 ### 知识管理
 - `create_knowledge_from_file` - 从本地文件创建知识
@@ -144,6 +150,13 @@ python test_module.py
 ### 块管理
 - `list_chunks` - 列出知识块
 - `delete_chunk` - 删除知识块
+
+### 第三方连接只读工具
+
+当 `WEKNORA_API_KEY` 以 `wkic_` 开头时，只暴露
+`list_knowledge_bases`、`get_knowledge_base`、`hybrid_search`、
+`knowledge_search`、`list_knowledge`、`get_knowledge`、`list_chunks` 和
+Wiki 读取工具。写入、会话、模型、空间及 Agent 管理工具不会注册。
 
 ## 故障排除
 

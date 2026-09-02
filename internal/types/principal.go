@@ -11,6 +11,7 @@ const (
 	PrincipalAPITenant       = "api_tenant"
 	PrincipalAPIPlatform     = "api_platform"
 	PrincipalAPIExternalUser = "api_external_user"
+	PrincipalIntegrationUser = "integration_user"
 	PrincipalIMUser          = "im_user"
 	PrincipalEmbedChannel    = "embed_channel"
 	PrincipalEmbedSession    = "embed_session"
@@ -178,7 +179,7 @@ func MCPOAuthPrincipalFromContext(ctx context.Context) Principal {
 func SessionOwnerIDFromContext(ctx context.Context) string {
 	if p, ok := PrincipalFromContext(ctx); ok {
 		switch p.Type {
-		case PrincipalAPIExternalUser, PrincipalEmbedSession:
+		case PrincipalAPIExternalUser, PrincipalIntegrationUser, PrincipalEmbedSession:
 			return p.StorageID()
 		case PrincipalAPITenant:
 			if scope, ok := TenantAPIKeyScopeFromContext(ctx); ok && scope.KeyID > 0 {

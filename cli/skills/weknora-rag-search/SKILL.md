@@ -20,6 +20,7 @@ one wastes turns or returns the wrong shape. Use the decision table.
 | Natural-language **answer** grounded in a KB | `chat "<q>" --kb <kb>` | yes | bounded answer events; `--reference` adds citations; `--verbose` adds execution detail |
 | Answer via a **custom agent** (its own KB scope, tools, web search) | `session ask --agent <id> "<q>"` | yes (+ tools) | bounded answer events; `--reference` adds citations; `--verbose` adds execution detail |
 | **Raw context chunks** to reason over yourself (no answer) | `search chunks "<q>" --kb <kb>` | no | ranked chunk list |
+| Raw context across every KB allowed to a third-party connection | `weknora api /api/v1/knowledge-search -d '{"query":"<q>"}'` | no | ranked multi-KB chunk list |
 | Which **documents** match a keyword (title/filename) | `search docs "<q>" --kb <kb>` | no | document list |
 | Find a **knowledge base** by name | `search kb "<q>"` | no | KB list |
 | Find a past **session** by title | `search sessions "<q>"` | no | session list |
@@ -44,6 +45,11 @@ one wastes turns or returns the wrong shape. Use the decision table.
   If none resolves it's exit 1 (`local.kb_id_required`); a bad name is exit 1
   (`local.kb_not_found`). Resolve names with `weknora kb list` / `search kb`.
   (`search kb` / `search sessions` are tenant-wide and take no `--kb`.)
+- With `WEKNORA_API_KEY=wkic_...`, use `/api/v1/knowledge-search` without
+  `knowledge_base_ids` to search all knowledge bases currently allowed by the
+  connection. The server computes the scope on every request; never cache or
+  broaden the returned KB IDs. This endpoint returns source chunks, leaving
+  answer synthesis to the calling Agent.
 - `chat` / `session ask` return one buffered JSON envelope with answer
   events by default. Add `--reference` for indexed citations and `--verbose`
   for execution detail; use `--format ndjson` for raw events or `--format
@@ -64,6 +70,9 @@ one wastes turns or returns the wrong shape. Use the decision table.
 ```bash
 # raw retrieval to reason over
 weknora search chunks "retry backoff policy" --kb engineering --limit 12
+
+# cross-KB retrieval with a third-party connection credential
+weknora api /api/v1/knowledge-search -d '{"query":"retry backoff policy"}'
 
 # grounded answer (human transcript)
 weknora chat "How do we handle retries?" --kb engineering --format text

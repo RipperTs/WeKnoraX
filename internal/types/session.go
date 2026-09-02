@@ -221,11 +221,16 @@ func (c *StringArray) Scan(value interface{}) error {
 	if value == nil {
 		return nil
 	}
-	b, ok := value.([]byte)
-	if !ok {
+	var data []byte
+	switch v := value.(type) {
+	case []byte:
+		data = v
+	case string:
+		data = []byte(v)
+	default:
 		return nil
 	}
-	return json.Unmarshal(b, c)
+	return json.Unmarshal(data, c)
 }
 
 // Value implements the driver.Valuer interface, used to convert SummaryConfig to database value

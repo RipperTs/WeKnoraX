@@ -216,7 +216,7 @@ Key packages:
 - `internal/secrets/` — `Store` interface; `KeyringStore` primary, `FileStore` 0600 fallback, `MemStore` for tests
 - `internal/prompt/` — `TTYPrompter` (password no-echo) + `AgentPrompter` (non-TTY no-prompt sentinel)
 - `internal/sse/` — `Accumulator` for chat / session ask SSE streams
-- `internal/mcp/` — curated 10-tool stdio MCP server (wired by `cmd/mcp/serve.go`); see [MCP tool surface](#mcp-tool-surface) for the curation rationale and inventory
+- `internal/mcp/` — curated 11-tool stdio MCP server (wired by `cmd/mcp/serve.go`); see [MCP tool surface](#mcp-tool-surface) for the curation rationale and inventory
 - `client/` (parent module) — generated SDK
 
 ## Command Structure
@@ -534,9 +534,9 @@ The three surfaces do not auto-sync: each is wired separately so agents that onl
 
 ## MCP Tool Surface
 
-WeKnora's MCP server exposes a curated read-only tool surface. Many MCP servers in the wild ship write / mutation operations on by default and rely on credential-scope or sandbox restrictions for safety. WeKnora opts for curation instead: the server side doesn't yet enforce per-token scope, so an agent holding a user's token has full write access. Until server-side scope ships, the CLI keeps mutation tools out of the MCP surface as a belt-and-braces second line of defense. When server scope arrives this stance can loosen.
+WeKnora's MCP server exposes a curated read and chat tool surface. Many MCP servers in the wild ship write / mutation operations on by default and rely on credential-scope or sandbox restrictions for safety. WeKnora opts for curation as a second line of defense even though server-side scoped credentials are available: mutation tools stay outside the MCP surface, while chat remains an explicit non-read-only tool and is still subject to the credential's server-side capability checks.
 
-The curated 10 tools (`cli/internal/mcp/tools.go`):
+The curated 11 tools (`cli/internal/mcp/tools.go`):
 
 | Tool | Purpose |
 | --- | --- |
@@ -547,6 +547,7 @@ The curated 10 tools (`cli/internal/mcp/tools.go`):
 | `doc_download` | download raw bytes (1 MiB cap, base64 for binary) |
 | `chunk_list` | list chunks of a document for RAG retrieval debug |
 | `search_chunks` | hybrid (vector + keyword) retrieval |
+| `knowledge_search` | multi-knowledge-base retrieval without LLM synthesis |
 | `chat` | stream a RAG answer; auto-creates a session if absent |
 | `agent_list` | list custom agents |
 | `session_ask` | run a query through a custom agent |

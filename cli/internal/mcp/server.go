@@ -41,7 +41,7 @@ type ServiceClient interface {
 	chunkListService
 }
 
-// RunStdio constructs the MCP server, registers the curated 10 tools, and
+// RunStdio constructs the MCP server, registers the curated 11 tools, and
 // blocks reading JSON-RPC from stdin until the client disconnects or ctx
 // is cancelled. Returns the underlying transport error (if any); the cobra
 // RunE caller maps it through the usual cmdutil exit-code path.

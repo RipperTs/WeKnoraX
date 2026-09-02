@@ -330,6 +330,11 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		return nil, nil, errors.NewBadRequestError(err.Error())
 	}
 	tagScopes := mergeTagScopesFromRequestIDs(mentionScopes, requestTagIDs, secutils.SanitizeForLogArray(kbIDs))
+	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(
+		ctx, knowledgeBaseIDsWithTagScopes(kbIDs, tagScopes), nil,
+	); err != nil {
+		return nil, nil, err
+	}
 	tagIDs := dedupRequestStrings(append(request.TagIDs, mentionedIDsByType(request.MentionedItems, "tag")...))
 	mcpServiceIDs := dedupRequestStrings(append(request.MCPServiceIDs, mentionedIDsByType(request.MentionedItems, "mcp")...))
 	skillNames := dedupRequestStrings(append(request.SkillNames, mentionedIDsByType(request.MentionedItems, "skill")...))
@@ -748,6 +753,13 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 			knowledgeBaseIDs = append(knowledgeBaseIDs, request.KnowledgeBaseID)
 		}
 	}
+	if len(knowledgeBaseIDs) == 0 && len(request.KnowledgeIDs) == 0 {
+		if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
+			if scope, exists := types.TenantAPIKeyScopeFromContext(ctx); exists {
+				knowledgeBaseIDs = append(knowledgeBaseIDs, scope.KnowledgeBaseIDs...)
+			}
+		}
+	}
 
 	mentionScopes := tagScopesFromMentionedItems(request.MentionedItems)
 	requestTagIDs := dedupRequestStrings(request.TagIDs)
@@ -763,7 +775,9 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 		c.Error(errors.NewBadRequestError("At least one knowledge_base_id, knowledge_base_ids, knowledge_ids, or scoped tag must be provided"))
 		return
 	}
-	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(ctx, knowledgeBaseIDs, request.KnowledgeIDs); err != nil {
+	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(
+		ctx, knowledgeBaseIDsWithTagScopes(knowledgeBaseIDs, tagScopes), request.KnowledgeIDs,
+	); err != nil {
 		c.Error(err)
 		return
 	}

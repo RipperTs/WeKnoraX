@@ -12,6 +12,7 @@ import { consumePendingTenantSwitchToast } from '@/utils/tenantSwitch'
 import { useRoleLabel } from '@/composables/useRoleLabel'
 import { notifyLoginSuccess } from '@/utils/loginNotify'
 import { renderWorkspaceNotifyContent } from '@/utils/workspaceNotifyContent'
+import { consumeIntegrationLoginReturn } from '@/utils/loginReturn'
 
 // TDesign locale configs
 import enUSConfig from 'tdesign-vue-next/esm/locale/en_US'
@@ -115,6 +116,13 @@ const persistOIDCLoginResponse = async (response: any) => {
     else MessagePlugin.warning(t('inviteRegister.invalidBody'))
     // 会话已有效，无论 token 是否兑换成功都进入应用。
     router.replace('/platform/knowledge-bases')
+    return
+  }
+
+  const integrationReturn = consumeIntegrationLoginReturn()
+  if (integrationReturn) {
+    await nextTick()
+    await router.replace(integrationReturn)
     return
   }
 

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Configuration - Load from environment variables with defaults
 WEKNORA_BASE_URL = os.getenv("WEKNORA_BASE_URL", "http://localhost:8080/api/v1")
 WEKNORA_API_KEY = os.getenv("WEKNORA_API_KEY", "")
+INTEGRATION_READ_ONLY = WEKNORA_API_KEY.strip().startswith("wkic_")
 # Chat SSE read timeout in seconds. LLM responses can be slow; default 300s.
 try:
     WEKNORA_CHAT_TIMEOUT = int(os.getenv("WEKNORA_CHAT_TIMEOUT", "300"))
@@ -278,9 +279,13 @@ class WeKnoraClient:
         """
         if self._UUID_RE.match(kb_id_or_name):
             return kb_id_or_name
-        # Search own + shared knowledge bases for a name match
+        # Integration credentials receive their complete effective scope from
+        # /knowledge-bases, including currently accessible shared KBs.
         needle = kb_id_or_name.lower()
-        for source in (self.list_knowledge_bases, self.list_shared_knowledge_bases):
+        sources = (self.list_knowledge_bases,)
+        if not self.api_key.strip().startswith("wkic_"):
+            sources += (self.list_shared_knowledge_bases,)
+        for source in sources:
             for kb in _normalize_kb_entries(source()):
                 if kb.get("name", "").lower() == needle:
                     return kb["id"]
@@ -298,6 +303,15 @@ class WeKnoraClient:
         return self._request(
             "POST", f"/knowledge-bases/{kb_id}/hybrid-search", json=data
         )
+
+    def knowledge_search(
+        self, query: str, knowledge_base_ids: list[str] | None = None
+    ) -> Dict:
+        """Search one or more knowledge bases without LLM summarization."""
+        data: Dict[str, Any] = {"query": query}
+        if knowledge_base_ids:
+            data["knowledge_base_ids"] = knowledge_base_ids
+        return self._request("POST", "/knowledge-search", json=data)
 
     # Knowledge Management - Methods for creating and managing knowledge entries
     def create_knowledge_from_file(
@@ -612,15 +626,26 @@ class WeKnoraClient:
 # Initialize MCP server instance (mcp 2.x high-level API).
 # MCPServer (formerly FastMCP) builds input schemas from function type hints
 # and serializes plain return values automatically.
-mcp = MCPServer("weknora-server", version="1.1.1")
+mcp = MCPServer("weknora-server", version="1.2.0")
 # Initialize WeKnora API client with configuration
 client = WeKnoraClient(WEKNORA_BASE_URL, WEKNORA_API_KEY)
+
+
+def weknora_tool(*, integration_read_only: bool = False):
+    """Register a tool unless the active integration credential forbids it."""
+
+    def decorator(func):
+        if INTEGRATION_READ_ONLY and not integration_read_only:
+            return func
+        return mcp.tool()(func)
+
+    return decorator
 
 
 # ---------------------------------------------------------------------------
 # Tool registrations
 #
-# Each tool is a plain function decorated with @mcp.tool(). Parameters are
+# Each tool is registered through @weknora_tool(). Parameters are
 # declared via type hints (the framework derives the JSON Schema); required
 # parameters have no default. Descriptions come from the docstring. Tools
 # return dicts/str and the framework handles serialization and error wrapping.
@@ -629,7 +654,7 @@ client = WeKnoraClient(WEKNORA_BASE_URL, WEKNORA_API_KEY)
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@weknora_tool()
 def create_tenant(
     name: str,
     description: str,
@@ -646,13 +671,13 @@ def create_tenant(
     return client.create_tenant(name, description, business, engines)
 
 
-@mcp.tool()
+@weknora_tool()
 def list_tenants() -> dict:
     """List all tenants."""
     return client.list_tenants()
 
 
-@mcp.tool()
+@weknora_tool()
 def create_knowledge_base(
     name: str,
     description: str,
@@ -673,31 +698,31 @@ def create_knowledge_base(
     return client.create_knowledge_base(name, description, config)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def list_knowledge_bases() -> dict:
-    """List all knowledge bases in the current workspace."""
+    """List knowledge bases currently available to this credential."""
     return client.list_knowledge_bases()
 
 
-@mcp.tool()
+@weknora_tool()
 def list_shared_knowledge_bases() -> dict:
     """List knowledge bases shared from other workspaces."""
     return client.list_shared_knowledge_bases()
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def get_knowledge_base(kb_id: str) -> dict:
     """Get knowledge base details."""
     return client.get_knowledge_base(kb_id)
 
 
-@mcp.tool()
+@weknora_tool()
 def delete_knowledge_base(kb_id: str) -> dict:
     """Delete a knowledge base."""
     return client.delete_knowledge_base(kb_id)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def hybrid_search(
     kb_id: str,
     query: str,
@@ -719,7 +744,25 @@ def hybrid_search(
     return client.hybrid_search(resolved, query, config)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
+def knowledge_search(
+    query: str,
+    knowledge_base_ids: list[str] | None = None,
+) -> dict:
+    """Search across the credential's available knowledge bases.
+
+    Omit knowledge_base_ids to search the complete effective scope of an
+    integration credential. Values may be UUIDs or knowledge-base names.
+    """
+    resolved = (
+        [client.resolve_kb_id(kb) for kb in knowledge_base_ids]
+        if knowledge_base_ids
+        else None
+    )
+    return client.knowledge_search(query, resolved)
+
+
+@weknora_tool()
 def create_knowledge_from_file(
     kb_id: str,
     file_path: str,
@@ -729,7 +772,7 @@ def create_knowledge_from_file(
     return client.create_knowledge_from_file(kb_id, file_path, enable_multimodel)
 
 
-@mcp.tool()
+@weknora_tool()
 def create_knowledge_from_url(
     kb_id: str,
     url: str,
@@ -739,7 +782,7 @@ def create_knowledge_from_url(
     return client.create_knowledge_from_url(kb_id, url, enable_multimodel)
 
 
-@mcp.tool()
+@weknora_tool()
 def create_knowledge_from_text(
     kb_id: str,
     title: str,
@@ -760,25 +803,25 @@ def create_knowledge_from_text(
     )
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def list_knowledge(kb_id: str, page: int = 1, page_size: int = 20) -> dict:
     """List knowledge entries in a knowledge base."""
     return client.list_knowledge(kb_id, page, page_size)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def get_knowledge(knowledge_id: str) -> dict:
     """Get knowledge details."""
     return client.get_knowledge(knowledge_id)
 
 
-@mcp.tool()
+@weknora_tool()
 def delete_knowledge(knowledge_id: str) -> dict:
     """Delete a knowledge entry."""
     return client.delete_knowledge(knowledge_id)
 
 
-@mcp.tool()
+@weknora_tool()
 def create_model(
     name: str,
     type: str,
@@ -793,19 +836,19 @@ def create_model(
     return client.create_model(name, type, source, description, parameters, is_default)
 
 
-@mcp.tool()
+@weknora_tool()
 def list_models() -> dict:
     """List all models."""
     return client.list_models()
 
 
-@mcp.tool()
+@weknora_tool()
 def get_model(model_id: str) -> dict:
     """Get model details."""
     return client.get_model(model_id)
 
 
-@mcp.tool()
+@weknora_tool()
 def create_session(
     kb_id: str,
     max_rounds: int = 5,
@@ -830,25 +873,25 @@ def create_session(
     )
 
 
-@mcp.tool()
+@weknora_tool()
 def get_session(session_id: str) -> dict:
     """Get session details."""
     return client.get_session(session_id)
 
 
-@mcp.tool()
+@weknora_tool()
 def list_sessions(page: int = 1, page_size: int = 20) -> dict:
     """List chat sessions."""
     return client.list_sessions(page, page_size)
 
 
-@mcp.tool()
+@weknora_tool()
 def delete_session(session_id: str) -> dict:
     """Delete a session."""
     return client.delete_session(session_id)
 
 
-@mcp.tool()
+@weknora_tool()
 async def chat(
     session_id: str,
     query: str,
@@ -878,7 +921,7 @@ async def chat(
     return await asyncio.get_running_loop().run_in_executor(None, fn)
 
 
-@mcp.tool()
+@weknora_tool()
 async def agent_chat(
     session_id: str,
     query: str,
@@ -949,7 +992,7 @@ async def agent_chat(
     return await asyncio.get_running_loop().run_in_executor(None, fn)
 
 
-@mcp.tool()
+@weknora_tool()
 def list_agents(page: int = 1, page_size: int = 50) -> dict:
     """List all custom agents available to the current tenant.
 
@@ -959,7 +1002,7 @@ def list_agents(page: int = 1, page_size: int = 50) -> dict:
     return client.list_agents(page=page, page_size=page_size)
 
 
-@mcp.tool()
+@weknora_tool()
 def get_agent(agent_id: str) -> dict:
     """Get full configuration of a single agent by UUID or name.
 
@@ -971,19 +1014,19 @@ def get_agent(agent_id: str) -> dict:
     return client.get_agent(resolved_id)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def list_chunks(knowledge_id: str, page: int = 1, page_size: int = 20) -> dict:
     """List chunks (text segments) of a knowledge entry."""
     return client.list_chunks(knowledge_id, page, page_size)
 
 
-@mcp.tool()
+@weknora_tool()
 def delete_chunk(knowledge_id: str, chunk_id: str) -> dict:
     """Delete a chunk."""
     return client.delete_chunk(knowledge_id, chunk_id)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def wiki_search(kb_id: str, query: str, limit: int = 10) -> dict:
     """Search wiki pages by full-text query.
 
@@ -992,7 +1035,7 @@ def wiki_search(kb_id: str, query: str, limit: int = 10) -> dict:
     return client.wiki_search(kb_id, query, limit)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def wiki_read_page(kb_id: str, slug: str) -> dict:
     """Read a wiki page by its slug.
 
@@ -1002,7 +1045,7 @@ def wiki_read_page(kb_id: str, slug: str) -> dict:
     return client.wiki_read_page(kb_id, slug)
 
 
-@mcp.tool()
+@weknora_tool(integration_read_only=True)
 def wiki_index_view(kb_id: str, limit: int = 50) -> dict:
     """Get a structured wiki index with per-type directory groups.
 

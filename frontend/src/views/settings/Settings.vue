@@ -71,7 +71,8 @@
             <div class="settings-content">
               <div class="content-wrapper" :class="{
                 'content-wrapper--wide': currentSection === 'members',
-                'content-wrapper--full': isSystemAdminSection(currentSection) || isIntegrationSection(currentSection),
+                'content-wrapper--full': isSystemAdminSection(currentSection) ||
+                  isIntegrationSection(currentSection) || currentSection === 'third-party-integrations',
               }">
                 <!-- 角色不允许访问当前 section（deep-link 进来 / 跨空间切换后角色降级）—— 优先于具体 section 渲染。
                      正常导航走 navItems filter 不会到这里，但 watch(navItems) 的 fallback 会在角色降级
@@ -171,6 +172,10 @@
                     <SystemUsers />
                   </div>
 
+                  <div v-if="currentSection === 'third-party-applications'" class="section">
+                    <ThirdPartyApplications />
+                  </div>
+
                   <!-- 用户信息（账户基础信息：ID / 用户名 / 邮箱 / 注册时间）。
                      用户的基本信息不该跟 owner 权限绑定。 -->
                   <div v-if="currentSection === 'userprofile'" class="section">
@@ -185,6 +190,10 @@
                   <!-- 成员管理 (#1303 PR 3) -->
                   <div v-if="currentSection === 'members'" class="section">
                     <TenantMembers />
+                  </div>
+
+                  <div v-if="currentSection === 'third-party-integrations'" class="section">
+                    <ThirdPartyIntegrationSettings />
                   </div>
 
                   <!-- 发布集成 -->
@@ -236,6 +245,8 @@ import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
 import SystemAuditLog from '@/views/system/SystemAuditLog.vue'
 import SystemUsers from '@/views/system/SystemUsers.vue'
+import ThirdPartyApplications from '@/views/system/ThirdPartyApplications.vue'
+import ThirdPartyIntegrationSettings from './ThirdPartyIntegrationSettings.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
 import {
   INTEGRATION_PREVIEW_ITEMS,
@@ -382,6 +393,8 @@ const navItems = computed(() => {
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
     { key: 'members', icon: 'usergroup', label: t('tenantMember.title') },
+    { key: 'third-party-integrations', icon: 'link', label: t('thirdPartyIntegration.tenant.navLabel') },
+    { key: 'third-party-applications', icon: 'link', label: t('thirdPartyIntegration.system.navLabel') },
     ...integrationItems,
   ]
   // currentTenantRole 为空表示「membership 还没加载」—— 比起渲染整套
@@ -409,7 +422,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'workspace',
       label: t('settings.navGroups.workspace'),
-      items: pickItems(['tenant', 'members', 'chathistory', 'memory']),
+      items: pickItems(['tenant', 'members', 'chathistory', 'memory', 'third-party-integrations']),
     },
     {
       key: 'integrations',
@@ -440,6 +453,7 @@ const navGroups = computed<NavGroup[]>(() => {
         'runtime-queues',
         'platform-api-keys',
         'system-audit-log',
+        'third-party-applications',
       ]),
     },
   ].filter((group) => group.items.length > 0)

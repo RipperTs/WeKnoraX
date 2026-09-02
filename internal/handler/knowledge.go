@@ -2877,7 +2877,11 @@ func tenantAPIKeySearchScopes(ctx context.Context) ([]types.KnowledgeSearchScope
 	}
 	scopes := make([]types.KnowledgeSearchScope, 0, len(scope.KnowledgeBaseIDs))
 	for _, kbID := range scope.KnowledgeBaseIDs {
-		scopes = append(scopes, types.KnowledgeSearchScope{TenantID: tenantID, KBID: kbID})
+		sourceTenantID := scope.KnowledgeBaseTenantIDs[kbID]
+		if sourceTenantID == 0 {
+			sourceTenantID = tenantID
+		}
+		scopes = append(scopes, types.KnowledgeSearchScope{TenantID: sourceTenantID, KBID: kbID})
 	}
 	return scopes, true
 }

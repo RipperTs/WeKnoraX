@@ -17,6 +17,13 @@ test('management shortcuts are stricter than read-only settings pages', () => {
 test('system administration settings stay explicitly system-admin-only', () => {
   assert.deepEqual(
     [...SYSTEM_ADMIN_SETTINGS_SECTIONS],
-    ['system-users', 'system-global', 'runtime-queues', 'platform-api-keys', 'system-audit-log'],
+    [
+      'system-users',
+      'system-global',
+      'runtime-queues',
+      'platform-api-keys',
+      'system-audit-log',
+      'third-party-applications',
+    ],
   )
 })
