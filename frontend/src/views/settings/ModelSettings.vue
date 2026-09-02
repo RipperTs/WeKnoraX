@@ -201,6 +201,7 @@ function convertToLegacyFormat(model: ModelConfig) {
     canDelete: model.can_delete || false,
     supportsVision: model.parameters.supports_vision || false,
     maxConcurrency: model.parameters.max_concurrency,
+    sortOrder: model.sort_order ?? 100,
     customHeaders: model.parameters.custom_headers
       ? Object.entries(model.parameters.custom_headers).map(([key, value]) => ({ key, value: String(value) }))
       : [],
@@ -429,6 +430,9 @@ const handleModelSave = async (modelData: any) => {
     const extraConfigFields = Object.keys(extraConfig).length > 0
       ? { extra_config: extraConfig }
       : {}
+    const sortOrder = modelData.sortOrder === '' || modelData.sortOrder == null
+      ? 100
+      : Number(modelData.sortOrder)
 
     const apiModelData: ModelConfig = {
       name: modelData.modelName.trim(),
@@ -436,6 +440,7 @@ const handleModelSave = async (modelData: any) => {
       type: getModelType(saveType),
       source: modelData.source,
       description: '',
+      sort_order: sortOrder,
       parameters: {
         base_url: modelData.baseUrl?.trim() || '',
         ...apiKeyFields,

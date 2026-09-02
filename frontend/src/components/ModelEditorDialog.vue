@@ -312,9 +312,17 @@
         </section>
       </template>
 
-      <!-- Section 3 — 高级选项（仅在有内容时渲染，避免空 section 出现底部分隔线） -->
-      <section v-if="['embedding', 'chat', 'vllm'].includes(activeModelType)" class="setting-drawer__section">
+      <!-- Section 3 — 高级选项 -->
+      <section class="setting-drawer__section">
         <h4 class="setting-drawer__section-title">{{ $t('model.editor.sectionAdvanced') }}</h4>
+
+        <div class="form-item">
+          <label class="form-label">{{ $t('model.editor.sortOrderLabel') }}</label>
+          <t-input-number v-model="formData.sortOrder" :step="1" :decimal-places="0" theme="normal"
+            style="width: 100%;"
+            :placeholder="$t('model.editor.sortOrderPlaceholder')" />
+          <p class="form-desc">{{ $t('model.editor.sortOrderDesc') }}</p>
+        </div>
 
         <!-- Embedding 专用：维度 -->
         <div v-if="activeModelType === 'embedding'" class="form-item">
@@ -382,7 +390,7 @@
           are gated by the governor (see internal/models/limiter), so we surface
           it just for those three. 0 = fall back to the global default.
         -->
-        <div class="form-item">
+        <div v-if="['embedding', 'chat', 'vllm'].includes(activeModelType)" class="form-item">
           <label class="form-label">{{ $t('model.editor.maxConcurrencyLabel') }}</label>
           <t-input v-model.number="formData.maxConcurrency" type="number" :min="0" :max="4096"
             :placeholder="$t('model.editor.maxConcurrencyPlaceholder')" />
@@ -439,6 +447,8 @@ interface ModelFormData {
   supportsVision?: boolean
   /** 后台任务对该模型的并发上限；0/undefined 表示沿用全局默认。仅 chat/embedding/vllm 生效。 */
   maxConcurrency?: number
+  /** 用户端模型选择列表中的展示顺序，数值越小越靠前。 */
+  sortOrder: number
   /** extra_config.thinking_control — how agent thinking on/off maps to API fields. */
   thinkingControl?: string
   // 自定义 HTTP 请求头（类似 OpenAI Python SDK 的 extra_headers）
@@ -875,6 +885,7 @@ const formData = ref<ModelFormData>({
   isDefault: false,
   supportsVision: false,
   maxConcurrency: undefined,
+  sortOrder: 100,
   thinkingControl: defaultThinkingControl('generic', ''),
   customHeaders: [],
   appSecret: '',
@@ -1116,6 +1127,7 @@ const resetForm = () => {
     isDefault: false,
     supportsVision: false,
     maxConcurrency: undefined,
+    sortOrder: 100,
     thinkingControl: defaultThinkingControl('generic', ''),
     customHeaders: [],
     appSecret: '',
