@@ -54,6 +54,20 @@ func (*ssoTestTenantService) GetTenantByID(_ context.Context, id uint64) (*types
 	return &types.Tenant{ID: id, Name: "SSO Workspace"}, nil
 }
 
+type ssoTestSystemSettingSvc struct {
+	interfaces.SystemSettingService
+	enabled bool
+	key     string
+}
+
+func (s *ssoTestSystemSettingSvc) GetBool(_ context.Context, key string, _ string, def bool) bool {
+	s.key = key
+	if key == SystemSettingSSOAutoRegisterEnabled {
+		return s.enabled
+	}
+	return def
+}
+
 // TestLoginWithFushunSSOAutoProvisionsWorkIDUser catches a regression where
 // the SSO payload is accepted but its empNo is not persisted as the local
 // username, which would make later SSO logins create duplicate accounts.
@@ -108,5 +122,49 @@ func TestLoginWithFushunSSOAutoProvisionsWorkIDUser(t *testing.T) {
 	}
 	if repo.created.Email != "10001@example.com" {
 		t.Fatalf("email = %q, want default SSO email suffix", repo.created.Email)
+	}
+}
+
+func TestLoginWithFushunSSORejectsNewUserWhenAutoRegisterDisabled(t *testing.T) {
+	secutils.SetSSRFWhitelistFromRaw("127.0.0.1,::1,localhost")
+	t.Cleanup(func() { secutils.SetSSRFWhitelistFromRaw("") })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		_, _ = w.Write([]byte(`{"code":200,"data":{"empNo":"10001","chn":"张三"}}`))
+	}))
+	defer server.Close()
+
+	repo := &ssoTestUserRepo{users: map[string]*types.User{}}
+	settingSvc := &ssoTestSystemSettingSvc{enabled: false}
+	svc := &userService{
+		config: &config.Config{FushunSSO: &config.FushunSSOConfig{
+			AuthURL:        "https://auth-sso.fsxgt.cn/sso/auth",
+			DoLoginURL:     "https://auth-sso.fsxgt.cn/sso/doLogin",
+			GetUserInfoURL: server.URL,
+		}},
+		userRepo:         repo,
+		tokenRepo:        &ssoTestTokenRepo{},
+		tenantService:    &ssoTestTenantService{},
+		systemSettingSvc: settingSvc,
+	}
+
+	response, err := svc.LoginWithFushunSSO(context.Background(), "remote-token", types.TenantProvisioningCreatePersonal)
+	if err != nil {
+		t.Fatalf("LoginWithFushunSSO: %v", err)
+	}
+	if response == nil || response.Success {
+		t.Fatalf("unexpected login response: %#v", response)
+	}
+	if response.Message != "SSO 新用户自动注册已关闭，请联系管理员开通账号" {
+		t.Fatalf("message = %q", response.Message)
+	}
+	if repo.created != nil {
+		t.Fatalf("SSO user should not be created: %#v", repo.created)
+	}
+	if settingSvc.key != SystemSettingSSOAutoRegisterEnabled {
+		t.Fatalf("setting key = %q, want %q", settingSvc.key, SystemSettingSSOAutoRegisterEnabled)
 	}
 }

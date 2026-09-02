@@ -2828,7 +2828,8 @@ export default {
         },
         auth: {
           registration_mode: '自助注册模式。self_serve = 任何人可注册账号；invite_only = 关闭公网注册，仅 Owner/Admin 可邀请。修改后立即生效，但谨慎对待 self_serve（公网会接受 spam）。',
-          default_tenant_mode: '公开注册后的空间初始化策略。create_personal 会自动创建个人空间并授予 Owner；tenantless 仅创建账户，用户需要接受邀请或主动创建空间。只影响之后注册的用户。'
+          default_tenant_mode: '公开注册后的空间初始化策略。create_personal 会自动创建个人空间并授予 Owner；tenantless 仅创建账户，用户需要接受邀请或主动创建空间。只影响之后注册的用户。',
+          sso_auto_register_enabled: '控制 SSO 首次登录是否自动创建本地账号。开启后，本地不存在对应用户时会自动注册；关闭后，仅已存在的本地账号可通过 SSO 登录。修改后立即生效。'
         }
       },
       keyLabels: {
@@ -2859,7 +2860,8 @@ export default {
         },
         auth: {
           registration_mode: '自助注册模式',
-          default_tenant_mode: '注册默认空间策略'
+          default_tenant_mode: '注册默认空间策略',
+          sso_auto_register_enabled: 'SSO 新用户自动注册'
         }
       },
       runtime: {
