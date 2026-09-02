@@ -4525,7 +4525,10 @@ export default {
     },
     connections: {
       title: '내 승인된 연결', description: '자격 증명은 외부 서버가 보관하며 취소 즉시 무효화됩니다.',
-      connected: '연결됨', summary: '지식 베이스 {count}개 · {scopes}', open: '열기', revoke: '취소',
+      connected: '연결됨', unavailable: '비활성화됨',
+      summary: '지식 베이스 {count}개 · {scopes}',
+      unavailableSummary: '앱 또는 워크스페이스 정책이 비활성화되어 자격 증명과 실행 경로를 사용할 수 없습니다.',
+      open: '열기', revoke: '취소',
       revokeConfirm: '“{name}” 연결을 취소하시겠습니까? 해당 Agent의 접근이 즉시 차단됩니다.',
       empty: '승인한 서드파티 앱이 없습니다', revoked: '연결이 취소되었습니다', revokeFailed: '연결 취소 실패',
     },

@@ -59,9 +59,12 @@ func TestFilterKnowledgeBasesForTenantAPIKeyScopeRejectsExplicitOutOfScope(t *te
 }
 
 func TestScopeHasCapability(t *testing.T) {
-	s := TenantAPIKeyScope{Capabilities: StringArray{"chat"}}
+	s := TenantAPIKeyScope{Capabilities: StringArray{"chat", "knowledge_chat"}}
 	if !s.HasCapability(APIKeyCapabilityChat) {
 		t.Fatal("expected chat capability to be present")
+	}
+	if !s.HasCapability(APIKeyCapabilityKnowledgeChat) {
+		t.Fatal("expected knowledge_chat capability to be present")
 	}
 	if (TenantAPIKeyScope{}).HasCapability(APIKeyCapabilityChat) {
 		t.Fatal("empty scope must not report chat capability")
@@ -76,6 +79,7 @@ func TestNormalizeAPIKeyCapabilities(t *testing.T) {
 	got := NormalizeAPIKeyCapabilities(StringArray{
 		" Retrieve ",
 		"chat",
+		"knowledge_chat",
 		"read_agents",
 		"manage_kbs",
 		"message_history",
@@ -85,7 +89,10 @@ func TestNormalizeAPIKeyCapabilities(t *testing.T) {
 		"bogus",
 		"",
 	})
-	want := []string{"retrieve", "chat", "read_agents", "manage_kbs", "message_history", "manage_mcp_services", "manage_members", "manage_spaces"}
+	want := []string{
+		"retrieve", "chat", "knowledge_chat", "read_agents", "manage_kbs", "message_history",
+		"manage_mcp_services", "manage_members", "manage_spaces",
+	}
 	if len(got) != len(want) {
 		t.Fatalf("normalized = %#v, want %#v", got, want)
 	}

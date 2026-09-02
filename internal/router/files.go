@@ -646,8 +646,9 @@ func newMessageScopedFileServeHandler(
 }
 
 // serveMessageScopedFiles registers the authenticated proxy used by the chat
-// renderer for assistant-message resources. The chat API-key capability is
-// sufficient because GetMessage enforces ownership of the API key's session.
+// renderer for assistant-message resources. The chat and knowledge_chat API-key
+// capabilities are sufficient because GetMessage enforces ownership of the
+// API key's session.
 func serveMessageScopedFiles(
 	r *gin.RouterGroup,
 	g *rbacGuards,
@@ -662,7 +663,7 @@ func serveMessageScopedFiles(
 		r,
 		http.MethodGet,
 		"/sessions/:id/messages/:message_id/files",
-		apiKeyChat(apiKeyFullAccess()),
+		apiKeyKnowledgeChat(apiKeyChat(apiKeyFullAccess())),
 		g.Viewer(),
 		newMessageScopedFileServeHandler(
 			messageService,

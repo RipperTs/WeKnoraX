@@ -65,14 +65,14 @@ function openKnowledgeBase(id: string) {
 onMounted(async () => {
   try {
     const tenantId = Number(route.query.tenant_id)
-    if (
-      Number.isInteger(tenantId) &&
-      tenantId > 0 &&
-      tenantId !== Number(authStore.effectiveTenantId)
-    ) {
-      authStore.setSelectedTenant(tenantId, null)
+    const targetTenantId = Number.isInteger(tenantId) && tenantId > 0 ? tenantId : undefined
+    const response = await getIntegrationConnection(
+      String(route.params.connectionId || ''),
+      targetTenantId,
+    )
+    if (targetTenantId && targetTenantId !== Number(authStore.effectiveTenantId)) {
+      authStore.setSelectedTenant(targetTenantId, null)
     }
-    const response = await getIntegrationConnection(String(route.params.connectionId || ''))
     connection.value = response.data
     if (response.data.knowledge_bases.length === 1) {
       openKnowledgeBase(response.data.knowledge_bases[0].id)

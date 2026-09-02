@@ -255,7 +255,7 @@ X-API-Key: wkic_xxx
 
 ### 5.3 可选问答权限
 
-应用、空间策略、用户连接三层都包含 `knowledge.chat` 时，凭证才会获得现有 chat 能力。该权限只允许创建该连接隔离的会话和执行问答，不授予模型、Agent、知识库或内容管理权限。
+应用、空间策略、用户连接三层都包含 `knowledge.chat` 时，凭证才可以创建该连接隔离的会话并调用 `/knowledge-chat`。该权限不允许读取 Agent 配置、调用 `/agent-chat` 或执行自定义 Agent 工具，也不授予模型、知识库和内容管理权限。
 
 如果只需要第三方 Agent 自己生成答案，保持默认 `knowledge.read` 即可。
 
@@ -321,7 +321,7 @@ export WEKNORA_API_KEY="wkic_xxx"
 weknora mcp serve
 ```
 
-使用 `knowledge_search` 时可省略 `knowledge_base_ids`。CLI MCP 还会展示 chat 类工具；没有 `knowledge.chat` Scope 时，服务端会拒绝这些调用。
+使用 `knowledge_search` 时可省略 `knowledge_base_ids`。CLI MCP 会继续展示 `chat` 和 `session_ask`，但集成凭证只有在获得 `knowledge.chat` 后才能调用知识库 `chat`；`session_ask` 属于自定义 Agent 能力，集成凭证始终会被服务端拒绝。
 
 ## 7. Skill 接入
 

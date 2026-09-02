@@ -126,6 +126,11 @@ function parametersFromRoute(): IntegrationAuthorizationParameters {
   }
 }
 
+function tenantIDFromRoute() {
+  const tenantId = Number(route.query.tenant_id)
+  return Number.isInteger(tenantId) && tenantId > 0 ? tenantId : undefined
+}
+
 function toggleAll() {
   if (!authorization.value) return
   selectedIDs.value = allSelected.value
@@ -140,12 +145,15 @@ function knowledgeBaseTypeLabel(type: string) {
 async function submit(approved: boolean, reuseExisting = false) {
   submitting.value = true
   try {
-    const response = await authorizeIntegration({
-      parameters: parametersFromRoute(),
-      approved,
-      reuse_existing: reuseExisting,
-      knowledge_base_ids: selectedIDs.value,
-    })
+    const response = await authorizeIntegration(
+      {
+        parameters: parametersFromRoute(),
+        approved,
+        reuse_existing: reuseExisting,
+        knowledge_base_ids: selectedIDs.value,
+      },
+      tenantIDFromRoute(),
+    )
     window.location.replace(response.data.redirect_uri)
   } catch (error: any) {
     errorMessage.value = error?.message || t('thirdPartyIntegration.authorization.submitFailed')
@@ -156,15 +164,11 @@ async function submit(approved: boolean, reuseExisting = false) {
 
 async function loadAuthorization() {
   try {
-    const tenantId = Number(route.query.tenant_id)
-    if (
-      Number.isInteger(tenantId) &&
-      tenantId > 0 &&
-      tenantId !== Number(authStore.effectiveTenantId)
-    ) {
+    const tenantId = tenantIDFromRoute()
+    const response = await getIntegrationAuthorization(parametersFromRoute(), tenantId)
+    if (tenantId && tenantId !== Number(authStore.effectiveTenantId)) {
       authStore.setSelectedTenant(tenantId, null)
     }
-    const response = await getIntegrationAuthorization(parametersFromRoute())
     authorization.value = response.data
     selectedIDs.value = [...(response.data.selected_knowledge_base_ids || [])]
     if (!response.data.requires_consent) {

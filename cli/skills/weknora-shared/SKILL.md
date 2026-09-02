@@ -201,10 +201,11 @@ read+chat tool set: `kb_list`, `kb_view`, `doc_list`, `doc_view`, `doc_download`
 take raw ids (no name resolution); resolve names via `kb_list` first.
 
 With a third-party connection credential, prefer `knowledge_search` and omit
-the knowledge-base ID list to search the connection's complete effective scope. Chat
-tools require the optional `knowledge.chat` scope; without it the server rejects
-them. The standalone Python MCP server additionally removes non-read tools from
-its advertised tool list for third-party connection credentials.
+the knowledge-base ID list to search the connection's complete effective scope.
+The `chat` tool requires the optional `knowledge.chat` scope. `session_ask` and
+agent discovery remain unavailable to integration credentials even with that
+scope. The standalone Python MCP server additionally removes non-read tools
+from its advertised tool list for third-party connection credentials.
 
 ## 10. Agent self-help
 

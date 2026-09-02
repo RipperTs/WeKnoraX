@@ -21,17 +21,18 @@ func TestConversationRoutesDeclareChatCapability(t *testing.T) {
 	RegisterMessageRoutes(v1, &handler.MessageHandler{}, g)
 
 	cases := []struct {
-		method string
-		path   string
+		method        string
+		path          string
+		knowledgeChat bool
 	}{
-		{http.MethodPost, "/api/v1/sessions"},
-		{http.MethodGet, "/api/v1/sessions/:id/messages/:message_id/suggestions"},
-		{http.MethodPost, "/api/v1/sessions/:session_id/messages/:message_id/suggestions"},
-		{http.MethodPost, "/api/v1/sessions/:session_id/suggestion-events"},
-		{http.MethodPost, "/api/v1/knowledge-chat/:session_id"},
-		{http.MethodPost, "/api/v1/agent-chat/:session_id"},
-		{http.MethodGet, "/api/v1/messages/:session_id/load"},
-		{http.MethodDelete, "/api/v1/messages/:session_id/:id"},
+		{http.MethodPost, "/api/v1/sessions", true},
+		{http.MethodGet, "/api/v1/sessions/:id/messages/:message_id/suggestions", true},
+		{http.MethodPost, "/api/v1/sessions/:session_id/messages/:message_id/suggestions", true},
+		{http.MethodPost, "/api/v1/sessions/:session_id/suggestion-events", true},
+		{http.MethodPost, "/api/v1/knowledge-chat/:session_id", true},
+		{http.MethodPost, "/api/v1/agent-chat/:session_id", false},
+		{http.MethodGet, "/api/v1/messages/:session_id/load", true},
+		{http.MethodDelete, "/api/v1/messages/:session_id/:id", true},
 	}
 
 	for _, tc := range cases {
@@ -42,6 +43,9 @@ func TestConversationRoutesDeclareChatCapability(t *testing.T) {
 			}
 			if !policyHasCapability(policy, types.APIKeyCapabilityChat) {
 				t.Fatalf("policy capabilities = %#v, want chat", policy.Capabilities)
+			}
+			if got := policyHasCapability(policy, types.APIKeyCapabilityKnowledgeChat); got != tc.knowledgeChat {
+				t.Fatalf("knowledge_chat capability = %v, want %v", got, tc.knowledgeChat)
 			}
 		})
 	}
@@ -174,6 +178,9 @@ func TestAgentReadRoutesDeclareReadAgentsCapability(t *testing.T) {
 			}
 			if !policyHasCapability(policy, types.APIKeyCapabilityChat) {
 				t.Fatalf("policy capabilities = %#v, want chat for conversation clients", policy.Capabilities)
+			}
+			if policyHasCapability(policy, types.APIKeyCapabilityKnowledgeChat) {
+				t.Fatalf("agent read route must not allow knowledge_chat: %#v", policy.Capabilities)
 			}
 			if !policyHasCapability(policy, types.APIKeyCapabilityManageAgents) {
 				t.Fatalf("policy capabilities = %#v, want manage_agents for authoring clients", policy.Capabilities)

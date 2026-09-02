@@ -25,15 +25,17 @@
           <div class="row-copy">
             <div class="row-title">
               <strong>{{ item.application.name }}</strong>
-              <t-tag theme="success" variant="light" size="small">
-                {{ t('thirdPartyIntegration.connections.connected') }}
+              <t-tag :theme="item.available ? 'success' : 'default'" variant="light" size="small">
+                {{ item.available
+                  ? t('thirdPartyIntegration.connections.connected')
+                  : t('thirdPartyIntegration.connections.unavailable') }}
               </t-tag>
             </div>
             <p>
-              {{ t('thirdPartyIntegration.connections.summary', {
+              {{ item.available ? t('thirdPartyIntegration.connections.summary', {
                 count: item.knowledge_bases.length,
                 scopes: item.effective_scopes.join(' · '),
-              }) }}
+              }) : t('thirdPartyIntegration.connections.unavailableSummary') }}
             </p>
             <div class="kb-chips">
               <t-tag v-for="kb in item.knowledge_bases.slice(0, 4)" :key="kb.id" size="small" variant="light">
@@ -45,7 +47,12 @@
             </div>
           </div>
           <div class="row-actions">
-            <t-button size="small" variant="text" @click="openConnection(item.connection.id)">
+            <t-button
+              size="small"
+              variant="text"
+              :disabled="!item.available"
+              @click="openConnection(item.connection.id)"
+            >
               {{ t('thirdPartyIntegration.connections.open') }}
             </t-button>
             <t-popconfirm

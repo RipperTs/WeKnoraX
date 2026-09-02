@@ -137,6 +137,8 @@ type IntegrationConnectionView struct {
 	KnowledgeBases            []*types.KnowledgeBase        `json:"knowledge_bases"`
 	EffectiveKnowledgeBaseIDs types.StringArray             `json:"effective_knowledge_base_ids"`
 	EffectiveScopes           types.StringArray             `json:"effective_scopes"`
+	Available                 bool                          `json:"available"`
+	UnavailableReason         string                        `json:"unavailable_reason,omitempty"`
 }
 
 // IntegrationService manages client registration, consent, credentials and effective access.
@@ -611,7 +613,21 @@ func (s *IntegrationService) GetUserConnection(
 		connection.Status != types.IntegrationConnectionActive {
 		return nil, apprepo.ErrIntegrationConnectionNotFound
 	}
-	return s.connectionView(ctx, connection, role)
+	view, err := s.connectionView(ctx, connection, role)
+	if err != nil {
+		return nil, err
+	}
+	if !view.Available {
+		switch view.UnavailableReason {
+		case "application_disabled":
+			return nil, ErrIntegrationApplicationDisabled
+		case "tenant_policy_disabled":
+			return nil, ErrIntegrationPolicyDisabled
+		default:
+			return nil, ErrIntegrationAccessDenied
+		}
+	}
+	return view, nil
 }
 
 // RevokeUserConnection revokes a connection and all of its active credentials.
@@ -635,22 +651,42 @@ func (s *IntegrationService) connectionView(
 	if err != nil {
 		return nil, err
 	}
+	view := &IntegrationConnectionView{
+		Connection:                connection,
+		Application:               app,
+		KnowledgeBases:            make([]*types.KnowledgeBase, 0),
+		EffectiveKnowledgeBaseIDs: make(types.StringArray, 0),
+		EffectiveScopes:           make(types.StringArray, 0),
+	}
+	if !app.Enabled {
+		view.UnavailableReason = "application_disabled"
+		return view, nil
+	}
 	policy, err := s.effectiveTenantPolicy(ctx, app, connection.TenantID)
 	if err != nil {
 		return nil, err
+	}
+	if !policy.Enabled {
+		view.UnavailableReason = "tenant_policy_disabled"
+		return view, nil
 	}
 	session := &types.IntegrationCredentialSession{
 		Connection: connection, Application: app, Policy: policy,
 		Scopes: intersectIntegrationScopes(connection.Scopes, app.AllowedScopes, policy.AllowedScopes),
 	}
+	if !types.IntegrationScopesContain(session.Scopes, types.IntegrationScopeKnowledgeRead) {
+		view.UnavailableReason = "scope_unavailable"
+		return view, nil
+	}
 	knowledgeBases, ids, err := s.EffectiveKnowledgeBases(ctx, session, role)
 	if err != nil {
 		return nil, err
 	}
-	return &IntegrationConnectionView{
-		Connection: connection, Application: app, KnowledgeBases: knowledgeBases,
-		EffectiveKnowledgeBaseIDs: ids, EffectiveScopes: session.Scopes,
-	}, nil
+	view.KnowledgeBases = knowledgeBases
+	view.EffectiveKnowledgeBaseIDs = ids
+	view.EffectiveScopes = session.Scopes
+	view.Available = true
+	return view, nil
 }
 
 func (s *IntegrationService) validateAuthorizationParameters(

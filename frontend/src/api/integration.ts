@@ -54,6 +54,8 @@ export interface IntegrationConnectionView {
   knowledge_bases: IntegrationKnowledgeBase[]
   effective_knowledge_base_ids: string[]
   effective_scopes: IntegrationScope[]
+  available: boolean
+  unavailable_reason?: 'application_disabled' | 'tenant_policy_disabled' | 'scope_unavailable'
 }
 
 export interface IntegrationAuthorizationParameters {
@@ -130,8 +132,11 @@ export function listIntegrationConnections(): Promise<DataResponse<IntegrationCo
   return get('/api/v1/integrations/connections')
 }
 
-export function getIntegrationConnection(id: string): Promise<DataResponse<IntegrationConnectionView>> {
-  return get(`/api/v1/integrations/connections/${id}`)
+export function getIntegrationConnection(
+  id: string,
+  tenantId?: number,
+): Promise<DataResponse<IntegrationConnectionView>> {
+  return get(`/api/v1/integrations/connections/${id}`, integrationTenantConfig(tenantId))
 }
 
 export function revokeIntegrationConnection(id: string): Promise<{ success: boolean }> {
@@ -140,12 +145,16 @@ export function revokeIntegrationConnection(id: string): Promise<{ success: bool
 
 export function getIntegrationAuthorization(
   params: IntegrationAuthorizationParameters,
+  tenantId?: number,
 ): Promise<DataResponse<IntegrationAuthorizationView>> {
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     query.set(key, value)
   }
-  return get(`/api/v1/integrations/authorization?${query.toString()}`)
+  return get(
+    `/api/v1/integrations/authorization?${query.toString()}`,
+    integrationTenantConfig(tenantId),
+  )
 }
 
 export function authorizeIntegration(input: {
@@ -153,13 +162,22 @@ export function authorizeIntegration(input: {
   approved: boolean
   reuse_existing: boolean
   knowledge_base_ids: string[]
-}): Promise<DataResponse<{ redirect_uri: string; connection_id?: string }>> {
+}, tenantId?: number): Promise<DataResponse<{ redirect_uri: string; connection_id?: string }>> {
   const { scope, ...parameters } = input.parameters
-  return post('/api/v1/integrations/authorization', {
-    ...input,
-    parameters: {
-      ...parameters,
-      scopes: String(scope || '').split(/\s+/).filter(Boolean),
+  return post(
+    '/api/v1/integrations/authorization',
+    {
+      ...input,
+      parameters: {
+        ...parameters,
+        scopes: String(scope || '').split(/\s+/).filter(Boolean),
+      },
     },
-  })
+    integrationTenantConfig(tenantId),
+  )
+}
+
+function integrationTenantConfig(tenantId?: number) {
+  if (!tenantId) return undefined
+  return { headers: { 'X-Tenant-ID': String(tenantId) } }
 }

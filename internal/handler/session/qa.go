@@ -121,6 +121,9 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		logger.Error(ctx, "Query content is empty")
 		return nil, nil, errors.NewBadRequestError("Query content cannot be empty")
 	}
+	if err := validateIntegrationKnowledgeChatRequest(ctx, &request); err != nil {
+		return nil, nil, err
+	}
 
 	// Resolve the storage-reference representation up front: once the SSE stream
 	// has started an invalid value can no longer be reported as a 400.
@@ -396,6 +399,23 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 	}
 
 	return reqCtx, &request, nil
+}
+
+func validateIntegrationKnowledgeChatRequest(ctx context.Context, request *CreateKnowledgeQARequest) error {
+	principal, ok := types.PrincipalFromContext(ctx)
+	if !ok || principal.Type != types.PrincipalIntegrationUser || request == nil {
+		return nil
+	}
+	if request.AgentEnabled || request.AgentID != "" || request.AgentSourceTenantID != 0 ||
+		request.WebSearchEnabled || len(request.MCPServiceIDs) > 0 || len(request.SkillNames) > 0 {
+		return errors.NewForbiddenError("integration knowledge chat does not allow agents or external tools")
+	}
+	for _, item := range request.MentionedItems {
+		if item.Type == "mcp" || item.Type == "skill" {
+			return errors.NewForbiddenError("integration knowledge chat does not allow agents or external tools")
+		}
+	}
+	return nil
 }
 
 func decodeAndValidateAttachmentUploads(

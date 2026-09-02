@@ -80,6 +80,10 @@ const (
 	// (sessions + agent listing + self identity) without granting broader
 	// tenant management access.
 	APIKeyCapabilityChat APIKeyCapability = "chat"
+	// APIKeyCapabilityKnowledgeChat is the narrower conversation grant used
+	// by third-party knowledge integrations. It permits knowledge-base chat
+	// session state, but not custom-agent discovery or agent execution.
+	APIKeyCapabilityKnowledgeChat APIKeyCapability = "knowledge_chat"
 	// APIKeyCapabilityReadAgents lets a scoped key list and inspect agents
 	// without allowing chat sessions or agent authoring.
 	APIKeyCapabilityReadAgents APIKeyCapability = "read_agents"
@@ -172,6 +176,8 @@ func NormalizeAPIKeyCapability(c APIKeyCapability) APIKeyCapability {
 		return APIKeyCapabilityRetrieve
 	case APIKeyCapabilityChat:
 		return APIKeyCapabilityChat
+	case APIKeyCapabilityKnowledgeChat:
+		return APIKeyCapabilityKnowledgeChat
 	case APIKeyCapabilityReadAgents:
 		return APIKeyCapabilityReadAgents
 	case APIKeyCapabilityIngest:

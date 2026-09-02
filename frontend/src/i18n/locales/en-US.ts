@@ -1978,7 +1978,10 @@ export default {
     connections: {
       title: 'My authorized connections',
       description: 'Credentials are held by the third-party server and become invalid immediately when revoked.',
-      connected: 'Connected', summary: '{count} knowledge bases · {scopes}', open: 'Open', revoke: 'Revoke',
+      connected: 'Connected', unavailable: 'Disabled',
+      summary: '{count} knowledge bases · {scopes}',
+      unavailableSummary: 'The app or workspace policy is disabled. Its credential and launch entry are unavailable.',
+      open: 'Open', revoke: 'Revoke',
       revokeConfirm: 'Revoke the connection to “{name}”? Its Agent will immediately lose access.',
       empty: 'You have not authorized any third-party apps', revoked: 'Connection revoked',
       revokeFailed: 'Failed to revoke connection',

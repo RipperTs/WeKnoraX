@@ -253,9 +253,7 @@ func authenticateIntegrationCredential(
 		c.Abort()
 		return false
 	}
-	role, ok := resolveTenantRole(
-		ctx, memberService, user, connection.TenantID, connection.TenantID != user.TenantID, cfg,
-	)
+	role, ok := resolveIntegrationTenantRole(ctx, memberService, user, connection.TenantID, cfg)
 	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: integration user is not a workspace member"})
 		c.Abort()
@@ -270,7 +268,7 @@ func authenticateIntegrationCredential(
 	}
 	capabilities := types.StringArray{string(types.APIKeyCapabilityRetrieve)}
 	if types.IntegrationScopesContain(session.Scopes, types.IntegrationScopeKnowledgeChat) {
-		capabilities = append(capabilities, string(types.APIKeyCapabilityChat))
+		capabilities = append(capabilities, string(types.APIKeyCapabilityKnowledgeChat))
 	}
 	knowledgeBaseTenantIDs := make(map[string]uint64, len(knowledgeBases))
 	for _, knowledgeBase := range knowledgeBases {
@@ -295,6 +293,31 @@ func authenticateIntegrationCredential(
 		},
 	})
 	return true
+}
+
+// resolveIntegrationTenantRole validates a long-lived integration credential
+// without the human-login recovery behavior in resolveTenantRole. In
+// particular, it must never recreate an orphaned membership or fail open when
+// RBAC enforcement is disabled.
+func resolveIntegrationTenantRole(
+	ctx context.Context,
+	memberService interfaces.TenantMemberService,
+	user *types.User,
+	tenantID uint64,
+	cfg *config.Config,
+) (types.TenantRole, bool) {
+	if memberService == nil || user == nil || tenantID == 0 {
+		return "", false
+	}
+	member, err := memberService.GetMembership(ctx, user.ID, tenantID)
+	if err == nil && member != nil && member.Status == types.TenantMemberStatusActive {
+		return member.Role, true
+	}
+	if tenantID != user.TenantID && user.CanAccessAllTenants && cfg != nil && cfg.Tenant != nil &&
+		cfg.Tenant.EnableCrossTenantAccess {
+		return types.TenantRoleAdmin, true
+	}
+	return "", false
 }
 
 // bearerToken extracts the Bearer token from the Authorization header.
