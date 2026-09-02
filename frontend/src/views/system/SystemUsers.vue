@@ -213,18 +213,33 @@
     <t-dialog
       v-model:visible="passwordResultVisible"
       :header="t('systemUsers.create.passwordResultTitle')"
-      width="460px"
-      :confirm-btn="t('common.close')"
-      :cancel-btn="null"
+      width="480px"
+      placement="center"
+      :footer="false"
       @close="clearGeneratedPassword"
     >
-      <t-alert theme="warning" :message="t('systemUsers.create.passwordResultWarning')" />
+      <t-alert
+        class="password-result-warning"
+        theme="warning"
+        :message="t('systemUsers.create.passwordResultWarning')"
+      />
       <div class="generated-password">
+        <div class="generated-password__header">
+          <span class="generated-password__label">
+            {{ t('systemUsers.create.passwordMode') }}
+          </span>
+          <t-button
+            class="generated-password__copy"
+            theme="primary"
+            variant="text"
+            size="small"
+            @click="copyGeneratedPassword"
+          >
+            <template #icon><t-icon name="file-copy" /></template>
+            {{ t('systemUsers.create.copyPassword') }}
+          </t-button>
+        </div>
         <code>{{ generatedPassword }}</code>
-        <t-button variant="outline" @click="copyGeneratedPassword">
-          <template #icon><t-icon name="file-copy" /></template>
-          {{ t('systemUsers.create.copyPassword') }}
-        </t-button>
       </div>
     </t-dialog>
 
@@ -778,24 +793,45 @@ async function submitPasswordReset() {
   margin-bottom: 18px;
 }
 
+.password-result-warning {
+  margin-bottom: 16px;
+}
+
 .generated-password {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 10px;
+  background: var(--td-bg-color-secondarycontainer);
+
+  &__header {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 12px 0 16px;
+    border-bottom: 1px solid var(--td-component-stroke);
+    background: var(--td-bg-color-container);
+  }
+
+  &__label {
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  &__copy {
+    flex: 0 0 auto;
+  }
 
   code {
-    min-width: 0;
-    flex: 1;
-    overflow-x: auto;
-    padding: 12px 14px;
-    border: 1px solid var(--td-component-stroke);
-    border-radius: 8px;
-    background: var(--td-bg-color-secondarycontainer);
+    display: block;
+    padding: 18px 16px;
     color: var(--td-text-color-primary);
-    font-size: 14px;
-    letter-spacing: 0.03em;
-    white-space: nowrap;
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    user-select: all;
   }
 }
 
