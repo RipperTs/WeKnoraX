@@ -216,6 +216,7 @@
       width="480px"
       placement="center"
       :footer="false"
+      :close-on-overlay-click="false"
       @close="clearGeneratedPassword"
     >
       <t-alert
