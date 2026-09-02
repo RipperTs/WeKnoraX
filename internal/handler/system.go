@@ -1528,6 +1528,13 @@ type ListSystemAdminsResponse struct {
 	Admins []*types.UserInfo `json:"admins"`
 }
 
+// ListSystemUsersResponse is the paginated payload used by the platform user
+// management console.
+type ListSystemUsersResponse struct {
+	Total int64             `json:"total"`
+	Users []*types.UserInfo `json:"users"`
+}
+
 // ListSystemAdmins godoc
 // @Summary      List all system administrators
 // @Description  Retrieve a paginated list of users with system administrator
@@ -1582,6 +1589,118 @@ func (h *SystemHandler) ListSystemAdmins(c *gin.Context) {
 		Total:  total,
 		Admins: infos,
 	})
+}
+
+// ListSystemUsers godoc
+// @Summary      List platform users
+// @Description  Retrieve a filtered, paginated list of all platform users (SystemAdmin only).
+// @Tags         System Admin
+// @Produce      json
+// @Param        query     query string false "Username, name, or email search"
+// @Param        status    query string false "Account status: all, active, disabled" default(all)
+// @Param        page      query int    false "Page number" default(1)
+// @Param        page_size query int    false "Page size (max 100)" default(20)
+// @Success      200  {object}  ListSystemUsersResponse
+// @Failure      400  {object}  map[string]interface{} "Invalid query parameters"
+// @Failure      403  {object}  map[string]interface{} "Forbidden: not a system admin"
+// @Router       /system/admin/users [get]
+func (h *SystemHandler) ListSystemUsers(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	page, pageSize, ok := parseListPagination(c)
+	if !ok {
+		return
+	}
+
+	var isActive *bool
+	switch status := strings.TrimSpace(c.Query("status")); status {
+	case "", "all":
+	case "active":
+		value := true
+		isActive = &value
+	case "disabled":
+		value := false
+		isActive = &value
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be one of: all, active, disabled"})
+		return
+	}
+
+	users, total, err := h.userSvc.ListSystemUsers(
+		ctx,
+		strings.TrimSpace(c.Query("query")),
+		isActive,
+		(page-1)*pageSize,
+		pageSize,
+	)
+	if err != nil {
+		logger.Errorf(ctx, "Error listing system users: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list users"})
+		return
+	}
+
+	infos := make([]*types.UserInfo, 0, len(users))
+	for _, user := range users {
+		infos = append(infos, user.ToUserInfo())
+	}
+	c.JSON(http.StatusOK, ListSystemUsersResponse{Total: total, Users: infos})
+}
+
+// UpdateSystemUserStatusRequest is the explicit account state mutation body.
+// A pointer preserves false during validation so disabling is not treated as a
+// missing field.
+type UpdateSystemUserStatusRequest struct {
+	IsActive *bool `json:"is_active" binding:"required"`
+}
+
+// UpdateSystemUserStatus godoc
+// @Summary      Enable or disable a platform user
+// @Description  Change another user's account status and revoke all existing sessions (SystemAdmin only).
+// @Tags         System Admin
+// @Accept       json
+// @Produce      json
+// @Param        user_id path string true "User ID"
+// @Param        request body UpdateSystemUserStatusRequest true "Requested account status"
+// @Success      200  {object}  types.UserInfo
+// @Failure      400  {object}  map[string]interface{} "Self-disable or system-admin disable"
+// @Failure      403  {object}  map[string]interface{} "Forbidden: not a system admin"
+// @Failure      404  {object}  map[string]interface{} "User not found"
+// @Router       /system/admin/users/{user_id}/status [put]
+func (h *SystemHandler) UpdateSystemUserStatus(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	userID := strings.TrimSpace(c.Param("user_id"))
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		return
+	}
+
+	var req UpdateSystemUserStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.IsActive == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "is_active is required"})
+		return
+	}
+	actorID, _ := types.UserIDFromContext(ctx)
+	user, changed, err := h.userSvc.AdminSetUserActive(ctx, userID, actorID, *req.IsActive)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrCannotDisableSelf),
+			errors.Is(err, repository.ErrAdminDisable):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, repository.ErrUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		default:
+			logger.Errorf(ctx, "Error updating user %s status: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user status"})
+		}
+		return
+	}
+
+	h.emitAdminAudit(ctx, types.AuditActionSystemUserStatusChanged, user, map[string]any{
+		"target_email":    user.Email,
+		"target_username": user.Username,
+		"is_active":       user.IsActive,
+		"changed":         changed,
+	})
+	c.JSON(http.StatusOK, user.ToUserInfo())
 }
 
 // ResetUserPasswordRequest defines the system-administrator password-reset

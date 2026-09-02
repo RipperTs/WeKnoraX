@@ -64,6 +64,10 @@ var (
 	// one so callers can reject no-op rotations that would still revoke
 	// every session.
 	ErrSamePassword = errors.New("new password must differ from current password")
+
+	// ErrUserInactive is returned whenever token issuance or validation is
+	// attempted for a disabled account.
+	ErrUserInactive = errors.New("account is disabled")
 )
 
 // Machine-readable change-password failure reasons for HTTP details fields.
@@ -783,11 +787,60 @@ func (s *userService) ListSystemAdmins(
 	return s.userRepo.ListSystemAdmins(ctx, offset, limit)
 }
 
+// ListSystemUsers delegates the platform-wide filtered listing to the
+// repository extension implemented by the production user repository.
+func (s *userService) ListSystemUsers(
+	ctx context.Context,
+	query string,
+	isActive *bool,
+	offset, limit int,
+) ([]*types.User, int64, error) {
+	repo, ok := s.userRepo.(interfaces.SystemUserRepository)
+	if !ok {
+		return nil, 0, errors.New("system user listing is unavailable")
+	}
+	return repo.ListSystemUsers(ctx, query, isActive, offset, limit)
+}
+
 // RevokeSystemAdmin removes system-admin privileges through the
 // repository's transactional guard so concurrent revokes cannot remove
 // the final administrator.
 func (s *userService) RevokeSystemAdmin(ctx context.Context, userID, actorID string) (*types.User, error) {
 	return s.userRepo.RevokeSystemAdmin(ctx, userID, actorID)
+}
+
+// AdminSetUserActive changes another user's login state. Sessions are revoked
+// before the row update: if persistence fails the account remains usable but
+// must sign in again, while a successfully disabled account can never keep a
+// usable token. Enabling also revokes first so tokens created before a prior
+// disable cannot become valid again.
+func (s *userService) AdminSetUserActive(
+	ctx context.Context,
+	userID, actorID string,
+	isActive bool,
+) (*types.User, bool, error) {
+	repo, ok := s.userRepo.(interfaces.SystemUserRepository)
+	if !ok {
+		return nil, false, errors.New("system user status management is unavailable")
+	}
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, false, err
+	}
+	if user.IsActive == isActive {
+		return user, false, nil
+	}
+	if !isActive && user.ID == actorID {
+		return nil, false, apprepo.ErrCannotDisableSelf
+	}
+	if !isActive && user.IsSystemAdmin {
+		return nil, false, apprepo.ErrAdminDisable
+	}
+	if err := s.tokenRepo.RevokeTokensByUserID(ctx, user.ID); err != nil {
+		return nil, false, fmt.Errorf("revoke user sessions: %w", err)
+	}
+
+	return repo.SetSystemUserActive(ctx, userID, actorID, isActive)
 }
 
 // UpdateUserPreferences applies a partial update over the user's
@@ -1028,6 +1081,9 @@ func (s *userService) GenerateTokens(
 	ctx context.Context,
 	user *types.User,
 ) (accessToken, refreshToken string, err error) {
+	if user == nil || !user.IsActive {
+		return "", "", ErrUserInactive
+	}
 	return s.generateTokensForTenant(ctx, user, s.resolveLoginTenantID(ctx, user))
 }
 
@@ -1387,6 +1443,9 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (*t
 	if err != nil {
 		return nil, 0, err
 	}
+	if !user.IsActive {
+		return nil, 0, ErrUserInactive
+	}
 
 	// Extract active tenant from the JWT. Anything missing or unparseable
 	// falls back to the user's home tenant so old tokens (and tokens issued
@@ -1498,6 +1557,9 @@ func (s *userService) RefreshToken(
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return "", "", err
+	}
+	if !user.IsActive {
+		return "", "", ErrUserInactive
 	}
 
 	// Revoke old refresh token

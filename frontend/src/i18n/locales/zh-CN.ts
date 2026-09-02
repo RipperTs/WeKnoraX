@@ -2576,6 +2576,118 @@ export default {
       approvalSaveFailed: '保存审核设置失败'
     }
   },
+  systemUsers: {
+    navLabel: '用户管理',
+    title: '用户管理',
+    description: '查看平台账号，并管理登录状态、密码和系统管理员权限。',
+    total: '位用户',
+    searchPlaceholder: '搜索用户名、姓名或邮箱',
+    refresh: '刷新用户列表',
+    retry: '重试',
+    empty: '暂无用户',
+    emptyFiltered: '没有符合当前筛选条件的用户',
+    loadFailed: '加载用户列表失败',
+    columns: {
+      user: '用户',
+      status: '状态',
+      role: '平台权限',
+      createdAt: '注册时间',
+      actions: '操作'
+    },
+    status: {
+      all: '全部状态',
+      active: '已启用',
+      disabled: '已禁用'
+    },
+    role: {
+      systemAdmin: '系统管理员',
+      regular: '普通用户'
+    },
+    actions: {
+      more: '更多操作',
+      resetPassword: '重置密码',
+      promoteAdmin: '设为系统管理员',
+      revokeAdmin: '撤销系统管理员',
+      enable: '启用账号',
+      disable: '禁用账号',
+      revokeBeforeDisable: '请先撤销管理员权限'
+    },
+    create: {
+      action: '新增用户',
+      dialogTitle: '新增用户',
+      confirm: '创建用户',
+      username: '用户名',
+      usernamePlaceholder: "2–50 个字符，不可包含 {'@'}",
+      email: '邮箱',
+      emailPlaceholder: '输入用户邮箱',
+      passwordMode: '初始密码',
+      generated: '自动生成',
+      manual: '手动设置',
+      generatedHint: '创建后将显示一次随机密码，请及时复制并安全发送给用户。',
+      success: '用户账号已就绪',
+      failed: '创建用户失败',
+      passwordResultTitle: '保存初始密码',
+      passwordResultWarning: '该密码仅显示一次，关闭后无法再次查看。',
+      copyPassword: '复制密码',
+      copied: '密码已复制'
+    },
+    password: {
+      dialogTitle: '重置用户密码',
+      warning: '将重置 {email} 的密码，并退出该用户的所有现有会话。',
+      newPassword: '新密码',
+      confirmPassword: '确认新密码',
+      placeholder: '8–32 个字符，须包含字母和数字',
+      confirmPlaceholder: '再次输入新密码',
+      confirm: '确认重置',
+      success: '密码已重置，用户现有会话已退出',
+      failed: '重置密码失败'
+    },
+    validation: {
+      usernameRequired: '请输入用户名',
+      usernameLength: '用户名长度须为 2–50 个字符',
+      usernameAt: "用户名不可包含 {'@'}",
+      emailRequired: '请输入邮箱',
+      emailInvalid: '请输入有效的邮箱地址',
+      passwordRequired: '请输入密码',
+      passwordLength: '密码长度须为 8–32 个字符',
+      passwordLetter: '密码须包含字母',
+      passwordNumber: '密码须包含数字',
+      confirmRequired: '请再次输入密码',
+      passwordMismatch: '两次输入的密码不一致'
+    },
+    confirm: {
+      promote: {
+        title: '授予系统管理员权限',
+        body: '确认将 {email} 设为系统管理员？该用户将获得平台级管理权限。',
+        confirm: '确认授予'
+      },
+      revoke: {
+        title: '撤销系统管理员权限',
+        body: '确认撤销 {email} 的系统管理员权限？',
+        confirm: '确认撤销'
+      },
+      enable: {
+        title: '启用账号',
+        body: '确认启用 {email}？用户需要重新登录。',
+        confirm: '确认启用'
+      },
+      disable: {
+        title: '禁用账号',
+        body: '确认禁用 {email}？该用户将立即退出所有现有会话并无法继续登录。',
+        confirm: '确认禁用'
+      }
+    },
+    messages: {
+      promoteSuccess: '已授予系统管理员权限',
+      promoteFailed: '授予系统管理员权限失败',
+      revokeSuccess: '已撤销系统管理员权限',
+      revokeFailed: '撤销系统管理员权限失败',
+      enableSuccess: '账号已启用',
+      enableFailed: '启用账号失败',
+      disableSuccess: '账号已禁用',
+      disableFailed: '禁用账号失败'
+    }
+  },
   system: {
     title: '系统信息',
     sectionDescription: '查看系统版本信息和用户账户配置',
@@ -2637,7 +2749,7 @@ export default {
       },
       audit: {
         tabLabel: '审计日志',
-        description: '记录平台级操作：系统设置变更、系统管理员授予/回收、配额批量同步等。按时间倒序展示。',
+        description: '记录平台级操作：用户创建与状态变更、系统管理员授予/回收、系统设置变更等。按时间倒序展示。',
         refresh: '刷新',
         retry: '重试',
         loading: '加载中...',
@@ -2677,7 +2789,9 @@ export default {
           'system.api_key_created': '创建平台 API Key',
           'system.api_key_revoked': '吊销平台 API Key',
           'system.admin_revoked': '回收系统管理员',
+          'system.user_created': '创建用户',
           'system.user_password_reset': '重置用户密码',
+          'system.user_status_changed': '变更用户状态',
           'system.queue_task_retried': '重新执行失败任务',
           'system.queue_task_deleted': '清除失败任务记录',
           'system.queue_task_run_now': '立即执行队列任务',

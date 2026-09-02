@@ -3319,6 +3319,118 @@ export default {
       lanUrlUnavailable: 'The API is listening on all interfaces, but no LAN IPv4 could be detected automatically. Find your IPv4 in network settings and build http://YOUR_IP:PORT/api/v1 manually.'
     }
   },
+  systemUsers: {
+    navLabel: 'User Management',
+    title: 'User Management',
+    description: 'View platform accounts and manage sign-in status, passwords, and system administrator access.',
+    total: 'users',
+    searchPlaceholder: 'Search username, name, or email',
+    refresh: 'Refresh user list',
+    retry: 'Retry',
+    empty: 'No users yet',
+    emptyFiltered: 'No users match the current filters',
+    loadFailed: 'Failed to load users',
+    columns: {
+      user: 'User',
+      status: 'Status',
+      role: 'Platform access',
+      createdAt: 'Registered',
+      actions: 'Actions'
+    },
+    status: {
+      all: 'All statuses',
+      active: 'Active',
+      disabled: 'Disabled'
+    },
+    role: {
+      systemAdmin: 'System Admin',
+      regular: 'Regular user'
+    },
+    actions: {
+      more: 'More actions',
+      resetPassword: 'Reset password',
+      promoteAdmin: 'Make system admin',
+      revokeAdmin: 'Revoke system admin',
+      enable: 'Enable account',
+      disable: 'Disable account',
+      revokeBeforeDisable: 'Revoke admin access first'
+    },
+    create: {
+      action: 'Add user',
+      dialogTitle: 'Add user',
+      confirm: 'Create user',
+      username: 'Username',
+      usernamePlaceholder: "2–50 characters, without {'@'}",
+      email: 'Email',
+      emailPlaceholder: 'Enter the user email',
+      passwordMode: 'Initial password',
+      generated: 'Generate automatically',
+      manual: 'Set manually',
+      generatedHint: 'A random password will be shown once after creation. Copy it and send it to the user securely.',
+      success: 'User account is ready',
+      failed: 'Failed to create user',
+      passwordResultTitle: 'Save the initial password',
+      passwordResultWarning: 'This password is shown only once and cannot be retrieved after closing.',
+      copyPassword: 'Copy password',
+      copied: 'Password copied'
+    },
+    password: {
+      dialogTitle: 'Reset user password',
+      warning: 'This resets the password for {email} and signs the user out of every current session.',
+      newPassword: 'New password',
+      confirmPassword: 'Confirm new password',
+      placeholder: '8–32 characters with letters and numbers',
+      confirmPlaceholder: 'Enter the new password again',
+      confirm: 'Reset password',
+      success: 'Password reset; the user was signed out of existing sessions',
+      failed: 'Failed to reset password'
+    },
+    validation: {
+      usernameRequired: 'Enter a username',
+      usernameLength: 'Username must be 2–50 characters',
+      usernameAt: "Username cannot contain {'@'}",
+      emailRequired: 'Enter an email',
+      emailInvalid: 'Enter a valid email address',
+      passwordRequired: 'Enter a password',
+      passwordLength: 'Password must be 8–32 characters',
+      passwordLetter: 'Password must contain a letter',
+      passwordNumber: 'Password must contain a number',
+      confirmRequired: 'Enter the password again',
+      passwordMismatch: 'The passwords do not match'
+    },
+    confirm: {
+      promote: {
+        title: 'Grant system administrator access',
+        body: 'Make {email} a system administrator? This grants platform-wide management access.',
+        confirm: 'Grant access'
+      },
+      revoke: {
+        title: 'Revoke system administrator access',
+        body: 'Revoke system administrator access from {email}?',
+        confirm: 'Revoke access'
+      },
+      enable: {
+        title: 'Enable account',
+        body: 'Enable {email}? The user will need to sign in again.',
+        confirm: 'Enable'
+      },
+      disable: {
+        title: 'Disable account',
+        body: 'Disable {email}? The user will be signed out immediately and cannot sign in again.',
+        confirm: 'Disable'
+      }
+    },
+    messages: {
+      promoteSuccess: 'System administrator access granted',
+      promoteFailed: 'Failed to grant system administrator access',
+      revokeSuccess: 'System administrator access revoked',
+      revokeFailed: 'Failed to revoke system administrator access',
+      enableSuccess: 'Account enabled',
+      enableFailed: 'Failed to enable account',
+      disableSuccess: 'Account disabled',
+      disableFailed: 'Failed to disable account'
+    }
+  },
   system: {
     title: 'System Information',
     sectionDescription: 'View system version information and user account configuration',
@@ -3794,7 +3906,7 @@ export default {
       },
       audit: {
         tabLabel: 'Audit log',
-        description: 'Platform-level events: system setting changes, system admin grants/revocations, bulk quota syncs. Newest first.',
+        description: 'Platform-level events: user creation and status changes, system admin grants/revocations, and system setting changes. Newest first.',
         refresh: 'Refresh',
         retry: 'Retry',
         loading: 'Loading…',
@@ -3822,7 +3934,9 @@ export default {
           'system.api_key_created': 'Platform API key created',
           'system.api_key_revoked': 'Platform API key revoked',
           'system.admin_revoked': 'System admin revoked',
+          'system.user_created': 'User created',
           'system.user_password_reset': 'User password reset',
+          'system.user_status_changed': 'User status changed',
           'system.queue_task_retried': 'Failed task run again',
           'system.queue_task_deleted': 'Failed task record cleared',
           'system.queue_task_run_now': 'Queue task run now',

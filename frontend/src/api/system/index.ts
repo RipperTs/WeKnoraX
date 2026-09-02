@@ -283,8 +283,10 @@ export function checkStorageEngine(req: StorageCheckRequest): Promise<{ data: St
 export interface SystemAdminUser {
   id: string
   username: string
+  name?: string
   email: string
   avatar?: string
+  tenant_id?: number
   is_active: boolean
   is_system_admin: boolean
   created_at: string
@@ -302,6 +304,43 @@ export interface RevokeSystemAdminRequest {
 export interface ListSystemAdminsResponse {
   total: number
   admins: SystemAdminUser[]
+}
+
+export type SystemUserStatusFilter = 'all' | 'active' | 'disabled'
+
+export interface ListSystemUsersParams {
+  query?: string
+  status?: SystemUserStatusFilter
+  page?: number
+  page_size?: number
+}
+
+export interface ListSystemUsersResponse {
+  total: number
+  users: SystemAdminUser[]
+}
+
+export async function listSystemUsers(
+  params: ListSystemUsersParams = {},
+): Promise<ListSystemUsersResponse> {
+  const qs = new URLSearchParams()
+  if (params.query?.trim()) qs.set('query', params.query.trim())
+  if (params.status && params.status !== 'all') qs.set('status', params.status)
+  if (params.page != null) qs.set('page', String(params.page))
+  if (params.page_size != null) qs.set('page_size', String(params.page_size))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const response = await get(`/api/v1/system/admin/users${suffix}`)
+  return response as unknown as ListSystemUsersResponse
+}
+
+export async function updateSystemUserStatus(
+  userId: string,
+  isActive: boolean,
+): Promise<SystemAdminUser> {
+  const response = await put(`/api/v1/system/admin/users/${userId}/status`, {
+    is_active: isActive,
+  })
+  return response as unknown as SystemAdminUser
 }
 
 /**

@@ -80,6 +80,11 @@ type UserService interface {
 	// callers pass offset/limit to page through results. Used by the
 	// /api/v1/system/admin/list endpoint, gated to SystemAdmin callers.
 	ListSystemAdmins(ctx context.Context, offset, limit int) ([]*types.User, int64, error)
+	// ListSystemUsers returns a filtered page of platform users for the
+	// SystemAdmin user-management console.
+	ListSystemUsers(
+		ctx context.Context, query string, isActive *bool, offset, limit int,
+	) ([]*types.User, int64, error)
 	// AdminCreateUser provisions a new local user on behalf of a
 	// SystemAdmin. When req.Password is nil, a random password is generated
 	// and returned exactly once as the second result. provisioning is
@@ -90,6 +95,9 @@ type UserService interface {
 	// RevokeSystemAdmin removes system-admin privileges with the
 	// last-admin/self-revoke checks performed atomically.
 	RevokeSystemAdmin(ctx context.Context, userID, actorID string) (*types.User, error)
+	// AdminSetUserActive enables or disables another user's account and
+	// revokes every existing session before persisting the new state.
+	AdminSetUserActive(ctx context.Context, userID, actorID string, isActive bool) (*types.User, bool, error)
 	// UpdateUserPreferences partially updates the calling user's
 	// preferences blob (PATCH semantics: only keys present in `patch`
 	// overwrite existing values). Returns the updated, persisted prefs.
@@ -127,6 +135,18 @@ type UserRepository interface {
 	RevokeSystemAdmin(ctx context.Context, userID, actorID string) (*types.User, error)
 	// SearchUsers searches users by username or email
 	SearchUsers(ctx context.Context, query string, limit int) ([]*types.User, error)
+}
+
+// SystemUserRepository is the repository extension used only by the
+// platform-wide user-management console. Keeping it separate avoids widening
+// the core UserRepository contract for services that never enumerate all users.
+type SystemUserRepository interface {
+	ListSystemUsers(
+		ctx context.Context, query string, isActive *bool, offset, limit int,
+	) ([]*types.User, int64, error)
+	SetSystemUserActive(
+		ctx context.Context, userID, actorID string, isActive bool,
+	) (*types.User, bool, error)
 }
 
 // AuthTokenRepository defines the auth token repository interface

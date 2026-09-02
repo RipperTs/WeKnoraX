@@ -24,8 +24,6 @@
                                                  @change on every digit).
       - SSRF whitelist (string_list)          → controlled tag-input +
                                                  per-tag inline popconfirm.
-      - System admins                         → tag-input @change with
-                                                 inline popconfirm per delta.
 
     auth.registration_mode triggers an
     inline t-popconfirm (same as Reset / bulk-apply) before persisting;
@@ -96,83 +94,6 @@
           class="settings-group"
           :class="{ 'settings-group--runtime': activeSettingsSection === 'runtime' }"
         >
-      <!--
-        System-admins management. Visually identical to SSRF whitelist
-        (a tag-input with one entry per email). NOT a system_setting
-        row — it's backed by the user table via promote/revoke APIs.
-        We sit it at the top because changing who can edit this page
-        is structurally more important than tweaking any value below.
-        Self-edit safety: the current user is excluded from the visible
-        tags (they can't revoke themselves anyway, and showing a tag
-        that can't be removed is worse than not showing it).
-      -->
-          <div v-if="activeSettingsSection === 'access'" class="setting-row setting-row--admin">
-        <div class="setting-info">
-              <div class="setting-label">
-            <span>{{ t('system.globalSettings.admins.label') }}</span>
-                <t-tag theme="danger" variant="light" size="small" class="setting-badge">
-                  {{ t('system.globalSettings.badgeHighRisk') }}
-                </t-tag>
-              </div>
-          <p class="desc">{{ t('system.globalSettings.admins.description') }}</p>
-        </div>
-        <div class="setting-control">
-          <div class="setting-control-row">
-            <t-popconfirm
-              v-model:visible="adminPopconfirm.visible"
-              :content="adminPopconfirm.content"
-              :theme="adminPopconfirm.theme"
-              :confirm-btn="adminPopconfirm.confirmBtn"
-              :cancel-btn="t('system.globalSettings.confirm.cancelBtn')"
-              :popup-props="PROGRAMMATIC_POPCONFIRM_PROPS"
-              placement="left"
-              @confirm="adminPopconfirm.finish(true)"
-              @cancel="adminPopconfirm.finish(false)"
-              @visible-change="adminPopconfirm.onVisibleChange"
-            >
-              <div class="setting-control-anchor">
-                <t-tag-input
-                  v-model="adminEmails"
-                  :placeholder="t('system.globalSettings.admins.placeholder')"
-                      :aria-label="t('system.globalSettings.admins.label')"
-                  :disabled="adminBusy"
-                  class="setting-input setting-input--wide"
-                  clearable
-                  @change="onAdminsChange"
-                />
-              </div>
-            </t-popconfirm>
-                <div v-if="adminBusy" class="setting-save-state" role="status">
-                  <t-loading size="small" />
-                  <span>{{ t('system.globalSettings.saving') }}</span>
-                </div>
-          </div>
-        </div>
-      </div>
-
-          <div v-if="activeSettingsSection === 'access'" class="setting-row setting-row--password-reset">
-            <div class="setting-info">
-              <div class="setting-label">
-                <span>{{ t('system.globalSettings.passwordReset.label') }}</span>
-                <t-tag theme="danger" variant="light" size="small" class="setting-badge">
-                  {{ t('system.globalSettings.badgeHighRisk') }}
-                </t-tag>
-              </div>
-              <p class="desc">{{ t('system.globalSettings.passwordReset.description') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-button
-                theme="danger"
-                variant="text"
-                class="password-reset-trigger"
-                @click="openPasswordResetDialog"
-              >
-                <template #icon><t-icon name="lock-on" /></template>
-                {{ t('system.globalSettings.passwordReset.action') }}
-              </t-button>
-            </div>
-          </div>
-
       <div
             v-for="item in activeSectionSettings"
         :key="item.key"
@@ -438,73 +359,6 @@
       </section>
       <div class="sr-only" role="status" aria-live="polite">{{ saveAnnouncement }}</div>
     </template>
-    <t-dialog
-      v-model:visible="passwordResetVisible"
-      :header="t('system.globalSettings.passwordReset.dialogTitle')"
-      width="440px"
-      placement="center"
-      dialog-class-name="password-reset-dialog"
-      :confirm-btn="{
-        content: t('system.globalSettings.passwordReset.confirmBtn'),
-        theme: 'danger',
-        loading: passwordResetSubmitting,
-      }"
-      :cancel-btn="{
-        content: t('system.globalSettings.confirm.cancelBtn'),
-        variant: 'outline',
-      }"
-      :close-on-overlay-click="!passwordResetSubmitting"
-      :close-btn="!passwordResetSubmitting"
-      @confirm="submitPasswordReset"
-      @close="resetPasswordResetForm"
-    >
-      <t-alert
-        theme="warning"
-        :message="t('system.globalSettings.passwordReset.warning')"
-        class="password-reset-warning"
-      />
-      <t-form
-        ref="passwordResetFormRef"
-        :data="passwordResetForm"
-        :rules="passwordResetRules"
-        label-align="top"
-        class="password-reset-form"
-      >
-        <t-form-item :label="t('system.globalSettings.passwordReset.emailLabel')" name="email">
-          <t-input
-            v-model="passwordResetForm.email"
-            type="text"
-            clearable
-            autocomplete="off"
-            :disabled="passwordResetSubmitting"
-            :placeholder="t('system.globalSettings.passwordReset.emailPlaceholder')"
-          />
-        </t-form-item>
-        <t-form-item :label="t('system.globalSettings.passwordReset.newPasswordLabel')" name="newPassword">
-          <t-input
-            v-model="passwordResetForm.newPassword"
-            type="password"
-            autocomplete="new-password"
-            :disabled="passwordResetSubmitting"
-            :placeholder="t('system.globalSettings.passwordReset.newPasswordPlaceholder')"
-          >
-            <template #prefix-icon><t-icon name="lock-on" /></template>
-          </t-input>
-        </t-form-item>
-        <t-form-item :label="t('system.globalSettings.passwordReset.confirmPasswordLabel')" name="confirmPassword">
-          <t-input
-            v-model="passwordResetForm.confirmPassword"
-            type="password"
-            autocomplete="new-password"
-            :disabled="passwordResetSubmitting"
-            :placeholder="t('system.globalSettings.passwordReset.confirmPasswordPlaceholder')"
-            @enter="submitPasswordReset"
-          >
-            <template #prefix-icon><t-icon name="lock-on" /></template>
-          </t-input>
-        </t-form-item>
-      </t-form>
-    </t-dialog>
   </div>
 </template>
 
@@ -521,24 +375,16 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
-import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 import {
   listSystemSettings,
   updateSystemSetting,
   resetSystemSetting,
   applyDefaultStorageQuotaToAllTenants,
-  listSystemAdmins,
-  promoteUserToSystemAdmin,
-  revokeSystemAdmin,
-  resetUserPassword,
   type SystemSettingItem,
 } from '@/api/system'
-import { useAuthStore } from '@/stores/auth'
 import { useSystemBrandingStore } from '@/stores/systemBranding'
 
-const authStore = useAuthStore()
 const systemBrandingStore = useSystemBrandingStore()
-const currentUserId = computed(() => authStore.currentUserId)
 
 const { t, tm, te, locale } = useI18n()
 
@@ -632,7 +478,6 @@ function createInlinePopconfirm() {
 }
 
 const ssrfPopconfirm = createInlinePopconfirm()
-const adminPopconfirm = createInlinePopconfirm()
 const highRiskPopconfirm = createInlinePopconfirm()
 
 // Friendly labels for enum options live in i18n
@@ -714,7 +559,7 @@ const activeSectionDescription = computed(() =>
 function sectionTabLabel(section: SettingsSection): string {
   const count = section === 'other'
     ? SETTINGS_SECTION_KEYS.other.filter((key) => settingsByKey.value.has(key)).length + unknownSettings.value.length
-    : SETTINGS_SECTION_KEYS[section].filter((key) => settingsByKey.value.has(key)).length + (section === 'access' ? 2 : 0)
+    : SETTINGS_SECTION_KEYS[section].filter((key) => settingsByKey.value.has(key)).length
   return t(`system.globalSettings.sections.${section}.tab`, { count })
 }
 
@@ -728,86 +573,6 @@ function markSettingSaved(item: SystemSettingItem) {
     if (savedKey.value === item.key) savedKey.value = null
     savedKeyTimer = null
   }, 2000)
-}
-
-// Admin management state. We keep two parallel structures:
-//   - adminEmails: the v-model bound to the t-tag-input (excludes
-//     current user; that's the visible source of truth).
-//   - adminEmailToId: email → user UUID, populated from the list
-//     endpoint. Needed because revoke takes a UUID, not an email.
-// Both reset on every reload to avoid stale entries persisting after
-// a peer SystemAdmin makes a change. adminBusy disables the input and
-// shows the row spinner only while promote/revoke API calls are in
-// flight — not while the inline popconfirm is waiting for a click.
-const adminEmails = ref<string[]>([])
-const adminEmailToId = ref<Record<string, string>>({})
-const adminBusy = ref(false)
-
-const passwordResetVisible = ref(false)
-const passwordResetSubmitting = ref(false)
-const passwordResetFormRef = ref<FormInstanceFunctions>()
-const passwordResetForm = reactive({
-  email: '',
-  newPassword: '',
-  confirmPassword: '',
-})
-const passwordResetRules: Record<string, FormRule[]> = {
-  email: [
-    { required: true, message: t('system.globalSettings.passwordReset.validation.emailRequired'), trigger: 'blur' },
-    { email: true, message: t('system.globalSettings.passwordReset.validation.emailInvalid'), trigger: 'blur' },
-  ],
-  newPassword: [
-    { required: true, message: t('system.globalSettings.passwordReset.validation.passwordRequired'), trigger: 'blur' },
-    { min: 8, message: t('system.globalSettings.passwordReset.validation.passwordLength'), trigger: 'blur' },
-    { max: 32, message: t('system.globalSettings.passwordReset.validation.passwordLength'), trigger: 'blur' },
-    { pattern: /[a-zA-Z]/, message: t('system.globalSettings.passwordReset.validation.passwordLetter'), trigger: 'blur' },
-    { pattern: /\d/, message: t('system.globalSettings.passwordReset.validation.passwordNumber'), trigger: 'blur' },
-  ],
-  confirmPassword: [
-    { required: true, message: t('system.globalSettings.passwordReset.validation.confirmRequired'), trigger: 'blur' },
-    {
-      validator: (value: string) => value === passwordResetForm.newPassword,
-      message: t('system.globalSettings.passwordReset.validation.passwordMismatch'),
-      trigger: 'blur',
-    },
-  ],
-}
-
-function resetPasswordResetForm() {
-  passwordResetForm.email = ''
-  passwordResetForm.newPassword = ''
-  passwordResetForm.confirmPassword = ''
-  passwordResetFormRef.value?.clearValidate?.()
-}
-
-async function openPasswordResetDialog() {
-  resetPasswordResetForm()
-  passwordResetVisible.value = true
-  await nextTick()
-  passwordResetFormRef.value?.clearValidate?.()
-}
-
-async function submitPasswordReset() {
-  if (passwordResetSubmitting.value) return
-  const valid = await passwordResetFormRef.value?.validate?.()
-  if (valid !== true) return
-
-  passwordResetSubmitting.value = true
-  try {
-    await resetUserPassword({
-      email: passwordResetForm.email.trim(),
-      new_password: passwordResetForm.newPassword,
-    })
-    saveAnnouncement.value = t('system.globalSettings.passwordReset.success')
-    MessagePlugin.success(t('system.globalSettings.passwordReset.success'))
-    passwordResetVisible.value = false
-  } catch (err: any) {
-    const msg = err?.message || t('system.globalSettings.passwordReset.failed')
-    saveAnnouncement.value = msg
-    MessagePlugin.error(msg)
-  } finally {
-    passwordResetSubmitting.value = false
-  }
 }
 
 // Guards ssrf.whitelist while an async confirm roundtrip is in flight.
@@ -1075,13 +840,13 @@ async function loadSettings() {
   }
 }
 
-// onChange persists non-SSRF settings. SSRF whitelist and system admins
-// have dedicated handlers with inline popconfirm.
+// onChange persists non-SSRF settings. SSRF whitelist has a dedicated
+// handler with inline popconfirm.
 async function onChange(item: SystemSettingItem) {
   if (!isDirty(item)) return
 
-  // SSRF whitelist gets the per-entry confirm flow — same shape as the
-  // admin tag-input above. Adding or removing each host/CIDR is its
+  // SSRF whitelist gets the per-entry confirm flow. Adding or removing
+  // each host/CIDR is its
   // own privileged change (a single bad CIDR can punch a hole through
   // the egress firewall), so we ask once per delta instead of once
   // per "save". This matches the operator's mental model: every tag
@@ -1310,129 +1075,8 @@ async function persistSetting(item: SystemSettingItem) {
   }
 }
 
-// loadAdmins refreshes the admin tag list + the email→id lookup
-// table. We exclude the current user from the visible list so the
-// "you can't revoke yourself" rule has nothing to enforce in the UI
-// (the backend rejects it too, but hiding the tag is friendlier).
-async function loadAdmins() {
-  try {
-    const resp = await listSystemAdmins({ limit: 200 })
-    const map: Record<string, string> = {}
-    const emails: string[] = []
-    for (const u of resp.admins ?? []) {
-      // Empty emails would collapse to a single tag "" that can't be
-      // round-tripped to a user_id; skip them. Same defensive stance
-      // as resolveMaxOwnedTenantsPerUser on the backend.
-      if (!u.email) continue
-      map[u.email] = u.id
-      if (u.id !== currentUserId.value) {
-        emails.push(u.email)
-      }
-    }
-    adminEmailToId.value = map
-    adminEmails.value = emails
-  } catch (err: any) {
-    const msg = err?.message || t('system.globalSettings.admins.loadFailed')
-    MessagePlugin.error(msg)
-  }
-}
-
-function confirmAdminChange(action: 'promote' | 'revoke', email: string): Promise<boolean> {
-  const base = `system.globalSettings.admins.confirm.${action}`
-  return adminPopconfirm.ask({
-    content: globalSettingsText(`${base}.body`, { email }),
-    theme: action === 'revoke' ? 'danger' : 'warning',
-    confirmBtn: {
-      content: globalSettingsText(`${base}.confirmBtn`),
-      theme: action === 'revoke' ? 'danger' : 'primary',
-    },
-  })
-}
-
-// onAdminsChange diffs the new tag list against the canonical state
-// and dispatches one promote / revoke per delta. Failures roll back
-// the whole tag list to the server-side truth — this is simpler than
-// trying to undo individual ops, and the network/error case for batch
-// edits is rare enough that a full reload doesn't surprise anyone.
-async function onAdminsChange(next: string[]) {
-  if (adminBusy.value) return
-
-  // Snapshot of what's currently authoritative — the email→id map's
-  // keys, minus the current user. Anything in `next` that's not here
-  // is an addition; anything here that's not in `next` is a removal.
-  const authoritative = new Set<string>()
-  for (const email of Object.keys(adminEmailToId.value)) {
-    if (adminEmailToId.value[email] !== currentUserId.value) {
-      authoritative.add(email)
-    }
-  }
-  const nextSet = new Set(next.map((e) => e.trim()).filter(Boolean))
-
-  // Drop the user-typed entry to canonical lowercase/trim before we
-  // diff. We don't lowercase server-returned emails because the
-  // backend stores the original case; matching against the map's keys
-  // happens with the as-typed value, which is what the user sees.
-  const added: string[] = []
-  for (const email of nextSet) {
-    if (!authoritative.has(email)) added.push(email)
-  }
-  const removed: string[] = []
-  for (const email of authoritative) {
-    if (!nextSet.has(email)) removed.push(email)
-  }
-
-  if (added.length === 0 && removed.length === 0) return
-
-  // Confirm before any privilege change (no loading spinner yet — the
-  // popconfirm is the only UI; adminBusy is reserved for API roundtrips).
-  for (const email of added) {
-    const ok = await confirmAdminChange('promote', email)
-    if (!ok) {
-      await loadAdmins()
-      return
-    }
-  }
-  for (const email of removed) {
-    const userId = adminEmailToId.value[email]
-    if (!userId) continue
-    const ok = await confirmAdminChange('revoke', email)
-    if (!ok) {
-      await loadAdmins()
-      return
-    }
-  }
-
-  adminBusy.value = true
-  let applied = 0
-  try {
-    for (const email of added) {
-      await promoteUserToSystemAdmin({ email })
-      applied++
-    }
-    for (const email of removed) {
-      const userId = adminEmailToId.value[email]
-      if (!userId) continue
-      await revokeSystemAdmin(userId)
-      applied++
-    }
-    await loadAdmins()
-    if (applied > 0) {
-      saveAnnouncement.value = t('system.globalSettings.admins.saveSuccess')
-      MessagePlugin.success(t('system.globalSettings.admins.saveSuccess'))
-    }
-  } catch (err: any) {
-    const msg = err?.message || t('system.globalSettings.admins.saveFailed')
-    saveAnnouncement.value = msg
-    MessagePlugin.error(msg)
-    await loadAdmins()
-  } finally {
-    adminBusy.value = false
-  }
-}
-
 onMounted(() => {
   loadSettings()
-  loadAdmins()
 })
 
 onUnmounted(() => {
@@ -1629,8 +1273,8 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-// Anchor wrapper for inline t-popconfirm on inputs (SSRF / admins /
-// high-risk select). Popconfirm attaches to this box so the bubble
+// Anchor wrapper for inline t-popconfirm on inputs (SSRF / high-risk select).
+// Popconfirm attaches to this box so the bubble
 // appears beside the control, not a full-screen modal.
 .setting-control-anchor {
   flex: 1;
@@ -1777,31 +1421,6 @@ onUnmounted(() => {
   display: none;
 }
 
-.password-reset-trigger {
-  min-width: 112px;
-  height: 32px;
-  padding: 0 12px;
-  color: var(--td-error-color);
-  background: var(--td-error-color-light);
-  border: 1px solid transparent;
-  border-radius: 6px;
-
-  &:hover {
-    color: var(--td-error-color-hover);
-    background: var(--td-error-color-light-hover);
-    border-color: var(--td-error-color-focus);
-  }
-
-  &:active {
-    color: var(--td-error-color-active);
-    background: var(--td-error-color-focus);
-  }
-}
-
-.password-reset-warning {
-  margin-bottom: 20px;
-}
-
 @media (max-width: 860px) {
   .settings-section-intro {
     align-items: flex-start;
@@ -1866,98 +1485,4 @@ onUnmounted(() => {
     max-width: none;
   }
 }
-</style>
-
-<style lang="less">
-/* The dialog is teleported to body, so its visual shell cannot be
-   styled from the scoped block above. Keep this class specific to the
-   password-reset flow instead of changing every TDesign dialog. */
-.password-reset-dialog {
-  padding: 0;
-  overflow: hidden;
-  border-color: var(--td-component-stroke);
-  border-radius: 12px;
-  box-shadow:
-    0 12px 32px rgba(15, 23, 42, 0.12),
-    0 2px 8px rgba(15, 23, 42, 0.08);
-
-  .t-dialog__header {
-    min-height: 64px;
-    padding: 0 24px;
-    font-size: 18px;
-    line-height: 26px;
-    border-bottom: 1px solid var(--td-component-stroke);
-  }
-
-  .t-dialog__close {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    justify-content: center;
-    border-radius: 6px;
-  }
-
-  .t-dialog__body {
-    padding: 20px 24px 4px;
-  }
-
-  .password-reset-warning {
-    padding: 12px 14px;
-    border-radius: 8px;
-
-    .t-alert__content {
-      font-size: 13px;
-      line-height: 20px;
-    }
-  }
-
-  .password-reset-form {
-    .t-form__item {
-      margin-bottom: 16px;
-    }
-
-    .t-form__label--top {
-      min-height: 28px;
-      padding: 0;
-      font-size: 14px;
-      line-height: 22px;
-    }
-
-    .t-input {
-      border-radius: 6px;
-    }
-  }
-
-  .t-dialog__footer {
-    box-sizing: border-box;
-    padding: 16px 24px 20px;
-    border-top: 1px solid var(--td-component-stroke);
-
-    .t-button {
-      min-width: 88px;
-      border-radius: 6px;
-    }
-  }
-}
-
-@media (max-width: 480px) {
-  .password-reset-dialog {
-    width: calc(100vw - 24px) !important;
-
-    .t-dialog__header {
-      min-height: 56px;
-      padding: 0 20px;
-      font-size: 17px;
-    }
-
-    .t-dialog__body {
-      padding: 16px 20px 4px;
-    }
-
-    .t-dialog__footer {
-      padding: 14px 20px 18px;
-    }
-  }
-}
-
 </style>

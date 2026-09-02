@@ -125,6 +125,7 @@ func TestAuditAction_NoCollisionsAcrossNamespaces(t *testing.T) {
 	register("AuditActionSystemAdminPromoted", AuditActionSystemAdminPromoted)
 	register("AuditActionSystemAdminRevoked", AuditActionSystemAdminRevoked)
 	register("AuditActionSystemUserPasswordReset", AuditActionSystemUserPasswordReset)
+	register("AuditActionSystemUserStatusChanged", AuditActionSystemUserStatusChanged)
 	register("AuditActionSystemUserCreated", AuditActionSystemUserCreated)
 	register("AuditActionSystemQueueTaskRetried", AuditActionSystemQueueTaskRetried)
 	register("AuditActionSystemQueueTaskDeleted", AuditActionSystemQueueTaskDeleted)
@@ -146,6 +147,7 @@ func TestAuditAction_SystemNamespacePrefix(t *testing.T) {
 		AuditActionSystemAdminRevoked,
 		AuditActionSystemUserPasswordReset,
 		AuditActionSystemUserCreated,
+		AuditActionSystemUserStatusChanged,
 		AuditActionSystemQueueTaskRetried,
 		AuditActionSystemQueueTaskDeleted,
 		AuditActionSystemQueueTaskRunNow,
@@ -174,6 +176,7 @@ func TestAuditAction_SystemWireValues(t *testing.T) {
 		{AuditActionSystemAdminRevoked, "system.admin_revoked"},
 		{AuditActionSystemUserPasswordReset, "system.user_password_reset"},
 		{AuditActionSystemUserCreated, "system.user_created"},
+		{AuditActionSystemUserStatusChanged, "system.user_status_changed"},
 		{AuditActionSystemQueueTaskRetried, "system.queue_task_retried"},
 		{AuditActionSystemQueueTaskDeleted, "system.queue_task_deleted"},
 		{AuditActionSystemQueueTaskRunNow, "system.queue_task_run_now"},
