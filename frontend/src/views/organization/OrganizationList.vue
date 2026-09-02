@@ -1228,6 +1228,14 @@ onUnmounted(() => {
   }
 }
 
+.header-actions .org-create-btn:not(:disabled):not(.t-is-disabled) {
+  background: linear-gradient(135deg, var(--td-brand-color) 0%, #00a67e 100%);
+
+  &:hover {
+    background: linear-gradient(135deg, var(--td-brand-color) 0%, var(--td-brand-color-active) 100%);
+  }
+}
+
 .header-subtitle {
   margin: 0;
   color: var(--td-text-color-secondary);
