@@ -257,6 +257,8 @@ X-API-Key: wkic_xxx
 
 应用、空间策略、用户连接三层都包含 `knowledge.chat` 时，凭证才可以创建该连接隔离的会话并调用 `/knowledge-chat`。该权限不允许读取 Agent 配置、调用 `/agent-chat` 或执行自定义 Agent 工具，也不授予模型、知识库和内容管理权限。
 
+调用 `/knowledge-chat` 时可以省略 `knowledge_base_ids`，服务端会使用连接当前的完整有效知识库范围；如果该范围已为空，请求会直接失败，不会退化为脱离知识库的纯模型问答。
+
 如果只需要第三方 Agent 自己生成答案，保持默认 `knowledge.read` 即可。
 
 ## 6. MCP 接入

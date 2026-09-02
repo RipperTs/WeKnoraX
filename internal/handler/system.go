@@ -160,6 +160,14 @@ func (h *SystemHandler) CreatePlatformAPIKey(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("valid capabilities are required"))
 		return
 	}
+	for _, capability := range capabilities {
+		if capability == string(types.APIKeyCapabilityKnowledgeChat) {
+			c.Error(apperrors.NewValidationError(
+				"knowledge_chat capability is reserved for integration credentials",
+			))
+			return
+		}
+	}
 	var expiresAt *time.Time
 	if req.ExpiresAt != nil {
 		value := time.Unix(*req.ExpiresAt, 0).UTC()

@@ -241,6 +241,10 @@ func (h *Handler) GetSessionsByTenant(c *gin.Context) {
 	})
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
+		if appErr, ok := err.(*errors.AppError); ok {
+			c.Error(appErr)
+			return
+		}
 		c.Error(errors.NewInternalServerError(err.Error()))
 		return
 	}

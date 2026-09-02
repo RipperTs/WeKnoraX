@@ -170,7 +170,21 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 
 	// Merge @mentioned items into knowledge_base_ids and knowledge_ids
 	kbIDs, knowledgeIDs := mergeKnowledgeTargets(request.KnowledgeBaseIDs, request.KnowledgeIds, request.MentionedItems)
-	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(ctx, kbIDs, knowledgeIDs); err != nil {
+	mentionScopes := tagScopesFromMentionedItems(request.MentionedItems)
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser &&
+		len(kbIDs) == 0 && len(knowledgeIDs) == 0 && len(mentionScopes) == 0 {
+		if scope, exists := types.TenantAPIKeyScopeFromContext(ctx); exists {
+			kbIDs = append(kbIDs, scope.KnowledgeBaseIDs...)
+		}
+		if len(kbIDs) == 0 {
+			return nil, nil, errors.NewBadRequestError(
+				"integration knowledge chat requires at least one accessible knowledge base",
+			)
+		}
+	}
+	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(
+		ctx, knowledgeBaseIDsWithTagScopes(kbIDs, mentionScopes), knowledgeIDs,
+	); err != nil {
 		return nil, nil, err
 	}
 
@@ -327,7 +341,6 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		attachmentIDs = normalizedIDs
 	}
 
-	mentionScopes := tagScopesFromMentionedItems(request.MentionedItems)
 	requestTagIDs := dedupRequestStrings(request.TagIDs)
 	if err := validateUnscopedTagIDs(orphanTagIDsForScope(requestTagIDs, mentionScopes), secutils.SanitizeForLogArray(kbIDs)); err != nil {
 		return nil, nil, errors.NewBadRequestError(err.Error())

@@ -819,6 +819,10 @@ func pickUserDisplayName(u *types.User) string {
 // @Router       /knowledge-bases/{id}/pin [put]
 func (h *KnowledgeBaseHandler) TogglePinKnowledgeBase(c *gin.Context) {
 	ctx := c.Request.Context()
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
+		c.Error(apperrors.NewForbiddenError("integration credentials cannot change knowledge base pins"))
+		return
+	}
 	id := c.Param("id")
 	if id == "" {
 		c.Error(apperrors.NewBadRequestError("knowledge base ID is required"))
@@ -1395,6 +1399,7 @@ func (h *KnowledgeBaseHandler) ListMoveTargets(c *gin.Context) {
 		c.Error(errors.NewInternalServerError(err.Error()))
 		return
 	}
+	allKBs = filterKnowledgeBasesForAPIKeyScope(ctx, allKBs)
 
 	// Filter eligible targets
 	targets := make([]*types.KnowledgeBase, 0)
