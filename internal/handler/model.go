@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -203,6 +204,12 @@ func (h *ModelHandler) ListModels(c *gin.Context) {
 		c.Error(errors.NewInternalServerError(err.Error()))
 		return
 	}
+	sort.SliceStable(models, func(i, j int) bool {
+		if models[i].SortOrder != models[j].SortOrder {
+			return models[i].SortOrder < models[j].SortOrder
+		}
+		return models[i].CreatedAt.After(models[j].CreatedAt)
+	})
 
 	logger.Infof(ctx, "Retrieved model list successfully, Tenant ID: %d, Total: %d models", tenantID, len(models))
 
