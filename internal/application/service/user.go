@@ -772,7 +772,8 @@ func (s *userService) GetUserByTenantID(ctx context.Context, tenantID uint64) (*
 	return s.userRepo.GetUserByTenantID(ctx, tenantID)
 }
 
-// UpdateUser updates user information
+// UpdateUser updates ordinary user information. The repository keeps account
+// status and system-administrator privileges on their dedicated write paths.
 func (s *userService) UpdateUser(ctx context.Context, user *types.User) error {
 	user.UpdatedAt = time.Now()
 	return s.userRepo.UpdateUser(ctx, user)
@@ -807,6 +808,16 @@ func (s *userService) ListSystemUsers(
 // the final administrator.
 func (s *userService) RevokeSystemAdmin(ctx context.Context, userID, actorID string) (*types.User, error) {
 	return s.userRepo.RevokeSystemAdmin(ctx, userID, actorID)
+}
+
+// PromoteSystemAdmin delegates the field-scoped privilege mutation to the
+// system-user repository extension.
+func (s *userService) PromoteSystemAdmin(ctx context.Context, userID string) (*types.User, bool, error) {
+	repo, ok := s.userRepo.(interfaces.SystemUserRepository)
+	if !ok {
+		return nil, false, errors.New("system user privilege management is unavailable")
+	}
+	return repo.PromoteSystemAdmin(ctx, userID)
 }
 
 // AdminSetUserActive changes another user's login state. Sessions are revoked

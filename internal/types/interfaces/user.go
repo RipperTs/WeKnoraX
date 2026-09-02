@@ -32,7 +32,8 @@ type UserService interface {
 	GetUserByUsername(ctx context.Context, username string) (*types.User, error)
 	// GetUserByTenantID gets the first user (owner) of a tenant
 	GetUserByTenantID(ctx context.Context, tenantID uint64) (*types.User, error)
-	// UpdateUser updates user information
+	// UpdateUser updates ordinary user information. Account status and system
+	// administrator privileges require their dedicated mutation methods.
 	UpdateUser(ctx context.Context, user *types.User) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id string) error
@@ -95,6 +96,9 @@ type UserService interface {
 	// RevokeSystemAdmin removes system-admin privileges with the
 	// last-admin/self-revoke checks performed atomically.
 	RevokeSystemAdmin(ctx context.Context, userID, actorID string) (*types.User, error)
+	// PromoteSystemAdmin grants system-admin privileges atomically and reports
+	// whether the persisted role changed.
+	PromoteSystemAdmin(ctx context.Context, userID string) (*types.User, bool, error)
 	// AdminSetUserActive enables or disables another user's account and
 	// revokes every existing session before persisting the new state.
 	AdminSetUserActive(ctx context.Context, userID, actorID string, isActive bool) (*types.User, bool, error)
@@ -119,7 +123,8 @@ type UserRepository interface {
 	GetUserByUsername(ctx context.Context, username string) (*types.User, error)
 	// GetUserByTenantID gets the first user (owner) of a tenant
 	GetUserByTenantID(ctx context.Context, tenantID uint64) (*types.User, error)
-	// UpdateUser updates a user
+	// UpdateUser updates ordinary user fields without changing account status
+	// or system-administrator privileges.
 	UpdateUser(ctx context.Context, user *types.User) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id string) error
@@ -144,6 +149,7 @@ type SystemUserRepository interface {
 	ListSystemUsers(
 		ctx context.Context, query string, isActive *bool, offset, limit int,
 	) ([]*types.User, int64, error)
+	PromoteSystemAdmin(ctx context.Context, userID string) (*types.User, bool, error)
 	SetSystemUserActive(
 		ctx context.Context, userID, actorID string, isActive bool,
 	) (*types.User, bool, error)

@@ -446,6 +446,24 @@ const navGroups = computed<NavGroup[]>(() => {
   ].filter((group) => group.items.length > 0)
 })
 
+function resetToFirstVisibleSection() {
+  currentSection.value = navItems.value[0]?.key || 'general'
+  currentSubSection.value = ''
+}
+
+function ensureSectionAccessible(section: string): boolean {
+  if (!canSeeSection(section)) {
+    resetToFirstVisibleSection()
+    return false
+  }
+  if (deploymentCapabilities.loaded && !isSectionSupported(section)) {
+    MessagePlugin.warning(t('settings.capabilityUnavailable'))
+    resetToFirstVisibleSection()
+    return false
+  }
+  return true
+}
+
 // 导航项点击处理
 const handleNavClick = (item: any) => {
   if (item.children && item.children.length > 0) {
@@ -523,12 +541,7 @@ const handleClose = () => {
 watch(() => uiStore.settingsInitialSection, (section) => {
   if (section && visible.value) {
     const normalizedSection = normalizeSettingsSection(section)
-    if (deploymentCapabilities.loaded && !isSectionSupported(normalizedSection)) {
-      MessagePlugin.warning(t('settings.capabilityUnavailable'))
-      currentSection.value = navItems.value[0]?.key || 'general'
-      currentSubSection.value = ''
-      return
-    }
+    if (!ensureSectionAccessible(normalizedSection)) return
     currentSection.value = normalizedSection
     const navItem = (navItems.value as any[]).find((item) => item.key === normalizedSection)
     if (navItem && navItem.children && navItem.children.length > 0) {
@@ -552,13 +565,10 @@ watch(() => uiStore.settingsInitialSection, (section) => {
 
 watch(
   () => [visible.value, route.query.section, deploymentCapabilities.loaded] as const,
-  ([isVisible, section, capabilitiesLoaded]) => {
+  ([isVisible, section]) => {
     if (!isVisible || typeof section !== 'string') return
     const normalizedSection = normalizeSettingsSection(section)
-    if (capabilitiesLoaded && !isSectionSupported(normalizedSection)) {
-      MessagePlugin.warning(t('settings.capabilityUnavailable'))
-      currentSection.value = navItems.value[0]?.key || 'general'
-      currentSubSection.value = ''
+    if (!ensureSectionAccessible(normalizedSection)) {
       if (route.path === '/platform/settings') {
         const query = { ...route.query }
         delete query.section
@@ -594,12 +604,7 @@ const handleSettingsNav = (e: CustomEvent) => {
   const { section, subsection } = e.detail
   if (section) {
     const normalizedSection = normalizeSettingsSection(section)
-    if (deploymentCapabilities.loaded && !isSectionSupported(normalizedSection)) {
-      MessagePlugin.warning(t('settings.capabilityUnavailable'))
-      currentSection.value = navItems.value[0]?.key || 'general'
-      currentSubSection.value = ''
-      return
-    }
+    if (!ensureSectionAccessible(normalizedSection)) return
     currentSection.value = normalizedSection
     // 如果有子菜单，自动展开
     const navItem = (navItems.value as any[]).find((item: any) => item.key === normalizedSection)

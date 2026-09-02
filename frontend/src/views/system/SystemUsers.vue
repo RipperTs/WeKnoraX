@@ -316,6 +316,7 @@ const error = ref('')
 const operationUserId = ref('')
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+let loadRequestId = 0
 
 const statusOptions = computed(() => [
   { label: t('systemUsers.status.all'), value: 'all' },
@@ -332,6 +333,7 @@ const columns = computed(() => [
 ])
 
 async function loadUsers() {
+  const requestId = ++loadRequestId
   loading.value = true
   error.value = ''
   try {
@@ -341,6 +343,7 @@ async function loadUsers() {
       page: page.value,
       page_size: pageSize.value,
     })
+    if (requestId !== loadRequestId) return
     users.value = response.users ?? []
     total.value = response.total ?? 0
     const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
@@ -349,9 +352,10 @@ async function loadUsers() {
       await loadUsers()
     }
   } catch (err: any) {
+    if (requestId !== loadRequestId) return
     error.value = err?.message || t('systemUsers.loadFailed')
   } finally {
-    loading.value = false
+    if (requestId === loadRequestId) loading.value = false
   }
 }
 
@@ -372,6 +376,7 @@ watch(statusFilter, () => {
 onMounted(loadUsers)
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)
+  loadRequestId++
 })
 
 function userPrimary(user: SystemAdminUser): string {

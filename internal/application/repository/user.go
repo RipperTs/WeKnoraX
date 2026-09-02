@@ -116,12 +116,16 @@ func (r *userRepository) GetUserByTenantID(ctx context.Context, tenantID uint64)
 
 // UpdateUser updates a user
 func (r *userRepository) UpdateUser(ctx context.Context, user *types.User) error {
+	// Account state and platform privileges are security-sensitive fields.
+	// They are updated only through their dedicated transactional methods so
+	// a stale user snapshot cannot restore either value during an unrelated
+	// profile, password, or tenant update.
 	if user != nil && user.TenantID == 0 {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			// Preserve Save's all-fields behaviour while keeping the nullable
 			// tenant column out of the struct write, then explicitly store NULL.
 			// Writing uint64(0) would violate the PostgreSQL tenant FK.
-			if err := tx.Omit("tenant_id").Save(user).Error; err != nil {
+			if err := tx.Omit("tenant_id", "is_active", "is_system_admin").Save(user).Error; err != nil {
 				return err
 			}
 			return tx.Model(&types.User{}).
@@ -129,7 +133,7 @@ func (r *userRepository) UpdateUser(ctx context.Context, user *types.User) error
 				UpdateColumn("tenant_id", nil).Error
 		})
 	}
-	return r.db.WithContext(ctx).Save(user).Error
+	return r.db.WithContext(ctx).Omit("is_active", "is_system_admin").Save(user).Error
 }
 
 // DeleteUser deletes a user
@@ -251,6 +255,47 @@ func (r *userRepository) SetSystemUserActive(
 	return updated, changed, err
 }
 
+// PromoteSystemAdmin grants platform privileges with a row lock and updates
+// only the privilege columns. This keeps concurrent profile or status writes
+// from restoring values read before the promotion.
+func (r *userRepository) PromoteSystemAdmin(
+	ctx context.Context,
+	userID string,
+) (*types.User, bool, error) {
+	var updated *types.User
+	changed := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		query := tx.Where("id = ?", userID)
+		if tx.Dialector.Name() == "postgres" || tx.Dialector.Name() == "mysql" {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		var user types.User
+		if err := query.First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrUserNotFound
+			}
+			return err
+		}
+		if user.IsSystemAdmin {
+			updated = &user
+			return nil
+		}
+
+		now := time.Now()
+		if err := tx.Model(&types.User{}).
+			Where("id = ?", user.ID).
+			Updates(map[string]any{"is_system_admin": true, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		user.IsSystemAdmin = true
+		user.UpdatedAt = now
+		updated = &user
+		changed = true
+		return nil
+	})
+	return updated, changed, err
+}
+
 // ListSystemAdmins lists users where is_system_admin = true.
 //
 // Walks idx_users_is_system_admin (created in migration 000052), so the
@@ -335,10 +380,14 @@ func (r *userRepository) RevokeSystemAdmin(ctx context.Context, userID, actorID 
 			return ErrLastSystemAdmin
 		}
 
-		user.IsSystemAdmin = false
-		if err := tx.Save(&user).Error; err != nil {
+		now := time.Now()
+		if err := tx.Model(&types.User{}).
+			Where("id = ?", user.ID).
+			Updates(map[string]any{"is_system_admin": false, "updated_at": now}).Error; err != nil {
 			return err
 		}
+		user.IsSystemAdmin = false
+		user.UpdatedAt = now
 		revoked = &user
 		return nil
 	})
