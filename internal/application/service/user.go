@@ -340,7 +340,10 @@ type fushunSSOUserInfoResponse struct {
 	} `json:"data"`
 }
 
-const defaultFushunSSOEmailSuffix = "example.com"
+const (
+	defaultFushunSSOEmailSuffix   = "example.com"
+	ssoAutoRegisterDisabledPrompt = "SSO 新用户自动注册已关闭，请联系管理员开通账号"
+)
 
 // LoginWithFushunSSO exchanges the remote SSO token for a local session.
 func (s *userService) LoginWithFushunSSO(
@@ -369,7 +372,7 @@ func (s *userService) LoginWithFushunSSO(
 		if !s.ssoAutoRegisterEnabled(ctx) {
 			return &types.LoginResponse{
 				Success: false,
-				Message: "SSO 新用户自动注册已关闭，请联系管理员开通账号",
+				Message: ssoAutoRegisterDisabledPrompt,
 			}, nil
 		}
 		randomPassword, passwordErr := generateRandomString(32)
@@ -689,6 +692,12 @@ func (s *userService) LoginWithOIDC(
 	}
 	isNewUser := false
 	if isUserLookupNotFound(err) || user == nil {
+		if !s.ssoAutoRegisterEnabled(ctx) {
+			return &types.OIDCCallbackResponse{
+				Success: false,
+				Message: ssoAutoRegisterDisabledPrompt,
+			}, nil
+		}
 		user, err = s.provisionOIDCUser(ctx, userInfo, provisioning)
 		if err != nil {
 			return nil, err
