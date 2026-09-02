@@ -3634,7 +3634,8 @@ export default {
         },
         auth: {
           registration_mode: 'Self-service registration mode',
-          default_tenant_mode: 'Default workspace provisioning'
+          default_tenant_mode: 'Default workspace provisioning',
+          sso_auto_register_enabled: 'SSO new-user auto-registration'
         },
         ssrf: {
           whitelist: 'SSRF protection allowlist'
@@ -3665,7 +3666,8 @@ export default {
         },
         auth: {
           registration_mode: 'Self-service registration mode. self_serve = anyone can register an account; invite_only = public registration is disabled and only Owners/Admins can invite. Takes effect immediately after saving, but use self_serve with care (the public internet will send spam sign-ups).',
-          default_tenant_mode: 'Workspace provisioning after public registration. create_personal creates an Owner workspace; tenantless creates only the account until the user accepts an invitation or creates a workspace. Applies to new users only.'
+          default_tenant_mode: 'Workspace provisioning after public registration. create_personal creates an Owner workspace; tenantless creates only the account until the user accepts an invitation or creates a workspace. Applies to new users only.',
+          sso_auto_register_enabled: 'Controls whether first-time SSO sign-ins create local accounts automatically. When enabled, a missing local user is registered automatically; when disabled, only existing local accounts can sign in with SSO. Takes effect immediately.'
         },
         ssrf: {
           whitelist: 'SSRF protection allowlist. Accepts entries such as example.com / *.foo.com / 10.0.0.0/8 / 2001:db8::1. Takes effect immediately after saving. The SSRF_WHITELIST_EXTRA environment variable is still maintained by the deployer and is not overridden here.'

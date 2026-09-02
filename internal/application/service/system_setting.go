@@ -38,10 +38,11 @@ const (
 )
 
 const (
-	SystemSettingSiteTitle  = "branding.site_title"
-	SystemSettingSiteLogo   = "branding.site_logo_data_url"
-	SiteTitleMaxRunes       = 40
-	SiteLogoMaxDecodedBytes = 1 << 20
+	SystemSettingSiteTitle              = "branding.site_title"
+	SystemSettingSiteLogo               = "branding.site_logo_data_url"
+	SystemSettingSSOAutoRegisterEnabled = "auth.sso_auto_register_enabled"
+	SiteTitleMaxRunes                   = 40
+	SiteLogoMaxDecodedBytes             = 1 << 20
 )
 
 var siteLogoDataURLPrefixes = map[string]string{
@@ -189,6 +190,13 @@ var registry = map[string]settingSpec{
 		Category: "auth",
 		Description: "公开注册成功后的默认空间策略。create_personal = 自动创建个人空间并设为 Owner；" +
 			"tenantless = 仅创建用户，等待接受邀请或主动创建空间。修改后只影响新注册用户。",
+	},
+	SystemSettingSSOAutoRegisterEnabled: {
+		Type:     "bool",
+		Default:  true,
+		Category: "auth",
+		Description: "SSO 登录时，本地不存在对应用户是否自动注册。开启后首次 SSO 登录会自动创建本地账号；" +
+			"关闭后，仅已存在的本地账号可通过 SSO 登录。修改后立即生效。",
 	},
 	// tenant.max_owned_per_user caps how many tenants a single non-superuser
 	// can create (and Own) via self-service POST /tenants. Read on every

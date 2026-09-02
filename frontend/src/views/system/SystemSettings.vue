@@ -567,6 +567,7 @@ const HIGH_RISK_KEYS = new Set<string>([
 
 const HIGH_IMPACT_KEYS = new Set<string>([
   'auth.registration_mode',
+  'auth.sso_auto_register_enabled',
   'tenant.auto_create_api_key',
   'ssrf.whitelist',
 ])
@@ -666,6 +667,7 @@ const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly string[]> = {
   access: [
     'auth.registration_mode',
     'auth.default_tenant_mode',
+    'auth.sso_auto_register_enabled',
     'tenant.self_service_creation_enabled',
     'tenant.max_owned_per_user',
   ],

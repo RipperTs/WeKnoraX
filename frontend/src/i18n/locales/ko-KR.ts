@@ -2826,7 +2826,8 @@ export default {
         },
         auth: {
           registration_mode: '셀프 가입 모드입니다. self_serve = 누구나 계정을 만들 수 있음; invite_only = 공개 가입을 끄고 Owner/Admin만 초대 가능. 저장 즉시 적용되며, self_serve는 스팸 가입이 들어올 수 있으니 신중히 사용하세요.',
-          default_tenant_mode: '공개 가입 후 공간 초기화 정책입니다. create_personal은 개인 공간을 만들고 Owner를 부여하며, tenantless는 초대 수락 또는 직접 공간 생성 전까지 계정만 만듭니다.'
+          default_tenant_mode: '공개 가입 후 공간 초기화 정책입니다. create_personal은 개인 공간을 만들고 Owner를 부여하며, tenantless는 초대 수락 또는 직접 공간 생성 전까지 계정만 만듭니다.',
+          sso_auto_register_enabled: 'SSO 최초 로그인 시 로컬 계정을 자동 생성할지 제어합니다. 활성화하면 해당 로컬 사용자가 없을 때 자동 등록하고, 비활성화하면 이미 존재하는 로컬 계정만 SSO로 로그인할 수 있습니다. 저장 즉시 적용됩니다.'
         }
       },
       keyLabels: {
@@ -2857,7 +2858,8 @@ export default {
         },
         auth: {
           registration_mode: '셀프 가입 모드',
-          default_tenant_mode: '기본 공간 프로비저닝'
+          default_tenant_mode: '기본 공간 프로비저닝',
+          sso_auto_register_enabled: 'SSO 신규 사용자 자동 등록'
         }
       },
       runtime: {

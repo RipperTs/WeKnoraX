@@ -117,11 +117,12 @@ func getJwtSecret() string {
 
 // userService implements the UserService interface
 type userService struct {
-	userRepo      interfaces.UserRepository
-	tokenRepo     interfaces.AuthTokenRepository
-	tenantService interfaces.TenantService
-	memberService interfaces.TenantMemberService
-	config        *config.Config
+	userRepo         interfaces.UserRepository
+	tokenRepo        interfaces.AuthTokenRepository
+	tenantService    interfaces.TenantService
+	memberService    interfaces.TenantMemberService
+	systemSettingSvc interfaces.SystemSettingService
+	config           *config.Config
 }
 
 // NewUserService creates a new user service instance
@@ -131,13 +132,15 @@ func NewUserService(
 	tokenRepo interfaces.AuthTokenRepository,
 	tenantService interfaces.TenantService,
 	memberService interfaces.TenantMemberService,
+	systemSettingSvc interfaces.SystemSettingService,
 ) interfaces.UserService {
 	return &userService{
-		userRepo:      userRepo,
-		tokenRepo:     tokenRepo,
-		tenantService: tenantService,
-		memberService: memberService,
-		config:        configInfo,
+		userRepo:         userRepo,
+		tokenRepo:        tokenRepo,
+		tenantService:    tenantService,
+		memberService:    memberService,
+		systemSettingSvc: systemSettingSvc,
+		config:           configInfo,
 	}
 }
 
@@ -363,6 +366,12 @@ func (s *userService) LoginWithFushunSSO(
 		return nil, fmt.Errorf("failed to find SSO user: %w", err)
 	}
 	if user == nil || isUserLookupNotFound(err) {
+		if !s.ssoAutoRegisterEnabled(ctx) {
+			return &types.LoginResponse{
+				Success: false,
+				Message: "SSO 新用户自动注册已关闭，请联系管理员开通账号",
+			}, nil
+		}
 		randomPassword, passwordErr := generateRandomString(32)
 		if passwordErr != nil {
 			return nil, fmt.Errorf("failed to generate SSO user password: %w", passwordErr)
@@ -401,6 +410,13 @@ func (s *userService) LoginWithFushunSSO(
 		Token:        accessToken,
 		RefreshToken: refreshToken,
 	}, nil
+}
+
+func (s *userService) ssoAutoRegisterEnabled(ctx context.Context) bool {
+	if s.systemSettingSvc == nil {
+		return true
+	}
+	return s.systemSettingSvc.GetBool(ctx, SystemSettingSSOAutoRegisterEnabled, "", true)
 }
 
 func (s *userService) getFushunSSOConfig() (*config.FushunSSOConfig, error) {
