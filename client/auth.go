@@ -177,7 +177,6 @@ func (c *Client) RefreshToken(ctx context.Context, refreshToken string) (*Refres
 
 // ChangePasswordRequest is the body for POST /api/v1/auth/change-password.
 type ChangePasswordRequest struct {
-	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`
 }
 

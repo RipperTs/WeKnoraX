@@ -55,11 +55,6 @@ var (
 	// without exposing bcrypt or persistence errors.
 	ErrPasswordPolicy = errors.New("password must be 8-32 characters and contain at least one letter and one number")
 
-	// ErrInvalidOldPassword is returned by ChangePassword when the supplied
-	// current password does not match the stored hash. Handlers map this to
-	// a 400 so callers can prompt the user without treating it as a 500.
-	ErrInvalidOldPassword = errors.New("invalid old password")
-
 	// ErrSamePassword is returned when the new password equals the current
 	// one so callers can reject no-op rotations that would still revoke
 	// every session.
@@ -72,9 +67,8 @@ var (
 
 // Machine-readable change-password failure reasons for HTTP details fields.
 const (
-	DetailInvalidOldPassword = "invalid_old_password"
-	DetailPasswordPolicy     = "password_policy"
-	DetailSamePassword       = "same_password"
+	DetailPasswordPolicy = "password_policy"
+	DetailSamePassword   = "same_password"
 )
 
 // ValidatePasswordPolicy keeps administrative password resets aligned with
@@ -898,21 +892,14 @@ func (s *userService) DeleteUser(ctx context.Context, id string) error {
 	return s.userRepo.DeleteUser(ctx, id)
 }
 
-// ChangePassword changes user password after verifying the current
-// credential. The new password must satisfy ValidatePasswordPolicy so
-// self-service rotation cannot introduce weaker passwords than
-// registration / admin reset allow. On success every outstanding session
-// is revoked so a stolen token cannot survive the rotation.
-func (s *userService) ChangePassword(ctx context.Context, userID string, oldPassword, newPassword string) error {
+// ChangePassword changes the authenticated user's password. The new password
+// must satisfy ValidatePasswordPolicy so self-service rotation cannot introduce
+// weaker passwords than registration / admin reset allow. On success every
+// outstanding session is revoked so a stolen token cannot survive the rotation.
+func (s *userService) ChangePassword(ctx context.Context, userID string, newPassword string) error {
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
-	}
-
-	// Verify old password before policy checks so callers with a wrong
-	// current credential get a clear failure instead of a policy error.
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
-		return ErrInvalidOldPassword
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(newPassword)); err == nil {

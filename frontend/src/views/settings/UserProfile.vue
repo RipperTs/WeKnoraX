@@ -129,99 +129,81 @@
       <div class="setting-row">
         <div class="setting-info">
           <label>{{ $t('userProfile.changePassword.label') }}</label>
-          <p class="desc">
-            {{ oidcOnlyLogin
-              ? $t('userProfile.changePassword.oidcOnlyDescription')
-              : $t('userProfile.changePassword.description') }}
-          </p>
+          <p class="desc">{{ $t('userProfile.changePassword.description') }}</p>
         </div>
         <div class="setting-control">
-          <template v-if="oidcOnlyLogin">
-            <span class="info-value info-value--muted">—</span>
-          </template>
-          <template v-else>
-            <span class="info-value password-mask" aria-hidden="true">••••••••</span>
-            <t-popup
-              v-model="passwordPopupVisible"
-              trigger="click"
-              placement="bottom-end"
-              destroy-on-close
-              overlay-class-name="user-profile-password-popup-overlay"
+          <span class="info-value password-mask" aria-hidden="true">••••••••</span>
+          <t-popup
+            v-model="passwordPopupVisible"
+            trigger="click"
+            placement="bottom-end"
+            destroy-on-close
+            overlay-class-name="user-profile-password-popup-overlay"
+          >
+            <t-button
+              theme="default"
+              variant="text"
+              shape="square"
+              size="small"
+              class="edit-btn"
+              :title="$t('userProfile.changePassword.label')"
+              :aria-label="$t('userProfile.changePassword.label')"
             >
-              <t-button
-                theme="default"
-                variant="text"
-                shape="square"
-                size="small"
-                class="edit-btn"
-                :title="$t('userProfile.changePassword.label')"
-                :aria-label="$t('userProfile.changePassword.label')"
-              >
-                <template #icon>
-                  <t-icon name="edit" />
-                </template>
-              </t-button>
-              <template #content>
-                <div class="password-popup-inner" @click.stop>
-                  <div class="password-popup-title">{{ $t('userProfile.changePassword.label') }}</div>
-                  <p class="password-popup-hint">{{ $t('userProfile.changePassword.description') }}</p>
-                  <t-form
-                    ref="passwordFormRef"
-                    :data="passwordForm"
-                    :rules="passwordRules"
-                    label-align="top"
-                    class="password-popup-form"
-                    @submit.prevent
-                  >
-                    <t-form-item :label="$t('userProfile.changePassword.currentLabel')" name="oldPassword">
-                      <t-input
-                        v-model="passwordForm.oldPassword"
-                        type="password"
-                        autocomplete="current-password"
-                        :disabled="passwordSubmitting"
-                        :placeholder="$t('userProfile.changePassword.currentPlaceholder')"
-                      />
-                    </t-form-item>
-                    <t-form-item :label="$t('userProfile.changePassword.newLabel')" name="newPassword">
-                      <t-input
-                        v-model="passwordForm.newPassword"
-                        type="password"
-                        autocomplete="new-password"
-                        :disabled="passwordSubmitting"
-                        :placeholder="$t('userProfile.changePassword.newPlaceholder')"
-                      />
-                    </t-form-item>
-                    <t-form-item :label="$t('userProfile.changePassword.confirmLabel')" name="confirmPassword">
-                      <t-input
-                        v-model="passwordForm.confirmPassword"
-                        type="password"
-                        autocomplete="new-password"
-                        :disabled="passwordSubmitting"
-                        :placeholder="$t('userProfile.changePassword.confirmPlaceholder')"
-                        @enter="submitPasswordChange"
-                      />
-                    </t-form-item>
-                  </t-form>
-                  <div class="password-popup-footer">
-                    <t-button
-                      variant="outline"
-                      :disabled="passwordSubmitting"
-                      @click="closePasswordPopup"
-                    >
-                      {{ $t('common.cancel') }}
-                    </t-button>
-                    <t-button
-                      theme="primary"
-                      :loading="passwordSubmitting"
-                      @click="submitPasswordChange"
-                    >
-                      {{ $t('userProfile.changePassword.submit') }}
-                    </t-button>
-                  </div>
-                </div>
+              <template #icon>
+                <t-icon name="edit" />
               </template>
-            </t-popup>
-          </template>
+            </t-button>
+            <template #content>
+              <div class="password-popup-inner" @click.stop>
+                <div class="password-popup-title">{{ $t('userProfile.changePassword.label') }}</div>
+                <p class="password-popup-hint">{{ $t('userProfile.changePassword.description') }}</p>
+                <t-form
+                  ref="passwordFormRef"
+                  :data="passwordForm"
+                  :rules="passwordRules"
+                  label-align="top"
+                  class="password-popup-form"
+                  @submit.prevent
+                >
+                  <t-form-item :label="$t('userProfile.changePassword.newLabel')" name="newPassword">
+                    <t-input
+                      v-model="passwordForm.newPassword"
+                      type="password"
+                      autocomplete="new-password"
+                      :disabled="passwordSubmitting"
+                      :placeholder="$t('userProfile.changePassword.newPlaceholder')"
+                    />
+                  </t-form-item>
+                  <t-form-item :label="$t('userProfile.changePassword.confirmLabel')" name="confirmPassword">
+                    <t-input
+                      v-model="passwordForm.confirmPassword"
+                      type="password"
+                      autocomplete="new-password"
+                      :disabled="passwordSubmitting"
+                      :placeholder="$t('userProfile.changePassword.confirmPlaceholder')"
+                      @enter="submitPasswordChange"
+                    />
+                  </t-form-item>
+                </t-form>
+                <div class="password-popup-footer">
+                  <t-button
+                    variant="outline"
+                    :disabled="passwordSubmitting"
+                    @click="closePasswordPopup"
+                  >
+                    {{ $t('common.cancel') }}
+                  </t-button>
+                  <t-button
+                    theme="primary"
+                    :loading="passwordSubmitting"
+                    @click="submitPasswordChange"
+                  >
+                    {{ $t('userProfile.changePassword.submit') }}
+                  </t-button>
+                </div>
+              </div>
+            </template>
+          </t-popup>
         </div>
       </div>
     </div>
@@ -263,14 +245,9 @@ const passwordPopupVisible = ref(false)
 const passwordFormRef = ref<FormInstanceFunctions | null>(null)
 const passwordSubmitting = ref(false)
 const passwordForm = reactive({
-  oldPassword: '',
   newPassword: '',
   confirmPassword: '',
 })
-
-const oidcOnlyLogin = computed(
-  () => userInfo.value?.preferences?.oidc_only_login === true,
-)
 
 watch(passwordPopupVisible, (open) => {
   if (open) {
@@ -279,20 +256,12 @@ watch(passwordPopupVisible, (open) => {
 })
 
 const passwordRules = computed<Record<string, FormRule[]>>(() => ({
-  oldPassword: [
-    { required: true, message: t('userProfile.changePassword.currentRequired'), type: 'error' },
-  ],
   newPassword: [
     { required: true, message: t('auth.passwordRequired'), type: 'error' },
     { min: 8, message: t('auth.passwordMinLength'), type: 'error' },
     { max: 32, message: t('auth.passwordMaxLength'), type: 'error' },
     { pattern: /[a-zA-Z]/, message: t('auth.passwordMustContainLetter'), type: 'error' },
     { pattern: /\d/, message: t('auth.passwordMustContainNumber'), type: 'error' },
-    {
-      validator: (val: string) => val !== passwordForm.oldPassword,
-      message: t('userProfile.changePassword.sameAsCurrent'),
-      type: 'error',
-    },
   ],
   confirmPassword: [
     { required: true, message: t('auth.confirmPasswordRequired'), type: 'error' },
@@ -383,7 +352,6 @@ const formatDate = (dateStr: string | undefined) => {
 }
 
 const resetPasswordForm = () => {
-  passwordForm.oldPassword = ''
   passwordForm.newPassword = ''
   passwordForm.confirmPassword = ''
   passwordFormRef.value?.clearValidate?.()
@@ -403,7 +371,6 @@ const submitPasswordChange = async () => {
   passwordSubmitting.value = true
   try {
     const resp = await changePassword({
-      old_password: passwordForm.oldPassword,
       new_password: passwordForm.newPassword,
     })
     if (!resp.success) {

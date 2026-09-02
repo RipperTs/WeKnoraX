@@ -232,18 +232,14 @@ func TestChangePasswordRequiresPolicyAndRevokesSessions(t *testing.T) {
 	}
 	repo.users["user-1"].PasswordHash = string(hashed)
 
-	if err := svc.ChangePassword(ctx, "user-1", "OldSecure9", "weak"); !errors.Is(err, ErrPasswordPolicy) {
+	if err := svc.ChangePassword(ctx, "user-1", "weak"); !errors.Is(err, ErrPasswordPolicy) {
 		t.Fatalf("ChangePassword(weak) err = %v, want ErrPasswordPolicy", err)
 	}
 	if repo.updateCalls != 0 || len(tokenRepo.revokedUserIDs) != 0 {
 		t.Fatalf("weak password caused side effects: updates=%d revocations=%v", repo.updateCalls, tokenRepo.revokedUserIDs)
 	}
 
-	if err := svc.ChangePassword(ctx, "user-1", "wrong-pass", "NewSecure9"); !errors.Is(err, ErrInvalidOldPassword) {
-		t.Fatalf("ChangePassword(wrong old) err = %v, want ErrInvalidOldPassword", err)
-	}
-
-	if err := svc.ChangePassword(ctx, "user-1", "OldSecure9", "NewSecure9"); err != nil {
+	if err := svc.ChangePassword(ctx, "user-1", "NewSecure9"); err != nil {
 		t.Fatalf("ChangePassword() err = %v", err)
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(repo.users["user-1"].PasswordHash), []byte("NewSecure9")); err != nil {
@@ -266,7 +262,7 @@ func TestChangePasswordRejectsSamePassword(t *testing.T) {
 	}
 	repo.users["user-1"].PasswordHash = string(hashed)
 
-	if err := svc.ChangePassword(ctx, "user-1", "OldSecure9", "OldSecure9"); !errors.Is(err, ErrSamePassword) {
+	if err := svc.ChangePassword(ctx, "user-1", "OldSecure9"); !errors.Is(err, ErrSamePassword) {
 		t.Fatalf("ChangePassword(same) err = %v, want ErrSamePassword", err)
 	}
 	if repo.updateCalls != 0 || len(tokenRepo.revokedUserIDs) != 0 {

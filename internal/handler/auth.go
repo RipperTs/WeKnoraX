@@ -806,7 +806,7 @@ func (h *AuthHandler) UpdateMyPreferences(c *gin.Context) {
 // @Tags         认证
 // @Accept       json
 // @Produce      json
-// @Param        request  body      object{old_password=string,new_password=string}  true  "密码修改请求"
+// @Param        request  body      object{new_password=string}  true  "密码修改请求"
 // @Success      200      {object}  map[string]interface{}                           "修改成功"
 // @Failure      400      {object}  errors.AppError                                  "请求参数错误"
 // @Security     Bearer
@@ -817,7 +817,6 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	logger.Info(ctx, "Start password change")
 
 	var req struct {
-		OldPassword string `json:"old_password" binding:"required"`
 		NewPassword string `json:"new_password" binding:"required"`
 	}
 
@@ -838,17 +837,12 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	// Change password
-	err = h.userService.ChangePassword(ctx, user.ID, req.OldPassword, req.NewPassword)
+	err = h.userService.ChangePassword(ctx, user.ID, req.NewPassword)
 	if err != nil {
 		switch {
 		case stderrors.Is(err, service.ErrPasswordPolicy):
 			appErr := errors.NewValidationError("Password policy violation").
 				WithDetails(service.DetailPasswordPolicy)
-			c.Error(appErr)
-			return
-		case stderrors.Is(err, service.ErrInvalidOldPassword):
-			appErr := errors.NewBadRequestError("Current password is incorrect").
-				WithDetails(service.DetailInvalidOldPassword)
 			c.Error(appErr)
 			return
 		case stderrors.Is(err, service.ErrSamePassword):

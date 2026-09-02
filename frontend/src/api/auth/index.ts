@@ -471,7 +471,6 @@ export async function logout(): Promise<{ success: boolean; message?: string }> 
 }
 
 export interface ChangePasswordRequest {
-  old_password: string
   new_password: string
 }
 
@@ -484,8 +483,6 @@ export function resolveChangePasswordError(error: any): string {
         ? error.details
         : ''
   switch (details) {
-    case 'invalid_old_password':
-      return t('userProfile.changePassword.failed')
     case 'password_policy':
       return t('userProfile.changePassword.policyFailed')
     case 'same_password':
