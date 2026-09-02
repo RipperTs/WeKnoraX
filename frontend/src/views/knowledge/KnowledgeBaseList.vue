@@ -2796,6 +2796,25 @@ const handleUploadFinishedEvent = (event: Event) => {
 }
 
 // 响应式布局
+@media (max-width: 768px) {
+  .kb-list-container {
+    flex-direction: column;
+  }
+
+  .kb-list-content {
+    padding-left: 16px;
+    min-height: 0;
+  }
+
+  .kb-list-main {
+    padding-right: 16px;
+  }
+
+  .header {
+    margin-right: 16px;
+  }
+}
+
 @media (min-width: 900px) {
   .kb-card-wrap {
     grid-template-columns: repeat(2, 1fr);

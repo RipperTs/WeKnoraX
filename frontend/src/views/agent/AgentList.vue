@@ -2371,6 +2371,25 @@ defineExpose({
 }
 
 // 响应式布局
+@media (max-width: 768px) {
+  .agent-list-container {
+    flex-direction: column;
+  }
+
+  .agent-list-content {
+    padding-left: 16px;
+    min-height: 0;
+  }
+
+  .agent-list-main {
+    padding-right: 16px;
+  }
+
+  .header {
+    margin-right: 16px;
+  }
+}
+
 @media (min-width: 900px) {
   .agent-card-wrap {
     grid-template-columns: repeat(2, 1fr);

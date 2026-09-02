@@ -1784,6 +1784,18 @@ onUnmounted(() => {
 }
 
 // 响应式布局
+@media (max-width: 768px) {
+  .org-list-container {
+    flex-direction: column;
+    margin-right: 0;
+  }
+
+  .org-list-content {
+    padding: 20px 16px 0;
+    min-height: 0;
+  }
+}
+
 @media (min-width: 900px) {
   .org-card-wrap {
     grid-template-columns: repeat(2, 1fr);

@@ -1,80 +1,6 @@
 <template>
-  <div ref="sidebarRef" class="list-space-sidebar" :class="{ expanded: isExpanded, dragging: isDragging }"
-    :style="{ width: isDragging ? `${dragWidth}px` : undefined }">
-    <!-- Collapsed: icon strip -->
-    <div v-if="!isExpanded" class="icon-strip">
-      <template v-if="mode === 'resource'">
-        <t-tooltip v-if="!hideAll" :content="tooltipText($t('listSpaceSidebar.all'), countAll)" placement="right"
-          :show-arrow="false">
-          <div class="icon-item-labeled" :class="{ active: selected === 'all' }" @click="select('all')">
-            <t-icon name="layers" size="16px" />
-            <span class="icon-label">{{ $t('listSpaceSidebar.all') }}</span>
-          </div>
-        </t-tooltip>
-        <t-tooltip v-if="showFavorites" :content="tooltipText($t('listSpaceSidebar.favorites'), countFavorites)"
-          placement="right" :show-arrow="false">
-          <div class="icon-item-labeled" :class="{ active: selected === 'favorites' }" @click="select('favorites')">
-            <t-icon name="star" size="16px" />
-            <span class="icon-label">{{ $t('listSpaceSidebar.favorites') }}</span>
-          </div>
-        </t-tooltip>
-        <t-tooltip v-if="showRecents" :content="tooltipText($t('listSpaceSidebar.recents'), countRecents)"
-          placement="right" :show-arrow="false">
-          <div class="icon-item-labeled" :class="{ active: selected === 'recents' }" @click="select('recents')">
-            <t-icon name="history" size="16px" />
-            <span class="icon-label">{{ $t('listSpaceSidebar.recents') }}</span>
-          </div>
-        </t-tooltip>
-        <t-tooltip :content="tooltipText(workspaceLabel, countMine)" placement="right" :show-arrow="false">
-          <div class="icon-item-labeled workspace-item" :class="{ active: selected === 'mine' }"
-            @click="select('mine')">
-            <t-icon name="system-sum" size="16px" />
-            <span class="icon-label">{{ workspaceLabel }}</span>
-          </div>
-        </t-tooltip>
-        <!-- Shared spaces group: per-org/space entries only. We dropped
-             the aggregate "协作" / shared-with-me entry — its meaning
-             oscillated between "everything shared to me" and "things I
-             can edit", and either reading duplicated information already
-             visible on the per-space entries below. -->
-        <template v-if="organizationsWithCount.length">
-          <div class="icon-strip-divider" />
-          <t-tooltip v-for="org in organizationsWithCount" :key="org.id"
-            :content="tooltipText(org.name, getOrgCount(org.id))" placement="right" :show-arrow="false">
-            <div class="icon-item-labeled" :class="{ active: selected === org.id }" @click="select(org.id)">
-              <SpaceAvatar :name="org.name" :avatar="org.avatar" size="small" />
-              <span class="icon-label">{{ truncateLabel(org.name) }}</span>
-            </div>
-          </t-tooltip>
-        </template>
-      </template>
-
-      <template v-else>
-        <t-tooltip :content="tooltipText($t('listSpaceSidebar.all'), countAll)" placement="right" :show-arrow="false">
-          <div class="icon-item-labeled" :class="{ active: selected === 'all' }" @click="select('all')">
-            <t-icon name="layers" size="16px" />
-            <span class="icon-label">{{ $t('listSpaceSidebar.all') }}</span>
-          </div>
-        </t-tooltip>
-        <t-tooltip :content="tooltipText($t('organization.createdByMe'), countCreated)" placement="right"
-          :show-arrow="false">
-          <div class="icon-item-labeled" :class="{ active: selected === 'created' }" @click="select('created')">
-            <t-icon name="usergroup-add" size="16px" />
-            <span class="icon-label">{{ $t('organization.createdByMe') }}</span>
-          </div>
-        </t-tooltip>
-        <t-tooltip :content="tooltipText($t('organization.joinedByMe'), countJoined)" placement="right"
-          :show-arrow="false">
-          <div class="icon-item-labeled" :class="{ active: selected === 'joined' }" @click="select('joined')">
-            <t-icon name="usergroup" size="16px" />
-            <span class="icon-label">{{ $t('organization.joinedByMe') }}</span>
-          </div>
-        </t-tooltip>
-      </template>
-    </div>
-
-    <!-- Expanded: full nav panel -->
-    <nav v-else class="expanded-panel">
+  <div class="list-space-sidebar">
+    <nav class="expanded-panel">
       <div v-if="!hideAll" class="sidebar-item" :class="{ active: selected === 'all' }" @click="select('all')">
         <div class="item-left">
           <t-icon name="layers" class="item-icon" />
@@ -108,8 +34,7 @@
           </div>
           <span v-if="countMine !== undefined" class="item-count">{{ countMine }}</span>
         </div>
-        <!-- Shared spaces group — per-org entries only; the aggregate
-             entry was removed (see collapsed strip for rationale). -->
+        <!-- Shared spaces group — per-org entries only. -->
         <template v-if="organizationsWithCount.length">
           <div class="sidebar-section">
             <span class="section-title">{{ $t('listSpaceSidebar.spaces') }}</span>
@@ -142,30 +67,20 @@
         </div>
       </template>
     </nav>
-
-    <!-- Drag handle on the right edge -->
-    <div class="resize-handle" @mousedown.prevent="onDragStart">
-      <div class="resize-handle-line" />
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon as TIcon } from 'tdesign-vue-next'
 import SpaceAvatar from './SpaceAvatar.vue'
 import { useOrganizationStore } from '@/stores/organization'
 
-const COLLAPSED_WIDTH = 56
-const EXPANDED_WIDTH = 208
-const SNAP_THRESHOLD = 120
-
 const props = withDefaults(
   defineProps<{
     mode?: 'resource' | 'organization'
     modelValue: string
-    collapsedKey?: string
     countAll?: number
     countMine?: number
     countByOrg?: Record<string, number>
@@ -181,7 +96,6 @@ const props = withDefaults(
   }>(),
   {
     mode: 'resource',
-    collapsedKey: 'sidebar-collapsed-list',
     countAll: undefined,
     countMine: undefined,
     countByOrg: () => ({}),
@@ -195,57 +109,6 @@ const props = withDefaults(
   }
 )
 
-const storageKey = props.collapsedKey + '-expanded'
-const sidebarRef = ref<HTMLElement | null>(null)
-const isExpanded = ref(localStorage.getItem(storageKey) === 'true')
-const isDragging = ref(false)
-const dragWidth = ref(isExpanded.value ? EXPANDED_WIDTH : COLLAPSED_WIDTH)
-
-let startX = 0
-let startWidth = 0
-
-function onDragStart(e: MouseEvent) {
-  isDragging.value = true
-  startX = e.clientX
-  startWidth = isExpanded.value ? EXPANDED_WIDTH : COLLAPSED_WIDTH
-  dragWidth.value = startWidth
-  document.addEventListener('mousemove', onDragMove)
-  document.addEventListener('mouseup', onDragEnd)
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function onDragMove(e: MouseEvent) {
-  const delta = e.clientX - startX
-  const newWidth = Math.max(COLLAPSED_WIDTH, Math.min(EXPANDED_WIDTH + 20, startWidth + delta))
-  dragWidth.value = newWidth
-}
-
-function onDragEnd() {
-  document.removeEventListener('mousemove', onDragMove)
-  document.removeEventListener('mouseup', onDragEnd)
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-
-  const shouldExpand = dragWidth.value >= SNAP_THRESHOLD
-  isExpanded.value = shouldExpand
-  localStorage.setItem(storageKey, String(shouldExpand))
-  isDragging.value = false
-  dragWidth.value = shouldExpand ? EXPANDED_WIDTH : COLLAPSED_WIDTH
-}
-
-function tooltipText(name: string, count?: number): string {
-  return count !== undefined ? `${name} (${count})` : name
-}
-
-// truncateLabel keeps the collapsed-strip label visually balanced (~44px
-// wide). 4 CJK chars fits; ASCII can stretch further. Callers that want
-// the full label should pass it as :title= on the same element for hover.
-function truncateLabel(text: string, max = 4): string {
-  if (!text) return ''
-  return text.length > max ? text.slice(0, max) + '…' : text
-}
-
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
@@ -257,13 +120,8 @@ const selected = computed({
   set: (v: string) => emit('update:modelValue', v)
 })
 
-// workspaceLabel is the unified label for the tenant-owned bucket.
-// Earlier iterations rendered the active tenant's display name here, but
-// long names (e.g. "wizardlab Test Team") got truncated to unreadable
-// stubs ("wiza…") in the collapsed strip and competed visually with the
-// org/space entries below. A constant i18n label sidesteps both issues;
-// the tenant identity is already conveyed by the dedicated TenantSelector
-// in the global header, so we don't lose information.
+// The tenant identity is already shown by TenantSelector in the global header,
+// so this navigation uses a concise, stable label for the tenant-owned bucket.
 const workspaceLabel = computed(() => t('listSpaceSidebar.workspace'))
 
 const organizations = computed(() => orgStore.organizations || [])
@@ -285,140 +143,16 @@ function getOrgCount(orgId: string): number | undefined {
 onMounted(() => {
   orgStore.fetchOrganizations()
 })
-
-onBeforeUnmount(() => {
-  document.removeEventListener('mousemove', onDragMove)
-  document.removeEventListener('mouseup', onDragEnd)
-})
 </script>
 
 <style scoped lang="less">
 .list-space-sidebar {
-  width: 56px;
+  width: 208px;
   flex-shrink: 0;
-  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   z-index: 10;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-
-  &.expanded {
-    width: 208px;
-    margin-right: 0;
-  }
-
-  &.dragging {
-    transition: none;
-  }
-}
-
-/* ========== Drag handle ========== */
-.resize-handle {
-  position: absolute;
-  top: 0;
-  right: -6px;
-  bottom: 0;
-  width: 12px;
-  cursor: col-resize;
-  z-index: 12;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  &:hover .resize-handle-line,
-  .dragging & .resize-handle-line {
-    opacity: 1;
-    background: var(--td-brand-color);
-  }
-}
-
-.resize-handle-line {
-  width: 2px;
-  height: 40px;
-  border-radius: 1px;
-  background: var(--td-bg-color-component-disabled);
-  opacity: 0.45;
-  transition: opacity 0.2s ease, background 0.2s ease;
-}
-
-/* ========== Icon strip (collapsed) ========== */
-.icon-strip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 56px;
-  padding: 12px 0 6px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-.icon-item-labeled {
-  width: 46px;
-  padding: 5px 0 2px;
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  cursor: pointer;
-  color: var(--td-text-color-secondary);
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-
-  &:hover {
-    background: var(--td-bg-color-container-hover);
-    color: var(--td-text-color-primary);
-  }
-
-  &.active {
-    background: var(--td-bg-color-secondarycontainer);
-    color: var(--td-brand-color);
-
-    &:hover {
-      background: var(--td-bg-color-secondarycontainer);
-    }
-
-    .icon-label {
-      color: var(--td-brand-color);
-    }
-  }
-
-  :deep(.space-avatar) {
-    width: 20px;
-    height: 20px;
-    font-size: 10px;
-  }
-}
-
-.icon-label {
-  font-size: 11px;
-  line-height: 1.25;
-  color: var(--td-text-color-secondary);
-  max-width: 52px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-  transition: color 0.15s ease;
-}
-
-
-.icon-strip-divider {
-  width: 24px;
-  height: 1px;
-  background: var(--td-bg-color-secondarycontainer);
-  margin: 3px 0;
-  flex-shrink: 0;
 }
 
 /* ========== Expanded panel ========== */
@@ -545,6 +279,44 @@ onBeforeUnmount(() => {
     color: var(--td-text-color-secondary);
     font-weight: 600;
     line-height: 1.4;
+  }
+}
+
+@media (max-width: 768px) {
+  .list-space-sidebar {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .expanded-panel {
+    flex-direction: row;
+    flex: none;
+    padding: 8px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--td-component-stroke);
+  }
+
+  .sidebar-item {
+    flex-shrink: 0;
+  }
+
+  .sidebar-divider {
+    width: 1px;
+    height: 24px;
+    margin: 2px 4px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-section {
+    display: flex;
+    align-items: center;
+    padding: 0 4px 0 10px;
+    margin: 2px 0;
+    border-top: 0;
+    border-left: 1px solid var(--td-component-stroke);
+    flex-shrink: 0;
   }
 }
 </style>
