@@ -2424,6 +2424,10 @@ export default {
           label: '사용자 정의 (OpenAI 호환)',
           description: 'Generic API endpoint'
         },
+        weknoracloud: {
+          label: 'WeKnora Cloud',
+          description: 'chat, embedding, rerank, VLM 모델을 지원하는 WeKnora 클라우드 서비스'
+        },
         requesty: {
           label: 'Requesty',
           description: 'openai/gpt-4o-mini, anthropic/claude-sonnet-4-5 등'

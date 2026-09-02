@@ -4076,6 +4076,10 @@ export default {
           label: 'Custom (OpenAI-compatible)',
           description: 'Generic API endpoint'
         },
+        weknoracloud: {
+          label: 'WeKnora Cloud',
+          description: 'WeKnora cloud service for chat, embedding, rerank, and VLM models'
+        },
         siliconflow: {
           label: 'SiliconFlow',
           description: 'deepseek-ai/DeepSeek-V3.1, etc.'

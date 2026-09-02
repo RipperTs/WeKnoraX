@@ -503,29 +503,23 @@ const loadingProviders = ref(false)
 // 硬编码的后备 Provider 配置 (当 API 不可用时使用)
 const fallbackProviderOptions = computed(() => [
   {
-    value: 'openai',
-    label: t('model.editor.providers.openai.label'),
-    defaultUrls: {
-      chat: 'https://api.openai.com/v1',
-      embedding: 'https://api.openai.com/v1',
-      rerank: 'https://api.openai.com/v1',
-      vllm: 'https://api.openai.com/v1',
-      asr: 'https://api.openai.com/v1'
-    },
-    description: t('model.editor.providers.openai.description'),
-    modelTypes: ['chat', 'embedding', 'vllm', 'asr']
+    value: 'generic',
+    label: t('model.editor.providers.generic.label'),
+    defaultUrls: {},
+    description: t('model.editor.providers.generic.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
   },
   {
-    value: 'azure_openai',
-    label: t('model.editor.providers.azure_openai.label'),
+    value: 'weknoracloud',
+    label: t('model.editor.providers.weknoracloud.label'),
     defaultUrls: {
-      chat: 'https://{resource}.openai.azure.com',
-      embedding: 'https://{resource}.openai.azure.com',
-      vllm: 'https://{resource}.openai.azure.com',
-      asr: 'https://{resource}.openai.azure.com'
+      chat: 'https://weknora.weixin.qq.com',
+      embedding: 'https://weknora.weixin.qq.com',
+      rerank: 'https://weknora.weixin.qq.com',
+      vllm: 'https://weknora.weixin.qq.com'
     },
-    description: t('model.editor.providers.azure_openai.description'),
-    modelTypes: ['chat', 'embedding', 'vllm', 'asr']
+    description: t('model.editor.providers.weknoracloud.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm']
   },
   {
     value: 'aliyun',
@@ -544,31 +538,129 @@ const fallbackProviderOptions = computed(() => [
     label: t('model.editor.providers.zhipu.label'),
     defaultUrls: {
       chat: 'https://open.bigmodel.cn/api/paas/v4',
-      embedding: 'https://open.bigmodel.cn/api/paas/v4/embeddings',
+      embedding: 'https://open.bigmodel.cn/api/paas/v4',
+      rerank: 'https://open.bigmodel.cn/api/paas/v4/rerank',
       vllm: 'https://open.bigmodel.cn/api/paas/v4'
     },
     description: t('model.editor.providers.zhipu.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm']
+  },
+  {
+    value: 'volcengine',
+    label: t('model.editor.providers.volcengine.label'),
+    defaultUrls: {
+      chat: 'https://ark.cn-beijing.volces.com/api/v3',
+      embedding: 'https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal',
+      rerank: 'https://api-knowledgebase.mlp.cn-beijing.volces.com',
+      vllm: 'https://ark.cn-beijing.volces.com/api/v3'
+    },
+    description: t('model.editor.providers.volcengine.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm']
+  },
+  {
+    value: 'hunyuan',
+    label: t('model.editor.providers.hunyuan.label'),
+    defaultUrls: {
+      chat: 'https://api.hunyuan.cloud.tencent.com/v1',
+      embedding: 'https://api.hunyuan.cloud.tencent.com/v1'
+    },
+    description: t('model.editor.providers.hunyuan.description'),
+    modelTypes: ['chat', 'embedding']
+  },
+  {
+    value: 'siliconflow',
+    label: t('model.editor.providers.siliconflow.label'),
+    defaultUrls: {
+      chat: 'https://api.siliconflow.cn/v1',
+      embedding: 'https://api.siliconflow.cn/v1',
+      rerank: 'https://api.siliconflow.cn/v1',
+      vllm: 'https://api.siliconflow.cn/v1',
+      asr: 'https://api.siliconflow.cn/v1'
+    },
+    description: t('model.editor.providers.siliconflow.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
+  },
+  {
+    value: 'deepseek',
+    label: t('model.editor.providers.deepseek.label'),
+    defaultUrls: {
+      chat: 'https://api.deepseek.com/v1'
+    },
+    description: t('model.editor.providers.deepseek.description'),
+    modelTypes: ['chat']
+  },
+  {
+    value: 'minimax',
+    label: t('model.editor.providers.minimax.label'),
+    defaultUrls: {
+      chat: 'https://api.minimaxi.com/v1'
+    },
+    description: t('model.editor.providers.minimax.description'),
+    modelTypes: ['chat']
+  },
+  {
+    value: 'moonshot',
+    label: t('model.editor.providers.moonshot.label'),
+    defaultUrls: {
+      chat: 'https://api.moonshot.ai/v1',
+      vllm: 'https://api.moonshot.ai/v1'
+    },
+    description: t('model.editor.providers.moonshot.description'),
+    modelTypes: ['chat', 'vllm']
+  },
+  {
+    value: 'modelscope',
+    label: t('model.editor.providers.modelscope.label'),
+    defaultUrls: {
+      chat: 'https://api-inference.modelscope.cn/v1',
+      embedding: 'https://api-inference.modelscope.cn/v1',
+      vllm: 'https://api-inference.modelscope.cn/v1'
+    },
+    description: t('model.editor.providers.modelscope.description'),
     modelTypes: ['chat', 'embedding', 'vllm']
   },
   {
-    value: 'openrouter',
-    label: t('model.editor.providers.openrouter.label'),
+    value: 'qianfan',
+    label: t('model.editor.providers.qianfan.label'),
     defaultUrls: {
-      chat: 'https://openrouter.ai/api/v1',
-      embedding: 'https://openrouter.ai/api/v1'
+      chat: 'https://qianfan.baidubce.com/v2',
+      embedding: 'https://qianfan.baidubce.com/v2',
+      rerank: 'https://qianfan.baidubce.com/v2',
+      vllm: 'https://qianfan.baidubce.com/v2'
     },
-    description: t('model.editor.providers.openrouter.description'),
-    modelTypes: ['chat', 'embedding']
+    description: t('model.editor.providers.qianfan.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm']
   },
   {
-    value: 'requesty',
-    label: t('model.editor.providers.requesty.label'),
+    value: 'qiniu',
+    label: t('model.editor.providers.qiniu.label'),
     defaultUrls: {
-      chat: 'https://router.requesty.ai/v1',
-      embedding: 'https://router.requesty.ai/v1'
+      chat: 'https://api.qnaigc.com/v1'
     },
-    description: t('model.editor.providers.requesty.description'),
-    modelTypes: ['chat', 'embedding']
+    description: t('model.editor.providers.qiniu.description'),
+    modelTypes: ['chat']
+  },
+  {
+    value: 'openai',
+    label: t('model.editor.providers.openai.label'),
+    defaultUrls: {
+      chat: 'https://api.openai.com/v1',
+      embedding: 'https://api.openai.com/v1',
+      rerank: 'https://api.openai.com/v1',
+      vllm: 'https://api.openai.com/v1',
+      asr: 'https://api.openai.com/v1'
+    },
+    description: t('model.editor.providers.openai.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
+  },
+  {
+    value: 'anthropic',
+    label: t('model.editor.providers.anthropic.label'),
+    defaultUrls: {
+      chat: 'https://api.anthropic.com/v1'
+    },
+    description: t('model.editor.providers.anthropic.description'),
+    modelTypes: ['chat']
   },
   {
     value: 'gemini',
@@ -581,15 +673,26 @@ const fallbackProviderOptions = computed(() => [
     modelTypes: ['chat', 'embedding']
   },
   {
-    value: 'siliconflow',
-    label: t('model.editor.providers.siliconflow.label'),
+    value: 'openrouter',
+    label: t('model.editor.providers.openrouter.label'),
     defaultUrls: {
-      chat: 'https://api.siliconflow.cn/v1',
-      embedding: 'https://api.siliconflow.cn/v1',
-      rerank: 'https://api.siliconflow.cn/v1'
+      chat: 'https://openrouter.ai/api/v1',
+      embedding: 'https://openrouter.ai/api/v1',
+      vllm: 'https://openrouter.ai/api/v1'
     },
-    description: t('model.editor.providers.siliconflow.description'),
-    modelTypes: ['chat', 'embedding', 'rerank']
+    description: t('model.editor.providers.openrouter.description'),
+    modelTypes: ['chat', 'embedding', 'vllm']
+  },
+  {
+    value: 'requesty',
+    label: t('model.editor.providers.requesty.label'),
+    defaultUrls: {
+      chat: 'https://router.requesty.ai/v1',
+      embedding: 'https://router.requesty.ai/v1',
+      vllm: 'https://router.requesty.ai/v1'
+    },
+    description: t('model.editor.providers.requesty.description'),
+    modelTypes: ['chat', 'embedding', 'vllm']
   },
   {
     value: 'jina',
@@ -600,6 +703,47 @@ const fallbackProviderOptions = computed(() => [
     },
     description: t('model.editor.providers.jina.description'),
     modelTypes: ['embedding', 'rerank']
+  },
+  {
+    value: 'mimo',
+    label: t('model.editor.providers.mimo.label'),
+    defaultUrls: {
+      chat: 'https://api.xiaomimimo.com/v1'
+    },
+    description: t('model.editor.providers.mimo.description'),
+    modelTypes: ['chat']
+  },
+  {
+    value: 'longcat',
+    label: t('model.editor.providers.longcat.label'),
+    defaultUrls: {
+      chat: 'https://api.longcat.chat/openai/v1'
+    },
+    description: t('model.editor.providers.longcat.description'),
+    modelTypes: ['chat']
+  },
+  {
+    value: 'lkeap',
+    label: t('model.editor.providers.lkeap.label'),
+    defaultUrls: {
+      chat: 'https://api.lkeap.cloud.tencent.com/v1',
+      rerank: 'https://lkeap.tencentcloudapi.com'
+    },
+    description: t('model.editor.providers.lkeap.description'),
+    modelTypes: ['chat', 'rerank']
+  },
+  {
+    value: 'gpustack',
+    label: t('model.editor.providers.gpustack.label'),
+    defaultUrls: {
+      chat: 'http://your_gpustack_server_url/v1-openai',
+      embedding: 'http://your_gpustack_server_url/v1-openai',
+      rerank: 'http://your_gpustack_server_url/v1',
+      vllm: 'http://your_gpustack_server_url/v1-openai',
+      asr: 'http://your_gpustack_server_url/v1-openai'
+    },
+    description: t('model.editor.providers.gpustack.description'),
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
   },
   {
     value: 'nvidia',
@@ -625,11 +769,17 @@ const fallbackProviderOptions = computed(() => [
     modelTypes: ['chat', 'embedding', 'vllm']
   },
   {
-    value: 'generic',
-    label: t('model.editor.providers.generic.label'),
-    defaultUrls: {},
-    description: t('model.editor.providers.generic.description'),
-    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
+    value: 'azure_openai',
+    label: t('model.editor.providers.azure_openai.label'),
+    defaultUrls: {
+      chat: 'https://{resource}.openai.azure.com',
+      embedding: 'https://{resource}.openai.azure.com',
+      rerank: 'https://{resource}.openai.azure.com',
+      vllm: 'https://{resource}.openai.azure.com',
+      asr: 'https://{resource}.openai.azure.com'
+    },
+    description: t('model.editor.providers.azure_openai.description'),
+    modelTypes: ['chat', 'embedding', 'vllm', 'asr']
   },
 ])
 

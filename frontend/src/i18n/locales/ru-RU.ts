@@ -2424,6 +2424,10 @@ export default {
           label: 'Пользовательский (OpenAI-совместимый)',
           description: 'Generic API endpoint'
         },
+        weknoracloud: {
+          label: 'WeKnora Cloud',
+          description: 'Облачный сервис WeKnora для моделей chat, embedding, rerank и VLM'
+        },
         requesty: {
           label: 'Requesty',
           description: 'openai/gpt-4o-mini, anthropic/claude-sonnet-4-5, etc.'
