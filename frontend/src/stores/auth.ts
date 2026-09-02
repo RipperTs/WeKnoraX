@@ -275,6 +275,8 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('weknora_selected_tenant_id', String(tenantId))
       if (tenantName) {
         localStorage.setItem('weknora_selected_tenant_name', tenantName)
+      } else {
+        localStorage.removeItem('weknora_selected_tenant_name')
       }
     } else {
       localStorage.removeItem('weknora_selected_tenant_id')

@@ -86,14 +86,23 @@ type IntegrationAuthorizationParameters struct {
 	CodeChallengeMethod string   `json:"code_challenge_method"`
 }
 
+// IntegrationKnowledgeBaseView exposes only metadata needed by integration clients.
+type IntegrationKnowledgeBaseView struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description,omitempty"`
+	TenantID    uint64 `json:"tenant_id"`
+}
+
 // IntegrationAuthorizationView describes the consent screen and any reusable connection.
 type IntegrationAuthorizationView struct {
-	Application              *types.IntegrationApplication `json:"application"`
-	Scopes                   types.StringArray             `json:"scopes"`
-	KnowledgeBases           []*types.KnowledgeBase        `json:"knowledge_bases"`
-	SelectedKnowledgeBaseIDs types.StringArray             `json:"selected_knowledge_base_ids"`
-	ConnectionID             string                        `json:"connection_id,omitempty"`
-	RequiresConsent          bool                          `json:"requires_consent"`
+	Application              *types.IntegrationApplication  `json:"application"`
+	Scopes                   types.StringArray              `json:"scopes"`
+	KnowledgeBases           []IntegrationKnowledgeBaseView `json:"knowledge_bases"`
+	SelectedKnowledgeBaseIDs types.StringArray              `json:"selected_knowledge_base_ids"`
+	ConnectionID             string                         `json:"connection_id,omitempty"`
+	RequiresConsent          bool                           `json:"requires_consent"`
 }
 
 // IntegrationAuthorizationDecision records the user's approval or denial.
@@ -132,13 +141,13 @@ type IntegrationTokenExchangeResult struct {
 
 // IntegrationConnectionView exposes a connection's current effective permissions.
 type IntegrationConnectionView struct {
-	Connection                *types.IntegrationConnection  `json:"connection"`
-	Application               *types.IntegrationApplication `json:"application"`
-	KnowledgeBases            []*types.KnowledgeBase        `json:"knowledge_bases"`
-	EffectiveKnowledgeBaseIDs types.StringArray             `json:"effective_knowledge_base_ids"`
-	EffectiveScopes           types.StringArray             `json:"effective_scopes"`
-	Available                 bool                          `json:"available"`
-	UnavailableReason         string                        `json:"unavailable_reason,omitempty"`
+	Connection                *types.IntegrationConnection   `json:"connection"`
+	Application               *types.IntegrationApplication  `json:"application"`
+	KnowledgeBases            []IntegrationKnowledgeBaseView `json:"knowledge_bases"`
+	EffectiveKnowledgeBaseIDs types.StringArray              `json:"effective_knowledge_base_ids"`
+	EffectiveScopes           types.StringArray              `json:"effective_scopes"`
+	Available                 bool                           `json:"available"`
+	UnavailableReason         string                         `json:"unavailable_reason,omitempty"`
 }
 
 // IntegrationService manages client registration, consent, credentials and effective access.
@@ -272,8 +281,12 @@ func (s *IntegrationService) ListTenantApplications(
 // ListTenantIntegrationKnowledgeBases returns knowledge bases available to workspace policies.
 func (s *IntegrationService) ListTenantIntegrationKnowledgeBases(
 	ctx context.Context, tenantID uint64, role types.TenantRole,
-) ([]*types.KnowledgeBase, error) {
-	return s.listAccessibleKnowledgeBases(ctx, tenantID, role, &types.TenantIntegrationPolicy{})
+) ([]IntegrationKnowledgeBaseView, error) {
+	knowledgeBases, err := s.listAccessibleKnowledgeBases(ctx, tenantID, role, &types.TenantIntegrationPolicy{})
+	if err != nil {
+		return nil, err
+	}
+	return BuildIntegrationKnowledgeBaseViews(knowledgeBases), nil
 }
 
 // UpsertTenantPolicy creates or replaces one workspace's restrictions for a client.
@@ -339,7 +352,7 @@ func (s *IntegrationService) GetAuthorizationView(
 	view := &IntegrationAuthorizationView{
 		Application:     app,
 		Scopes:          scopes,
-		KnowledgeBases:  knowledgeBases,
+		KnowledgeBases:  BuildIntegrationKnowledgeBaseViews(knowledgeBases),
 		RequiresConsent: true,
 	}
 	if connection == nil || connection.Status != types.IntegrationConnectionActive {
@@ -392,7 +405,8 @@ func (s *IntegrationService) Authorize(
 	if len(selectedIDs) == 0 {
 		return nil, ErrIntegrationAccessDenied
 	}
-	if err := validateKnowledgeBaseIDsInSet(selectedIDs, knowledgeBaseIDSet(view.KnowledgeBases)); err != nil {
+	allowedKnowledgeBases := integrationKnowledgeBaseViewIDSet(view.KnowledgeBases)
+	if err := validateKnowledgeBaseIDsInSet(selectedIDs, allowedKnowledgeBases); err != nil {
 		return nil, err
 	}
 	codeValue, err := generateIntegrationSecret("wkac_", 32)
@@ -440,7 +454,13 @@ func (s *IntegrationService) ExchangeAuthorizationCode(
 		return nil, apprepo.ErrIntegrationAuthorizationCode
 	}
 	app, err := s.repo.GetApplicationByClientID(ctx, strings.TrimSpace(req.ClientID))
-	if err != nil || !constantTimeSecretMatch(app.ClientSecretHash, req.ClientSecret) {
+	if errors.Is(err, apprepo.ErrIntegrationApplicationNotFound) {
+		return nil, ErrIntegrationInvalidApplication
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !constantTimeSecretMatch(app.ClientSecretHash, req.ClientSecret) {
 		return nil, ErrIntegrationInvalidApplication
 	}
 	if !app.Enabled {
@@ -464,7 +484,13 @@ func (s *IntegrationService) ExchangeAuthorizationCode(
 		return nil, ErrIntegrationInvalidPKCE
 	}
 	connection, err := s.repo.GetConnectionByID(ctx, code.ConnectionID)
-	if err != nil || connection.Status != types.IntegrationConnectionActive {
+	if errors.Is(err, apprepo.ErrIntegrationConnectionNotFound) {
+		return nil, apprepo.ErrIntegrationAuthorizationCode
+	}
+	if err != nil {
+		return nil, err
+	}
+	if connection.Status != types.IntegrationConnectionActive {
 		return nil, apprepo.ErrIntegrationAuthorizationCode
 	}
 	policy, err := s.effectiveTenantPolicy(ctx, app, connection.TenantID)
@@ -654,7 +680,7 @@ func (s *IntegrationService) connectionView(
 	view := &IntegrationConnectionView{
 		Connection:                connection,
 		Application:               app,
-		KnowledgeBases:            make([]*types.KnowledgeBase, 0),
+		KnowledgeBases:            make([]IntegrationKnowledgeBaseView, 0),
 		EffectiveKnowledgeBaseIDs: make(types.StringArray, 0),
 		EffectiveScopes:           make(types.StringArray, 0),
 	}
@@ -682,7 +708,7 @@ func (s *IntegrationService) connectionView(
 	if err != nil {
 		return nil, err
 	}
-	view.KnowledgeBases = knowledgeBases
+	view.KnowledgeBases = BuildIntegrationKnowledgeBaseViews(knowledgeBases)
 	view.EffectiveKnowledgeBaseIDs = ids
 	view.EffectiveScopes = session.Scopes
 	view.Available = true
@@ -693,8 +719,11 @@ func (s *IntegrationService) validateAuthorizationParameters(
 	ctx context.Context, tenantID uint64, params IntegrationAuthorizationParameters,
 ) (*types.IntegrationApplication, *types.TenantIntegrationPolicy, types.StringArray, error) {
 	app, err := s.repo.GetApplicationByClientID(ctx, strings.TrimSpace(params.ClientID))
-	if err != nil {
+	if errors.Is(err, apprepo.ErrIntegrationApplicationNotFound) {
 		return nil, nil, nil, ErrIntegrationInvalidApplication
+	}
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	if !app.Enabled {
 		return nil, nil, nil, ErrIntegrationApplicationDisabled
@@ -929,6 +958,37 @@ func knowledgeBaseIDSet(knowledgeBases []*types.KnowledgeBase) map[string]bool {
 		}
 	}
 	return set
+}
+
+func integrationKnowledgeBaseViewIDSet(knowledgeBases []IntegrationKnowledgeBaseView) map[string]bool {
+	set := make(map[string]bool, len(knowledgeBases))
+	for _, kb := range knowledgeBases {
+		set[kb.ID] = true
+	}
+	return set
+}
+
+// BuildIntegrationKnowledgeBaseViews projects knowledge bases to the public integration contract.
+func BuildIntegrationKnowledgeBaseViews(knowledgeBases []*types.KnowledgeBase) []IntegrationKnowledgeBaseView {
+	result := make([]IntegrationKnowledgeBaseView, 0, len(knowledgeBases))
+	for _, kb := range knowledgeBases {
+		if kb == nil {
+			continue
+		}
+		result = append(result, BuildIntegrationKnowledgeBaseView(kb))
+	}
+	return result
+}
+
+// BuildIntegrationKnowledgeBaseView projects one knowledge base to the public integration contract.
+func BuildIntegrationKnowledgeBaseView(kb *types.KnowledgeBase) IntegrationKnowledgeBaseView {
+	return IntegrationKnowledgeBaseView{
+		ID:          kb.ID,
+		Name:        kb.Name,
+		Type:        kb.Type,
+		Description: kb.Description,
+		TenantID:    kb.TenantID,
+	}
 }
 
 func validateKnowledgeBaseIDsInSet(ids []string, allowed map[string]bool) error {

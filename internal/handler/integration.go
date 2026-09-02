@@ -7,6 +7,7 @@ import (
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/gin-gonic/gin"
 )
@@ -253,11 +254,18 @@ func (h *IntegrationHandler) ExchangeToken(c *gin.Context) {
 	}
 	result, err := h.service.ExchangeAuthorizationCode(c.Request.Context(), req)
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, service.ErrIntegrationInvalidApplication) {
-			status = http.StatusUnauthorized
+		switch {
+		case errors.Is(err, service.ErrIntegrationInvalidApplication):
+			c.JSON(http.StatusUnauthorized, gin.H{"error": integrationOAuthError(err)})
+		case errors.Is(err, apprepo.ErrIntegrationAuthorizationCode),
+			errors.Is(err, service.ErrIntegrationInvalidPKCE),
+			errors.Is(err, service.ErrIntegrationApplicationDisabled),
+			errors.Is(err, service.ErrIntegrationPolicyDisabled):
+			c.JSON(http.StatusBadRequest, gin.H{"error": integrationOAuthError(err)})
+		default:
+			logger.ErrorWithFields(c.Request.Context(), err, nil)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		}
-		c.JSON(status, gin.H{"error": integrationOAuthError(err)})
 		return
 	}
 	c.JSON(http.StatusOK, result)

@@ -542,6 +542,11 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 		c.Error(err)
 		return
 	}
+	if principal, ok := types.PrincipalFromContext(c.Request.Context()); ok &&
+		principal.Type == types.PrincipalIntegrationUser {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": service.BuildIntegrationKnowledgeBaseView(kb)})
+		return
+	}
 	// Fill counts (knowledge_count, chunk_count, is_processing) so hover/detail shows correct numbers
 	if fillErr := h.service.FillKnowledgeBaseCounts(c.Request.Context(), kb); fillErr != nil {
 		logger.Warnf(c.Request.Context(), "Failed to fill KB counts for %s: %v", kb.ID, fillErr)
@@ -570,6 +575,22 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 // @Router       /knowledge-bases [get]
 func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 	ctx := c.Request.Context()
+
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
+		scope, _ := types.TenantAPIKeyScopeFromContext(ctx)
+		kbs, err := h.service.GetKnowledgeBasesByIDsOnly(ctx, scope.KnowledgeBaseIDs)
+		if err != nil {
+			logger.ErrorWithFields(ctx, err, nil)
+			_ = c.Error(apperrors.NewInternalServerError(err.Error()))
+			return
+		}
+		kbs = filterKnowledgeBasesForAPIKeyScope(ctx, kbs)
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    service.BuildIntegrationKnowledgeBaseViews(kbs),
+		})
+		return
+	}
 
 	agentID := c.Query("agent_id")
 	if agentID != "" {
@@ -659,22 +680,6 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 		})
 		return
 	}
-	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
-		scope, _ := types.TenantAPIKeyScopeFromContext(ctx)
-		kbs, err := h.service.GetKnowledgeBasesByIDsOnly(ctx, scope.KnowledgeBaseIDs)
-		if err != nil {
-			logger.ErrorWithFields(ctx, err, nil)
-			_ = c.Error(apperrors.NewInternalServerError(err.Error()))
-			return
-		}
-		callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    h.buildKBListResponse(ctx, filterKnowledgeBasesForAPIKeyScope(ctx, kbs), callerTenantID),
-		})
-		return
-	}
-
 	// Get all knowledge bases for this tenant
 	kbs, err := h.service.ListKnowledgeBases(ctx)
 	if err != nil {
@@ -1419,8 +1424,12 @@ func (h *KnowledgeBaseHandler) ListMoveTargets(c *gin.Context) {
 		targets = append(targets, kb)
 	}
 
+	data := interface{}(targets)
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
+		data = service.BuildIntegrationKnowledgeBaseViews(targets)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    targets,
+		"data":    data,
 	})
 }
