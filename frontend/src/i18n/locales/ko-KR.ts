@@ -2574,6 +2574,64 @@ export default {
       approvalSaveFailed: '승인 설정 저장 실패'
     }
   },
+  systemUsers: {
+    navLabel: '사용자 관리',
+    title: '사용자 관리',
+    description: '플랫폼 계정을 조회하고 로그인 상태, 비밀번호 및 시스템 관리자 권한을 관리합니다.',
+    total: '명',
+    searchPlaceholder: '사용자 이름, 이름 또는 이메일 검색',
+    refresh: '사용자 목록 새로고침',
+    retry: '다시 시도',
+    empty: '사용자가 없습니다',
+    emptyFiltered: '현재 필터와 일치하는 사용자가 없습니다',
+    loadFailed: '사용자 목록을 불러오지 못했습니다',
+    columns: { user: '사용자', status: '상태', role: '플랫폼 권한', createdAt: '가입일', actions: '작업' },
+    status: { all: '모든 상태', active: '활성', disabled: '비활성' },
+    role: { systemAdmin: '시스템 관리자', regular: '일반 사용자' },
+    actions: {
+      more: '추가 작업', resetPassword: '비밀번호 재설정', promoteAdmin: '시스템 관리자로 지정',
+      revokeAdmin: '시스템 관리자 해제', enable: '계정 활성화', disable: '계정 비활성화',
+      revokeBeforeDisable: '먼저 관리자 권한을 해제하세요'
+    },
+    create: {
+      action: '사용자 추가', dialogTitle: '사용자 추가', confirm: '사용자 생성', username: '사용자 이름',
+      usernamePlaceholder: "2~50자, {'@'} 제외", email: '이메일', emailPlaceholder: '사용자 이메일 입력',
+      passwordMode: '초기 비밀번호', generated: '자동 생성', manual: '직접 설정',
+      generatedHint: '생성 후 임의 비밀번호가 한 번만 표시됩니다. 복사하여 사용자에게 안전하게 전달하세요.',
+      success: '사용자 계정이 준비되었습니다', failed: '사용자 생성에 실패했습니다',
+      passwordResultTitle: '초기 비밀번호 저장',
+      passwordResultWarning: '이 비밀번호는 한 번만 표시되며 닫은 후 다시 확인할 수 없습니다.',
+      copyPassword: '비밀번호 복사', copied: '비밀번호를 복사했습니다'
+    },
+    password: {
+      dialogTitle: '사용자 비밀번호 재설정',
+      warning: '{email}의 비밀번호를 재설정하고 모든 기존 세션에서 로그아웃합니다.',
+      newPassword: '새 비밀번호', confirmPassword: '새 비밀번호 확인',
+      placeholder: '문자와 숫자를 포함한 8~32자', confirmPlaceholder: '새 비밀번호 다시 입력',
+      confirm: '재설정 확인', success: '비밀번호가 재설정되고 기존 세션이 종료되었습니다',
+      failed: '비밀번호 재설정에 실패했습니다'
+    },
+    validation: {
+      usernameRequired: '사용자 이름을 입력하세요', usernameLength: '사용자 이름은 2~50자여야 합니다',
+      usernameAt: "사용자 이름에 {'@'}를 포함할 수 없습니다", emailRequired: '이메일을 입력하세요',
+      emailInvalid: '올바른 이메일 주소를 입력하세요', passwordRequired: '비밀번호를 입력하세요',
+      passwordLength: '비밀번호는 8~32자여야 합니다', passwordLetter: '비밀번호에 문자가 포함되어야 합니다',
+      passwordNumber: '비밀번호에 숫자가 포함되어야 합니다', confirmRequired: '비밀번호를 다시 입력하세요',
+      passwordMismatch: '비밀번호가 일치하지 않습니다'
+    },
+    confirm: {
+      promote: { title: '시스템 관리자 권한 부여', body: '{email}을 시스템 관리자로 지정하시겠습니까?', confirm: '권한 부여' },
+      revoke: { title: '시스템 관리자 권한 해제', body: '{email}의 시스템 관리자 권한을 해제하시겠습니까?', confirm: '권한 해제' },
+      enable: { title: '계정 활성화', body: '{email}을 활성화하시겠습니까? 사용자는 다시 로그인해야 합니다.', confirm: '활성화' },
+      disable: { title: '계정 비활성화', body: '{email}을 비활성화하시겠습니까? 즉시 로그아웃되며 다시 로그인할 수 없습니다.', confirm: '비활성화' }
+    },
+    messages: {
+      promoteSuccess: '시스템 관리자 권한을 부여했습니다', promoteFailed: '시스템 관리자 권한 부여에 실패했습니다',
+      revokeSuccess: '시스템 관리자 권한을 해제했습니다', revokeFailed: '시스템 관리자 권한 해제에 실패했습니다',
+      enableSuccess: '계정을 활성화했습니다', enableFailed: '계정 활성화에 실패했습니다',
+      disableSuccess: '계정을 비활성화했습니다', disableFailed: '계정 비활성화에 실패했습니다'
+    }
+  },
   system: {
     title: '시스템 정보',
     sectionDescription: '시스템 버전 정보 및 사용자 계정 설정 보기',
@@ -2635,7 +2693,7 @@ export default {
       },
       audit: {
         tabLabel: '감사 로그',
-        description: '플랫폼 수준의 작업을 기록합니다: 시스템 설정 변경, 시스템 관리자 부여/회수, 할당량 일괄 동기화 등. 최신순으로 표시됩니다.',
+        description: '사용자 생성 및 상태 변경, 시스템 관리자 부여/회수, 시스템 설정 변경 등 플랫폼 작업을 최신순으로 기록합니다.',
         refresh: '새로고침',
         retry: '다시 시도',
         loading: '로딩 중...',
@@ -2675,7 +2733,9 @@ export default {
           'system.api_key_created': '플랫폼 API 키 생성',
           'system.api_key_revoked': '플랫폼 API 키 폐기',
           'system.admin_revoked': '시스템 관리자 회수',
+          'system.user_created': '사용자 생성',
           'system.user_password_reset': '사용자 비밀번호 재설정',
+          'system.user_status_changed': '사용자 상태 변경',
           'system.queue_task_retried': '실패 작업 다시 실행',
           'system.queue_task_deleted': '실패 작업 기록 삭제',
           'system.queue_task_run_now': '큐 작업 즉시 실행',

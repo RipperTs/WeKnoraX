@@ -167,6 +167,10 @@
                     <SystemAuditLog />
                   </div>
 
+                  <div v-if="currentSection === 'system-users'" class="section">
+                    <SystemUsers />
+                  </div>
+
                   <!-- 用户信息（账户基础信息：ID / 用户名 / 邮箱 / 注册时间）。
                      用户的基本信息不该跟 owner 权限绑定。 -->
                   <div v-if="currentSection === 'userprofile'" class="section">
@@ -231,6 +235,7 @@ import SystemSettings from '@/views/system/SystemSettings.vue'
 import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
 import SystemAuditLog from '@/views/system/SystemAuditLog.vue'
+import SystemUsers from '@/views/system/SystemUsers.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
 import {
   INTEGRATION_PREVIEW_ITEMS,
@@ -372,6 +377,7 @@ const navItems = computed(() => {
     { key: 'runtime-queues', icon: 'queue', label: t('settings.taskQueue') },
     { key: 'platform-api-keys', icon: 'secured', label: t('platformApiKeys.title') },
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
+    { key: 'system-users', icon: 'usergroup', label: t('systemUsers.navLabel') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
@@ -428,10 +434,35 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'system_administration',
       label: t('settings.navGroups.systemAdministration'),
-      items: pickItems(['models', 'system-global', 'runtime-queues', 'platform-api-keys', 'system-audit-log']),
+      items: pickItems([
+        'system-users',
+        'models',
+        'system-global',
+        'runtime-queues',
+        'platform-api-keys',
+        'system-audit-log',
+      ]),
     },
   ].filter((group) => group.items.length > 0)
 })
+
+function resetToFirstVisibleSection() {
+  currentSection.value = navItems.value[0]?.key || 'general'
+  currentSubSection.value = ''
+}
+
+function ensureSectionAccessible(section: string): boolean {
+  if (!canSeeSection(section)) {
+    resetToFirstVisibleSection()
+    return false
+  }
+  if (deploymentCapabilities.loaded && !isSectionSupported(section)) {
+    MessagePlugin.warning(t('settings.capabilityUnavailable'))
+    resetToFirstVisibleSection()
+    return false
+  }
+  return true
+}
 
 // 导航项点击处理
 const handleNavClick = (item: any) => {
@@ -510,12 +541,7 @@ const handleClose = () => {
 watch(() => uiStore.settingsInitialSection, (section) => {
   if (section && visible.value) {
     const normalizedSection = normalizeSettingsSection(section)
-    if (deploymentCapabilities.loaded && !isSectionSupported(normalizedSection)) {
-      MessagePlugin.warning(t('settings.capabilityUnavailable'))
-      currentSection.value = navItems.value[0]?.key || 'general'
-      currentSubSection.value = ''
-      return
-    }
+    if (!ensureSectionAccessible(normalizedSection)) return
     currentSection.value = normalizedSection
     const navItem = (navItems.value as any[]).find((item) => item.key === normalizedSection)
     if (navItem && navItem.children && navItem.children.length > 0) {
@@ -539,13 +565,10 @@ watch(() => uiStore.settingsInitialSection, (section) => {
 
 watch(
   () => [visible.value, route.query.section, deploymentCapabilities.loaded] as const,
-  ([isVisible, section, capabilitiesLoaded]) => {
+  ([isVisible, section]) => {
     if (!isVisible || typeof section !== 'string') return
     const normalizedSection = normalizeSettingsSection(section)
-    if (capabilitiesLoaded && !isSectionSupported(normalizedSection)) {
-      MessagePlugin.warning(t('settings.capabilityUnavailable'))
-      currentSection.value = navItems.value[0]?.key || 'general'
-      currentSubSection.value = ''
+    if (!ensureSectionAccessible(normalizedSection)) {
       if (route.path === '/platform/settings') {
         const query = { ...route.query }
         delete query.section
@@ -581,12 +604,7 @@ const handleSettingsNav = (e: CustomEvent) => {
   const { section, subsection } = e.detail
   if (section) {
     const normalizedSection = normalizeSettingsSection(section)
-    if (deploymentCapabilities.loaded && !isSectionSupported(normalizedSection)) {
-      MessagePlugin.warning(t('settings.capabilityUnavailable'))
-      currentSection.value = navItems.value[0]?.key || 'general'
-      currentSubSection.value = ''
-      return
-    }
+    if (!ensureSectionAccessible(normalizedSection)) return
     currentSection.value = normalizedSection
     // 如果有子菜单，自动展开
     const navItem = (navItems.value as any[]).find((item: any) => item.key === normalizedSection)

@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -17,6 +19,8 @@ var (
 	ErrCannotRevokeSelf   = errors.New("cannot revoke your own system admin privileges")
 	ErrLastSystemAdmin    = errors.New("cannot revoke the last remaining system administrator")
 	ErrUserNotSystemAdmin = errors.New("user is not a system administrator")
+	ErrCannotDisableSelf  = errors.New("cannot disable your own account")
+	ErrAdminDisable       = errors.New("revoke system administrator privileges before disabling the account")
 )
 
 // userRepository implements user repository interface
@@ -112,12 +116,16 @@ func (r *userRepository) GetUserByTenantID(ctx context.Context, tenantID uint64)
 
 // UpdateUser updates a user
 func (r *userRepository) UpdateUser(ctx context.Context, user *types.User) error {
+	// Account state and platform privileges are security-sensitive fields.
+	// They are updated only through their dedicated transactional methods so
+	// a stale user snapshot cannot restore either value during an unrelated
+	// profile, password, or tenant update.
 	if user != nil && user.TenantID == 0 {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			// Preserve Save's all-fields behaviour while keeping the nullable
 			// tenant column out of the struct write, then explicitly store NULL.
 			// Writing uint64(0) would violate the PostgreSQL tenant FK.
-			if err := tx.Omit("tenant_id").Save(user).Error; err != nil {
+			if err := tx.Omit("tenant_id", "is_active", "is_system_admin").Save(user).Error; err != nil {
 				return err
 			}
 			return tx.Model(&types.User{}).
@@ -125,7 +133,7 @@ func (r *userRepository) UpdateUser(ctx context.Context, user *types.User) error
 				UpdateColumn("tenant_id", nil).Error
 		})
 	}
-	return r.db.WithContext(ctx).Save(user).Error
+	return r.db.WithContext(ctx).Omit("is_active", "is_system_admin").Save(user).Error
 }
 
 // DeleteUser deletes a user
@@ -150,6 +158,142 @@ func (r *userRepository) ListUsers(ctx context.Context, offset, limit int) ([]*t
 		return nil, err
 	}
 	return users, nil
+}
+
+// ListSystemUsers returns a stable, filtered page for the SystemAdmin user
+// console. Search is case-insensitive and treats LIKE metacharacters as
+// literals, matching the tenant-member search contract.
+func (r *userRepository) ListSystemUsers(
+	ctx context.Context,
+	query string,
+	isActive *bool,
+	offset, limit int,
+) ([]*types.User, int64, error) {
+	var users []*types.User
+	var total int64
+
+	base := r.db.WithContext(ctx).Model(&types.User{})
+	if normalized := strings.TrimSpace(query); normalized != "" {
+		like := "%" + escapeLikePattern(normalized) + "%"
+		base = base.Where(
+			`(LOWER(username) LIKE LOWER(?) ESCAPE ? OR `+
+				`LOWER(email) LIKE LOWER(?) ESCAPE ? OR `+
+				`LOWER(name) LIKE LOWER(?) ESCAPE ?)`,
+			like,
+			`\`,
+			like,
+			`\`,
+			like,
+			`\`,
+		)
+	}
+	if isActive != nil {
+		base = base.Where("is_active = ?", *isActive)
+	}
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	list := base.Order("created_at DESC, id ASC")
+	if offset > 0 {
+		list = list.Offset(offset)
+	}
+	if limit > 0 {
+		list = list.Limit(limit)
+	}
+	if err := list.Find(&users).Error; err != nil {
+		return nil, 0, err
+	}
+	return users, total, nil
+}
+
+// SetSystemUserActive updates only the account-state columns while holding a
+// row lock. The in-transaction checks prevent a concurrent promotion from
+// being overwritten by a stale full-row save.
+func (r *userRepository) SetSystemUserActive(
+	ctx context.Context,
+	userID, actorID string,
+	isActive bool,
+) (*types.User, bool, error) {
+	var updated *types.User
+	changed := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		query := tx.Where("id = ?", userID)
+		if tx.Dialector.Name() == "postgres" || tx.Dialector.Name() == "mysql" {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		var user types.User
+		if err := query.First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrUserNotFound
+			}
+			return err
+		}
+		if user.IsActive == isActive {
+			updated = &user
+			return nil
+		}
+		if !isActive && user.ID == actorID {
+			return ErrCannotDisableSelf
+		}
+		if !isActive && user.IsSystemAdmin {
+			return ErrAdminDisable
+		}
+
+		now := time.Now()
+		if err := tx.Model(&types.User{}).
+			Where("id = ?", user.ID).
+			Updates(map[string]any{"is_active": isActive, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		user.IsActive = isActive
+		user.UpdatedAt = now
+		updated = &user
+		changed = true
+		return nil
+	})
+	return updated, changed, err
+}
+
+// PromoteSystemAdmin grants platform privileges with a row lock and updates
+// only the privilege columns. This keeps concurrent profile or status writes
+// from restoring values read before the promotion.
+func (r *userRepository) PromoteSystemAdmin(
+	ctx context.Context,
+	userID string,
+) (*types.User, bool, error) {
+	var updated *types.User
+	changed := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		query := tx.Where("id = ?", userID)
+		if tx.Dialector.Name() == "postgres" || tx.Dialector.Name() == "mysql" {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		var user types.User
+		if err := query.First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrUserNotFound
+			}
+			return err
+		}
+		if user.IsSystemAdmin {
+			updated = &user
+			return nil
+		}
+
+		now := time.Now()
+		if err := tx.Model(&types.User{}).
+			Where("id = ?", user.ID).
+			Updates(map[string]any{"is_system_admin": true, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		user.IsSystemAdmin = true
+		user.UpdatedAt = now
+		updated = &user
+		changed = true
+		return nil
+	})
+	return updated, changed, err
 }
 
 // ListSystemAdmins lists users where is_system_admin = true.
@@ -236,10 +380,14 @@ func (r *userRepository) RevokeSystemAdmin(ctx context.Context, userID, actorID 
 			return ErrLastSystemAdmin
 		}
 
-		user.IsSystemAdmin = false
-		if err := tx.Save(&user).Error; err != nil {
+		now := time.Now()
+		if err := tx.Model(&types.User{}).
+			Where("id = ?", user.ID).
+			Updates(map[string]any{"is_system_admin": false, "updated_at": now}).Error; err != nil {
 			return err
 		}
+		user.IsSystemAdmin = false
+		user.UpdatedAt = now
 		revoked = &user
 		return nil
 	})
