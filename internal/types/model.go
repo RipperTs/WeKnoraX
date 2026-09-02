@@ -101,6 +101,10 @@ type ModelParameters struct {
 // "value too long for type" failure at INSERT time.
 const ModelIDMaxLen = 64
 
+// DefaultModelSortOrder is used when a model is created without an explicit
+// display order. Lower values appear earlier in model selection lists.
+const DefaultModelSortOrder = 100
+
 // DefaultBuiltinModelTenantID is the tenant id that built-in models are
 // assigned to when YAML does not specify one. Kept in sync with the seed
 // value of tenants_id_seq in migrations/versioned/000000_init.up.sql
@@ -131,6 +135,8 @@ type Model struct {
 	Parameters ModelParameters `yaml:"parameters"  json:"parameters"  gorm:"type:json"`
 	// Whether the model is the default model
 	IsDefault bool `yaml:"is_default"  json:"is_default"`
+	// Display order in model selection lists. Lower values appear first.
+	SortOrder int `yaml:"sort_order" json:"sort_order" gorm:"not null"`
 	// Whether the model is a builtin model (visible to all tenants)
 	IsBuiltin bool `yaml:"is_builtin"  json:"is_builtin"  gorm:"default:false"`
 	// ManagedBy identifies which subsystem owns this row's lifecycle.

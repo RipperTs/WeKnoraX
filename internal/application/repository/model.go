@@ -55,7 +55,7 @@ func (r *modelRepository) List(
 		query = query.Where("source = ?", source)
 	}
 
-	if err := query.Find(&models).Error; err != nil {
+	if err := query.Order("sort_order ASC, created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
 

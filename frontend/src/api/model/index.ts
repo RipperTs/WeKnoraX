@@ -12,6 +12,7 @@ export interface ModelConfig {
   type: 'KnowledgeQA' | 'Embedding' | 'Rerank' | 'VLLM' | 'ASR';
   source: 'local' | 'remote';
   description?: string;
+  sort_order?: number;
   parameters: {
     base_url?: string;
     api_key?: string;

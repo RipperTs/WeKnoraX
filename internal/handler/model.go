@@ -49,6 +49,7 @@ type CreateModelRequest struct {
 	Source      types.ModelSource     `json:"source"      binding:"required"`
 	Description string                `json:"description"`
 	Parameters  types.ModelParameters `json:"parameters"  binding:"required"`
+	SortOrder   *int                  `json:"sort_order"`
 }
 
 // CreateModel godoc
@@ -93,6 +94,10 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 		}
 	}
 
+	sortOrder := types.DefaultModelSortOrder
+	if req.SortOrder != nil {
+		sortOrder = *req.SortOrder
+	}
 	model := &types.Model{
 		TenantID:    tenantID,
 		Name:        secutils.SanitizeForLog(req.Name),
@@ -101,6 +106,7 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 		Source:      req.Source,
 		Description: secutils.SanitizeForLog(req.Description),
 		Parameters:  req.Parameters,
+		SortOrder:   sortOrder,
 		IsBuiltin:   true,
 	}
 
@@ -531,6 +537,7 @@ type UpdateModelRequest struct {
 	Parameters  types.ModelParameters `json:"parameters"`
 	Source      types.ModelSource     `json:"source"`
 	Type        types.ModelType       `json:"type"`
+	SortOrder   *int                  `json:"sort_order"`
 }
 
 // UpdateModel godoc
@@ -584,6 +591,9 @@ func (h *ModelHandler) UpdateModel(c *gin.Context) {
 	}
 	if req.DisplayName != nil {
 		model.DisplayName = secutils.SanitizeForLog(*req.DisplayName)
+	}
+	if req.SortOrder != nil {
+		model.SortOrder = *req.SortOrder
 	}
 	model.Description = req.Description
 

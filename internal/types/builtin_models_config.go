@@ -313,6 +313,7 @@ func (e *BuiltinModelEntry) toModel() Model {
 		Description: e.Description,
 		Parameters:  e.Parameters,
 		IsDefault:   e.IsDefault,
+		SortOrder:   DefaultModelSortOrder,
 		IsBuiltin:   true,
 		ManagedBy:   BuiltinModelManagedBy,
 		Status:      status,

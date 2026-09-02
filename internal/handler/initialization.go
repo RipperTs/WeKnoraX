@@ -799,6 +799,7 @@ func (descriptor modelDescriptor) toModel() *types.Model {
 			InterfaceType: descriptor.interfaceType,
 		},
 		IsDefault: false,
+		SortOrder: types.DefaultModelSortOrder,
 		Status:    types.ModelStatusActive,
 	}
 
