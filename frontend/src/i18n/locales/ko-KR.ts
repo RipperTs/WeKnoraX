@@ -1625,6 +1625,8 @@ export default {
       basicTitle: '기본정보',
       basicDesc: '회원 식별이 용이하도록 공유 공간의 이름과 설명을 설정합니다.',
       nameTip: '구성원 식별이 용이하도록 팀 또는 프로젝트 이름 사용을 권장합니다.',
+      spaceId: '공간 ID',
+      spaceIdTip: '시스템에서 자동 생성한 공유 공간의 고유 식별자입니다.',
       descriptionTip: '회원들이 공유 공간을 이해할 수 있도록 공유 공간의 목적과 목표를 설명합니다.',
       permissionsTitle: '회원 권한',
       permissionsDesc: '지식베이스와 에이전트를 통해 공유 공간 내 다양한 ​​역할의 권한 범위를 이해합니다.',

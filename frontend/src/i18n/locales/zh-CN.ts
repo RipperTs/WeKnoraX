@@ -1627,6 +1627,8 @@ export default {
       basicTitle: '基本信息',
       basicDesc: '设置共享空间的名称和描述，便于成员识别',
       nameTip: '建议使用团队或项目名称，便于成员识别',
+      spaceId: '空间 ID',
+      spaceIdTip: '共享空间的唯一标识，由系统自动生成',
       descriptionTip: '描述共享空间的用途和目标，帮助成员了解共享空间',
       permissionsTitle: '成员权限',
       permissionsDesc: '了解共享空间中不同角色对知识库与智能体的权限范围',

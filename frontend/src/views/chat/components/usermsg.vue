@@ -43,6 +43,12 @@
         <div class="user_msg">
             {{ content }}
         </div>
+        <div v-if="content && content.trim()" class="answer-toolbar user-message-toolbar">
+            <t-button size="small" variant="outline" shape="round" @click.stop="handleCopyMessage"
+                :title="$t('agent.copy')">
+                <t-icon name="copy" />
+            </t-button>
+        </div>
         <picturePreview :reviewImg="reviewImg" :reviewUrl="reviewUrl" @closePreImg="closePreImg" />
     </div>
 </template>
@@ -53,6 +59,7 @@ import picturePreview from '@/components/picture-preview.vue';
 import { useI18n } from 'vue-i18n';
 import { useChatAttachmentPreviewDrawer } from '@/composables/useChatAttachmentPreviewDrawer';
 import { isPreviewableAttachment, resolveAttachmentFileType } from '@/utils/attachmentPreview';
+import { copyWithToast } from '@/utils/clipboard';
 
 const { t } = useI18n();
 
@@ -182,9 +189,13 @@ const closePreImg = () => {
     reviewImg.value = false;
     reviewUrl.value = '';
 };
+
+const handleCopyMessage = async () => {
+    await copyWithToast(props.content?.trim(), 'chat.copySuccess', 'chat.copyFailed');
+};
 </script>
 <style scoped lang="less">
-@import '../../../components/css/chat-resource-chips.less';
+@import '../../../components/css/chat-message-shared.less';
 
 .user_msg_container {
     display: flex;
@@ -231,6 +242,12 @@ const closePreImg = () => {
     overflow-wrap: anywhere;
     box-sizing: border-box;
     white-space: pre-wrap;
+}
+
+.user-message-toolbar {
+    margin-top: 0;
+    margin-left: 0;
+    margin-right: -7px;
 }
 
 .user_images {

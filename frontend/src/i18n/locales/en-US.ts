@@ -5028,6 +5028,8 @@ export default {
       basicTitle: 'Basic Information',
       basicDesc: 'Set the shared space name and description for easy identification',
       nameTip: 'Use your team or project name for easy identification',
+      spaceId: 'Space ID',
+      spaceIdTip: 'The unique identifier automatically generated for this shared space',
       descriptionTip: 'Describe the purpose and goals of the shared space to help members understand it',
       permissionsTitle: 'Member Permissions',
       permissionsDesc: 'Understand the permission scope of different roles for knowledge bases and agents in the shared space',
