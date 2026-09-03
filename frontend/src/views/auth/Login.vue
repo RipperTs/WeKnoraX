@@ -1922,18 +1922,6 @@ onMounted(async () => {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-
-  .knowledge-node,
-  .connection-line {
-    animation: none !important;
-    transition: none !important;
-  }
-
-  .animated-bg {
-    display: none;
-  }
-}
 </style>
 
 <style lang="less">
