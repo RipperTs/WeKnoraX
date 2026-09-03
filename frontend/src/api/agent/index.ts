@@ -42,6 +42,7 @@ export interface CustomAgentConfig {
 
   // ===== 模型设置 =====
   model_id?: string;
+  title_model_id?: string;             // 标题生成模型 ID，留空时复用主对话模型
   rerank_model_id?: string;         // ReRank 模型 ID
   temperature?: number;
   max_completion_tokens?: number;   // 最大生成token数（普通模式）

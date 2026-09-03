@@ -596,6 +596,21 @@
                       </div>
                     </div>
 
+                    <!-- 标题生成模型（留空则复用主对话模型） -->
+                    <div class="setting-row">
+                      <div class="setting-info">
+                        <label>{{ $t('agent.editor.titleModel') }}</label>
+                        <p class="desc">{{ $t('agentEditor.desc.titleModel') }}</p>
+                      </div>
+                      <div class="setting-control">
+                        <ModelSelector model-type="KnowledgeQA" :selected-model-id="formData.config.title_model_id"
+                          :all-models="allModels" clearable
+                          @update:selected-model-id="(val: string) => formData.config.title_model_id = val"
+                          @add-model="handleAddModel('llm')"
+                          :placeholder="$t('agent.editor.titleModelPlaceholder')" />
+                      </div>
+                    </div>
+
                     <!-- 温度 -->
                     <div class="setting-row">
                       <div class="setting-info">
@@ -2370,6 +2385,7 @@ const defaultFormData = {
     context_template: '',
     // 模型设置
     model_id: '',
+    title_model_id: '',
     rerank_model_id: '',
     temperature: 0.7,
     max_completion_tokens: 2048,

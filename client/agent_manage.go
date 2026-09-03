@@ -78,6 +78,7 @@ type AgentConfig struct {
 	ContextTemplate             string                    `json:"context_template"`
 	ContextTemplateID           string                    `json:"context_template_id,omitempty"`
 	ModelID                     string                    `json:"model_id"`
+	TitleModelID                string                    `json:"title_model_id,omitempty"`
 	RerankModelID               string                    `json:"rerank_model_id"`
 	Temperature                 float64                   `json:"temperature"`
 	MaxCompletionTokens         int                       `json:"max_completion_tokens"`
