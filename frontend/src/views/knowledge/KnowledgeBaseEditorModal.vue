@@ -421,6 +421,11 @@
                   <DataSourceSettings :kb-id="activeKbId" @count="dsCount = $event" />
                 </div>
 
+                <!-- API 接入（仅当前空间 Owner 可管理密钥） -->
+                <div v-if="canManageAPIAccess && activeKbId && currentSection === 'apiAccess'" class="section">
+                  <KBApiAccessSettings :kb-id="activeKbId" />
+                </div>
+
                 <!-- 共享设置（仅编辑模式） -->
                 <div v-if="editorMode === 'edit' && activeKbId && currentSection === 'share'" class="section">
                   <KBShareSettings :kb-id="activeKbId" :can-share="canShareKB" />
@@ -484,6 +489,7 @@ import ModelSelector from '@/components/ModelSelector.vue'
 import GraphSettings from './settings/GraphSettings.vue'
 import KBShareSettings from './settings/KBShareSettings.vue'
 import DataSourceSettings from './settings/DataSourceSettings.vue'
+import KBApiAccessSettings from './settings/KBApiAccessSettings.vue'
 import KnowledgeBaseActivitySettings from './settings/KnowledgeBaseActivitySettings.vue'
 import { useI18n } from 'vue-i18n'
 
@@ -575,6 +581,12 @@ const canViewActivity = computed(() => {
   if (Number(kbTenantId.value || 0) !== Number(authStore.currentTenantId || 0)) return false
   return isKbOwner.value || authStore.hasRole('admin')
 })
+
+const canManageAPIAccess = computed(() => {
+  if (editorMode.value !== 'edit' || !activeKbId.value || isFAQ.value) return false
+  if (Number(kbTenantId.value || 0) !== Number(authStore.effectiveTenantId || 0)) return false
+  return authStore.hasRole('owner')
+})
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
 
@@ -621,6 +633,9 @@ const navItems = computed(() => {
       items.push({ key: 'datasource', icon: 'cloud-download', label: t('knowledgeEditor.sidebar.datasource'), badge: dsCount.value || undefined })
     }
   }
+  if (canManageAPIAccess.value) {
+    items.push({ key: 'apiAccess', icon: 'secured', label: t('knowledgeEditor.sidebar.apiAccess') })
+  }
   if (editorMode.value === 'edit' && activeKbId.value && !authStore.isLiteMode) {
     items.push({ key: 'share', icon: 'share', label: t('knowledgeEditor.sidebar.share') })
   }
@@ -654,7 +669,7 @@ const navGroups = computed(() => {
     {
       key: 'integration',
       label: t('knowledgeEditor.navGroups.integration'),
-      items: pickItems(['share']),
+      items: pickItems(['apiAccess', 'share']),
     },
     {
       key: 'management',

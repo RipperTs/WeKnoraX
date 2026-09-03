@@ -3982,6 +3982,7 @@ export default {
       multimodal: '이미지 처리',
       asr: '오디오',
       datasource: '데이터 소스',
+      apiAccess: 'API 액세스',
       share: '공유관리',
       activity: '활동 기록'
     },
@@ -3991,6 +3992,39 @@ export default {
       data: '스토리지 및 데이터',
       integration: '게시 및 통합',
       management: '관리 및 감사'
+    },
+    apiAccess: {
+      title: 'API 액세스',
+      description: '타사 시스템이 현재 지식베이스에만 문서를 쓸 수 있는 전용 키를 생성합니다.',
+      endpointLabel: '문서 동기화 엔드포인트',
+      scopeNotice: '키는 현재 지식베이스에만 연결되며 ingest 권한만 부여됩니다.',
+      createTitle: '액세스 키 생성',
+      createDescription: '나중에 쉽게 식별하고 취소할 수 있도록 원본 시스템 이름을 사용하세요.',
+      namePlaceholder: '예: 정책 시스템',
+      create: '키 생성',
+      createdTitle: '액세스 키가 생성되었습니다',
+      createdDescription: '지금 복사하여 안전하게 보관하세요. 이 페이지를 나가면 전체 키가 다시 표시되지 않습니다.',
+      listTitle: '현재 지식베이스의 액세스 키',
+      loading: '키를 불러오는 중…',
+      empty: '액세스 키가 없습니다',
+      neverUsed: '사용 안 함',
+      revoke: '취소',
+      revokeConfirmTitle: '액세스 키 취소',
+      revokeConfirmBody: '“{name}”을 취소하면 이 키를 사용하는 타사 동기화가 즉시 중지됩니다.',
+      revokeSuccess: '키가 취소되었습니다',
+      revokeFailed: '키 취소 실패',
+      nameRequired: '키 이름을 입력하세요',
+      loadFailed: '액세스 키를 불러오지 못했습니다',
+      createFailed: '액세스 키 생성 실패',
+      createSuccess: '액세스 키가 생성되었습니다',
+      copySuccess: '키가 복사되었습니다',
+      columns: {
+        name: '이름',
+        key: '키',
+        createdAt: '생성 시간',
+        lastUsed: '마지막 사용',
+        actions: '작업'
+      }
     },
     activity: {
       title: '활동 기록',
