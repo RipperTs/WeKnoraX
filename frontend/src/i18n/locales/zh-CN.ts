@@ -2189,7 +2189,7 @@ export default {
     pinned: '已置顶'
   },
   platform: {
-    subtitle: '大模型驱动的企业级知识框架',
+    subtitle: '大模型驱动的企业级知识库',
     description: 'RAG 检索、智能体推理、Wiki 知识库，让文档真正被理解和运用',
     rag: 'RAG 增强生成',
     agent: 'ReAct 智能体',

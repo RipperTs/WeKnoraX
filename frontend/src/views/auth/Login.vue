@@ -1149,17 +1149,6 @@ onMounted(async () => {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .knowledge-node {
-    animation: none;
-    opacity: 0.65;
-  }
-
-  .connection-line {
-    animation: none;
-  }
-}
-
 /* Left Showcase Section */
 .showcase-section {
   flex: 0 0 52%;
