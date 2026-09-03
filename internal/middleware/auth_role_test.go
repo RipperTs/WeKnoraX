@@ -269,7 +269,9 @@ func TestResolveIntegrationTenantRole_RequiresActiveMembershipWithoutRecovery(t 
 	svc := newFakeMemberService()
 	user := &types.User{ID: "u1", TenantID: 7}
 
-	if _, ok := resolveIntegrationTenantRole(context.Background(), svc, user, 7, cfgWithRBAC(false)); ok {
+	if _, ok, err := resolveIntegrationTenantRole(
+		context.Background(), svc, user, 7, cfgWithRBAC(false),
+	); ok || err != nil {
 		t.Fatal("integration credential without membership must be rejected even when RBAC is disabled")
 	}
 	if len(svc.addCalls) != 0 {
@@ -277,8 +279,10 @@ func TestResolveIntegrationTenantRole_RequiresActiveMembershipWithoutRecovery(t 
 	}
 
 	svc.failGet = errors.New("transient db failure")
-	if _, ok := resolveIntegrationTenantRole(context.Background(), svc, user, 7, cfgWithRBAC(false)); ok {
-		t.Fatal("integration membership lookup failure must fail closed")
+	if _, ok, err := resolveIntegrationTenantRole(
+		context.Background(), svc, user, 7, cfgWithRBAC(false),
+	); ok || err == nil {
+		t.Fatal("integration membership lookup failure must remain distinguishable from denied access")
 	}
 	if len(svc.addCalls) != 0 {
 		t.Fatalf("integration lookup failure must not recreate membership, got %+v", svc.addCalls)
@@ -289,12 +293,14 @@ func TestResolveIntegrationTenantRole_CrossTenantSuperuserRequiresFlag(t *testin
 	svc := newFakeMemberService()
 	user := &types.User{ID: "super", TenantID: 1, CanAccessAllTenants: true}
 
-	if _, ok := resolveIntegrationTenantRole(context.Background(), svc, user, 99, cfgCrossTenant(false)); ok {
+	if _, ok, err := resolveIntegrationTenantRole(
+		context.Background(), svc, user, 99, cfgCrossTenant(false),
+	); ok || err != nil {
 		t.Fatal("cross-tenant integration access must be rejected while the feature flag is disabled")
 	}
-	got, ok := resolveIntegrationTenantRole(context.Background(), svc, user, 99, cfgCrossTenant(true))
-	if !ok || got != types.TenantRoleAdmin {
-		t.Fatalf("cross-tenant superuser with feature flag should get admin, got (%v, %v)", got, ok)
+	got, ok, err := resolveIntegrationTenantRole(context.Background(), svc, user, 99, cfgCrossTenant(true))
+	if err != nil || !ok || got != types.TenantRoleAdmin {
+		t.Fatalf("cross-tenant superuser with feature flag should get admin, got (%v, %v, %v)", got, ok, err)
 	}
 	if len(svc.addCalls) != 0 {
 		t.Fatalf("cross-tenant integration access must not create membership, got %+v", svc.addCalls)

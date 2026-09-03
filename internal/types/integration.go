@@ -1,6 +1,12 @@
 package types
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrIntegrationInvalidCredential indicates an invalid or inactive wkic_ credential.
+var ErrIntegrationInvalidCredential = errors.New("invalid integration credential")
 
 const (
 	// IntegrationScopeKnowledgeRead grants read and retrieval operations over authorized knowledge bases.

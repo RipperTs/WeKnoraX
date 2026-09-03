@@ -42,8 +42,6 @@ var (
 	ErrIntegrationInvalidPKCE = errors.New("invalid integration PKCE parameters")
 	// ErrIntegrationAccessDenied indicates that the requested resource set is not allowed.
 	ErrIntegrationAccessDenied = errors.New("integration access denied")
-	// ErrIntegrationInvalidCredential indicates an invalid or inactive wkic_ credential.
-	ErrIntegrationInvalidCredential = errors.New("invalid integration credential")
 	// ErrIntegrationConsentRequired indicates that an existing connection cannot be reused silently.
 	ErrIntegrationConsentRequired = errors.New("integration consent is required")
 )
@@ -241,7 +239,7 @@ func (s *IntegrationService) RotateApplicationSecret(
 	}
 	app.ClientSecretHash = hashIntegrationSecret(clientSecret)
 	app.UpdatedAt = time.Now().UTC()
-	if err := s.repo.UpdateApplication(ctx, app); err != nil {
+	if err := s.repo.UpdateApplicationSecret(ctx, app.ID, app.ClientSecretHash, app.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &IntegrationApplicationSecretResult{Application: app, ClientSecret: clientSecret}, nil
@@ -530,27 +528,45 @@ func (s *IntegrationService) AuthenticateCredential(
 ) (*types.IntegrationCredentialSession, error) {
 	token = strings.TrimSpace(token)
 	if !strings.HasPrefix(token, "wkic_") {
-		return nil, ErrIntegrationInvalidCredential
+		return nil, types.ErrIntegrationInvalidCredential
 	}
 	credential, err := s.repo.GetCredentialByHash(ctx, hashIntegrationSecret(token))
 	if err != nil {
-		return nil, ErrIntegrationInvalidCredential
+		if errors.Is(err, apprepo.ErrIntegrationCredentialNotFound) {
+			return nil, types.ErrIntegrationInvalidCredential
+		}
+		return nil, err
 	}
 	connection, err := s.repo.GetConnectionByID(ctx, credential.ConnectionID)
-	if err != nil || connection.Status != types.IntegrationConnectionActive {
-		return nil, ErrIntegrationInvalidCredential
+	if err != nil {
+		if errors.Is(err, apprepo.ErrIntegrationConnectionNotFound) {
+			return nil, types.ErrIntegrationInvalidCredential
+		}
+		return nil, err
+	}
+	if connection.Status != types.IntegrationConnectionActive {
+		return nil, types.ErrIntegrationInvalidCredential
 	}
 	app, err := s.repo.GetApplicationByID(ctx, connection.ApplicationID)
-	if err != nil || !app.Enabled {
-		return nil, ErrIntegrationInvalidCredential
+	if err != nil {
+		if errors.Is(err, apprepo.ErrIntegrationApplicationNotFound) {
+			return nil, types.ErrIntegrationInvalidCredential
+		}
+		return nil, err
+	}
+	if !app.Enabled {
+		return nil, types.ErrIntegrationInvalidCredential
 	}
 	policy, err := s.effectiveTenantPolicy(ctx, app, connection.TenantID)
-	if err != nil || !policy.Enabled {
-		return nil, ErrIntegrationInvalidCredential
+	if err != nil {
+		return nil, err
+	}
+	if !policy.Enabled {
+		return nil, types.ErrIntegrationInvalidCredential
 	}
 	scopes := intersectIntegrationScopes(connection.Scopes, app.AllowedScopes, policy.AllowedScopes)
 	if !types.IntegrationScopesContain(scopes, types.IntegrationScopeKnowledgeRead) {
-		return nil, ErrIntegrationInvalidCredential
+		return nil, types.ErrIntegrationInvalidCredential
 	}
 	s.touchCredentialLastUsed(credential.ID, connection.ID)
 	return &types.IntegrationCredentialSession{

@@ -638,6 +638,10 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // @Router       /auth/me [get]
 func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	ctx := c.Request.Context()
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
+		c.Error(errors.NewForbiddenError("Integration credentials cannot access user profile"))
+		return
+	}
 
 	// Get current user from service (which extracts from context)
 	user, err := h.userService.GetCurrentUser(ctx)

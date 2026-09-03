@@ -43,13 +43,30 @@ func (r *integrationRepository) UpdateApplication(
 	result := r.db.WithContext(ctx).Model(&types.IntegrationApplication{}).
 		Where("id = ?", app.ID).
 		Updates(map[string]any{
-			"client_secret_hash": app.ClientSecretHash,
-			"name":               app.Name,
-			"description":        app.Description,
-			"redirect_uris":      app.RedirectURIs,
-			"allowed_scopes":     app.AllowedScopes,
-			"enabled":            app.Enabled,
-			"updated_at":         app.UpdatedAt,
+			"name":           app.Name,
+			"description":    app.Description,
+			"redirect_uris":  app.RedirectURIs,
+			"allowed_scopes": app.AllowedScopes,
+			"enabled":        app.Enabled,
+			"updated_at":     app.UpdatedAt,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrIntegrationApplicationNotFound
+	}
+	return nil
+}
+
+func (r *integrationRepository) UpdateApplicationSecret(
+	ctx context.Context, id, clientSecretHash string, updatedAt time.Time,
+) error {
+	result := r.db.WithContext(ctx).Model(&types.IntegrationApplication{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"client_secret_hash": clientSecretHash,
+			"updated_at":         updatedAt,
 		})
 	if result.Error != nil {
 		return result.Error

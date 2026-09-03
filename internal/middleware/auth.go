@@ -235,25 +235,49 @@ func authenticateIntegrationCredential(
 	}
 	ctx := c.Request.Context()
 	session, err := authenticator.AuthenticateCredential(ctx, token)
-	if err != nil || session == nil || session.Connection == nil {
+	if errors.Is(err, types.ErrIntegrationInvalidCredential) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid integration credential"})
+		c.Abort()
+		return false
+	}
+	if err != nil || session == nil || session.Connection == nil {
+		logger.Errorf(ctx, "[auth] integration credential authentication failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
 		c.Abort()
 		return false
 	}
 	connection := session.Connection
 	user, err := userService.GetUserByID(ctx, connection.UserID)
-	if err != nil || user == nil || !user.IsActive {
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration user lookup failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	if user == nil || !user.IsActive {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: integration user is unavailable"})
 		c.Abort()
 		return false
 	}
 	tenant, err := tenantService.GetTenantByID(ctx, connection.TenantID)
-	if err != nil || tenant == nil {
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration workspace lookup failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	if tenant == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: integration workspace is unavailable"})
 		c.Abort()
 		return false
 	}
-	role, ok := resolveIntegrationTenantRole(ctx, memberService, user, connection.TenantID, cfg)
+	role, ok, err := resolveIntegrationTenantRole(ctx, memberService, user, connection.TenantID, cfg)
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration membership lookup failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
 	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: integration user is not a workspace member"})
 		c.Abort()
@@ -261,8 +285,8 @@ func authenticateIntegrationCredential(
 	}
 	knowledgeBases, knowledgeBaseIDs, err := authenticator.EffectiveKnowledgeBases(ctx, session, role)
 	if err != nil {
-		logger.Warnf(ctx, "[auth] integration knowledge-base scope resolution failed: %v", err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: integration credential scope is unavailable"})
+		logger.Errorf(ctx, "[auth] integration knowledge-base scope resolution failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
 		c.Abort()
 		return false
 	}
@@ -305,19 +329,22 @@ func resolveIntegrationTenantRole(
 	user *types.User,
 	tenantID uint64,
 	cfg *config.Config,
-) (types.TenantRole, bool) {
+) (types.TenantRole, bool, error) {
 	if memberService == nil || user == nil || tenantID == 0 {
-		return "", false
+		return "", false, nil
 	}
 	member, err := memberService.GetMembership(ctx, user.ID, tenantID)
 	if err == nil && member != nil && member.Status == types.TenantMemberStatusActive {
-		return member.Role, true
+		return member.Role, true, nil
+	}
+	if err != nil {
+		return "", false, err
 	}
 	if tenantID != user.TenantID && user.CanAccessAllTenants && cfg != nil && cfg.Tenant != nil &&
 		cfg.Tenant.EnableCrossTenantAccess {
-		return types.TenantRoleAdmin, true
+		return types.TenantRoleAdmin, true, nil
 	}
-	return "", false
+	return "", false, nil
 }
 
 // bearerToken extracts the Bearer token from the Authorization header.
