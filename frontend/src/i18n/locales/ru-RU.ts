@@ -4507,8 +4507,8 @@ export default {
     },
     fields: {
       name: 'Имя приложения', description: 'Описание', redirectUris: 'Адреса возврата',
-      redirectUrisPlaceholder: 'Один HTTPS-адрес в строке, например: https://agent.example.com/callback',
-      redirectUrisHint: 'В рабочей среде требуется HTTPS. localhost и loopback IP могут использовать HTTP.',
+      redirectUrisPlaceholder: 'Один HTTP- или HTTPS-адрес в строке, например: http://agent.internal/callback',
+      redirectUrisHint: 'Поддерживаются HTTP и HTTPS. Каждый адрес должен быть полным URL.',
       scopes: 'Доступные разрешения', enabled: 'Включить приложение',
       enabledHint: 'Отключение запрещает новые авторизации и сразу аннулирует существующие учётные данные.',
     },

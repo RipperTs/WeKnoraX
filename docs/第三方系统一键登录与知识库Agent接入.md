@@ -71,7 +71,7 @@ sequenceDiagram
 - `client_id`，前端授权跳转时使用；
 - `client_secret`，只显示一次，只能存放在第三方服务端。
 
-生产回调地址必须使用 HTTPS。开发环境仅允许 `http://localhost` 或回环 IP。回调地址按完整字符串精确匹配，路径、端口和查询参数都必须与注册值一致。
+回调地址允许使用 HTTP 或 HTTPS，以适配公网和内网部署。回调地址按完整字符串精确匹配，路径、端口和查询参数都必须与注册值一致。
 
 应用可以注册多个，因此同一个 WeKnora 实例可以同时接入多个第三方系统。现有 OIDC Provider 仍只负责 WeKnora 用户登录，不需要为每个第三方应用新增一套 OIDC 配置。
 
@@ -398,7 +398,7 @@ Skill 已明确要求：第三方连接使用 `wkic_`，不使用浏览器/OIDC 
 ## 10. 上线检查清单
 
 - 已执行 PostgreSQL `000089` 或 SQLite `000015` 迁移；
-- WeKnora 对外地址使用 HTTPS；
+- WeKnora 和回调地址按部署网络配置 HTTP 或 HTTPS；
 - 回调地址与注册值完全一致；
 - `client_secret` 和 `wkic_` 存入服务端密钥系统；
 - `state` 一次性、校验归属并设置短超时；

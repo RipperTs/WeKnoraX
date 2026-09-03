@@ -1956,8 +1956,8 @@ export default {
     },
     fields: {
       name: 'App name', description: 'Description', redirectUris: 'Callback URLs',
-      redirectUrisPlaceholder: 'One HTTPS URL per line, for example: https://agent.example.com/callback',
-      redirectUrisHint: 'Production URLs require HTTPS. localhost and loopback IPs may use HTTP.',
+      redirectUrisPlaceholder: 'One HTTP or HTTPS URL per line, for example: http://agent.internal/callback',
+      redirectUrisHint: 'HTTP and HTTPS are supported. Each address must be a complete URL.',
       scopes: 'Requestable permissions', enabled: 'Enable app',
       enabledHint: 'Disabling stops new authorizations and immediately invalidates existing credentials.',
     },

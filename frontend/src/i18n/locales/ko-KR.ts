@@ -4505,8 +4505,8 @@ export default {
     },
     fields: {
       name: '앱 이름', description: '앱 설명', redirectUris: '콜백 주소',
-      redirectUrisPlaceholder: '줄마다 HTTPS 주소 하나를 입력하세요. 예: https://agent.example.com/callback',
-      redirectUrisHint: '운영 환경은 HTTPS만 허용하며 localhost와 루프백 IP는 HTTP를 사용할 수 있습니다.',
+      redirectUrisPlaceholder: '줄마다 HTTP 또는 HTTPS 주소 하나를 입력하세요. 예: http://agent.internal/callback',
+      redirectUrisHint: 'HTTP와 HTTPS를 지원하며 각 주소는 완전한 URL이어야 합니다.',
       scopes: '요청 가능 권한', enabled: '앱 활성화',
       enabledHint: '비활성화하면 신규 승인과 기존 자격 증명이 즉시 중지됩니다.',
     },

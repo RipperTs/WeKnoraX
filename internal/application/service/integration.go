@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"sort"
 	"strings"
@@ -885,18 +884,8 @@ func validateApplicationInput(
 
 func validateIntegrationRedirectURI(raw string) error {
 	u, err := url.Parse(raw)
-	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.Fragment != "" {
-		return ErrIntegrationInvalidRedirectURI
-	}
-	if u.Scheme == "https" {
-		return nil
-	}
-	host := u.Hostname()
-	if u.Scheme != "http" || (host != "localhost" && net.ParseIP(host) == nil) {
-		return ErrIntegrationInvalidRedirectURI
-	}
-	ip := net.ParseIP(host)
-	if ip != nil && !ip.IsLoopback() {
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.Fragment != "" ||
+		(u.Scheme != "http" && u.Scheme != "https") {
 		return ErrIntegrationInvalidRedirectURI
 	}
 	return nil
