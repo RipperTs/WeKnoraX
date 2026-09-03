@@ -28,7 +28,6 @@ const (
 type externalDocumentService struct {
 	knowledgeService interfaces.KnowledgeService
 	redisClient      *redis.Client
-	localLocks       externalDocumentLocalLocks
 }
 
 type externalDocumentLocalLocks struct {
@@ -43,6 +42,14 @@ type externalDocumentLocalLock struct {
 
 type externalDocumentUploadContextKey struct{}
 
+type externalDocumentUploadContext struct {
+	processingLockKey string
+}
+
+var externalDocumentLocks = externalDocumentLocalLocks{
+	locks: make(map[string]*externalDocumentLocalLock),
+}
+
 // NewExternalDocumentService creates the external document synchronization service.
 func NewExternalDocumentService(
 	knowledgeService interfaces.KnowledgeService,
@@ -51,9 +58,6 @@ func NewExternalDocumentService(
 	return &externalDocumentService{
 		knowledgeService: knowledgeService,
 		redisClient:      redisClient,
-		localLocks: externalDocumentLocalLocks{
-			locks: make(map[string]*externalDocumentLocalLock),
-		},
 	}
 }
 
@@ -100,8 +104,12 @@ func (s *externalDocumentService) UpsertExternalDocument(
 			return nil
 		}
 
+		processingLockKey := ""
+		if existing != nil {
+			processingLockKey = lockKey
+		}
 		knowledge, err := s.knowledgeService.CreateKnowledgeFromFile(
-			withExternalDocumentUpload(lockCtx),
+			withExternalDocumentUpload(lockCtx, processingLockKey),
 			knowledgeBaseID,
 			file,
 			externalDocumentMetadata(metadata, sourceID, externalID, dataSourceID, fingerprint),
@@ -261,10 +269,19 @@ func (s *externalDocumentService) withDocumentLock(
 	key string,
 	fn func(context.Context) error,
 ) error {
-	if s.redisClient != nil {
+	return withExternalDocumentLock(ctx, s.redisClient, key, fn)
+}
+
+func withExternalDocumentLock(
+	ctx context.Context,
+	redisClient *redis.Client,
+	key string,
+	fn func(context.Context) error,
+) error {
+	if redisClient != nil {
 		return redislock.WithRenewableLock(
 			ctx,
-			s.redisClient,
+			redisClient,
 			key,
 			externalDocumentLockLease,
 			externalDocumentLockRenewInterval,
@@ -272,7 +289,7 @@ func (s *externalDocumentService) withDocumentLock(
 		)
 	}
 
-	unlock := s.localLocks.lock(key)
+	unlock := externalDocumentLocks.lock(key)
 	defer unlock()
 	return fn(ctx)
 }
@@ -387,13 +404,20 @@ func externalDocumentDataSourceID(sourceID string) string {
 	return externalDocumentDataSourcePrefix + sourceID
 }
 
-func withExternalDocumentUpload(ctx context.Context) context.Context {
-	return context.WithValue(ctx, externalDocumentUploadContextKey{}, true)
+func withExternalDocumentUpload(ctx context.Context, processingLockKey string) context.Context {
+	return context.WithValue(ctx, externalDocumentUploadContextKey{}, externalDocumentUploadContext{
+		processingLockKey: processingLockKey,
+	})
 }
 
 func isExternalDocumentUpload(ctx context.Context) bool {
-	isExternalUpload, _ := ctx.Value(externalDocumentUploadContextKey{}).(bool)
-	return isExternalUpload
+	_, ok := ctx.Value(externalDocumentUploadContextKey{}).(externalDocumentUploadContext)
+	return ok
+}
+
+func externalDocumentProcessingLockKey(ctx context.Context) string {
+	uploadContext, _ := ctx.Value(externalDocumentUploadContextKey{}).(externalDocumentUploadContext)
+	return uploadContext.processingLockKey
 }
 
 func externalDocumentLockKey(tenantID uint64, knowledgeBaseID, sourceID, externalID string) string {

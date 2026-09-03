@@ -3170,6 +3170,17 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 	if payload.Language != "" {
 		ctx = context.WithValue(ctx, types.LanguageContextKey, payload.Language)
 	}
+	if payload.ExternalDocumentLockKey != "" {
+		logger.Infof(ctx, "Waiting for external document replacement: knowledge_id=%s", payload.KnowledgeID)
+		if err := withExternalDocumentLock(
+			ctx,
+			s.redisClient,
+			payload.ExternalDocumentLockKey,
+			func(context.Context) error { return nil },
+		); err != nil {
+			return fmt.Errorf("wait for external document replacement: %w", err)
+		}
+	}
 
 	// 获取任务重试信息，用于判断是否是最后一次重试
 	retryCount, _ := asynq.GetRetryCount(ctx)
