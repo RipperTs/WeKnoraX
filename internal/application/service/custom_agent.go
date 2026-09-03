@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ type customAgentService struct {
 	wikiPageRepo   interfaces.WikiPageRepository
 	tagRepo        interfaces.KnowledgeTagRepository
 	knowledgeRepo  interfaces.KnowledgeRepository
+	modelService   interfaces.ModelService
 }
 
 // NewCustomAgentService creates a new custom agent service
@@ -53,6 +55,7 @@ func NewCustomAgentService(
 	wikiPageRepo interfaces.WikiPageRepository,
 	tagRepo interfaces.KnowledgeTagRepository,
 	knowledgeRepo interfaces.KnowledgeRepository,
+	modelService interfaces.ModelService,
 ) interfaces.CustomAgentService {
 	return &customAgentService{
 		repo:           repo,
@@ -62,6 +65,7 @@ func NewCustomAgentService(
 		wikiPageRepo:   wikiPageRepo,
 		tagRepo:        tagRepo,
 		knowledgeRepo:  knowledgeRepo,
+		modelService:   modelService,
 	}
 }
 
@@ -151,6 +155,11 @@ func (s *customAgentService) GetAgentByID(ctx context.Context, id string) (*type
 		}
 		// Not in database, return default built-in agent from registry (i18n-aware)
 		if builtinAgent := types.GetBuiltinAgentWithContext(ctx, id, tenantID); builtinAgent != nil {
+			models, err := s.modelService.ListModels(ctx)
+			if err != nil {
+				return nil, err
+			}
+			applyBuiltinModelDefaults(builtinAgent, models)
 			return builtinAgent, nil
 		}
 	}
@@ -216,6 +225,8 @@ func (s *customAgentService) ListAgents(ctx context.Context) ([]*types.CustomAge
 	// Build result: built-in agents first, then custom agents
 	builtinIDs := types.GetBuiltinAgentIDs()
 	result := make([]*types.CustomAgent, 0, len(allAgents)+len(builtinIDs))
+	var defaultModels []*types.Model
+	defaultModelsLoaded := false
 
 	// Add built-in agents in order
 	for _, builtinID := range builtinIDs {
@@ -231,6 +242,14 @@ func (s *customAgentService) ListAgents(ctx context.Context) ([]*types.CustomAge
 		} else {
 			// Use default built-in agent (i18n-aware)
 			if agent := types.GetBuiltinAgentWithContext(ctx, builtinID, tenantID); agent != nil {
+				if !defaultModelsLoaded {
+					defaultModels, err = s.modelService.ListModels(ctx)
+					if err != nil {
+						return nil, err
+					}
+					defaultModelsLoaded = true
+				}
+				applyBuiltinModelDefaults(agent, defaultModels)
 				result = append(result, agent)
 			}
 		}
@@ -244,6 +263,46 @@ func (s *customAgentService) ListAgents(ctx context.Context) ([]*types.CustomAge
 	}
 
 	return result, nil
+}
+
+// applyBuiltinModelDefaults makes an untouched built-in agent immediately usable
+// in the current workspace. Persisted built-in agents never pass through this
+// path, so an administrator's explicit model choices are kept.
+func applyBuiltinModelDefaults(agent *types.CustomAgent, models []*types.Model) {
+	if agent == nil || (agent.Config.ModelID != "" && agent.Config.RerankModelID != "") {
+		return
+	}
+	if agent.Config.ModelID == "" {
+		agent.Config.ModelID = selectDefaultModelID(models, types.ModelTypeKnowledgeQA)
+	}
+	if agent.Config.RerankModelID == "" {
+		agent.Config.RerankModelID = selectDefaultModelID(models, types.ModelTypeRerank)
+	}
+}
+
+func selectDefaultModelID(models []*types.Model, modelType types.ModelType) string {
+	active := make([]*types.Model, 0, len(models))
+	for _, model := range models {
+		if model != nil && model.ID != "" && model.Type == modelType && model.Status == types.ModelStatusActive {
+			active = append(active, model)
+		}
+	}
+	if len(active) == 0 {
+		return ""
+	}
+
+	sort.SliceStable(active, func(i, j int) bool {
+		if active[i].SortOrder != active[j].SortOrder {
+			return active[i].SortOrder < active[j].SortOrder
+		}
+		return active[i].CreatedAt.After(active[j].CreatedAt)
+	})
+	for _, model := range active {
+		if model.IsDefault {
+			return model.ID
+		}
+	}
+	return active[0].ID
 }
 
 // UpdateAgent updates an agent's information

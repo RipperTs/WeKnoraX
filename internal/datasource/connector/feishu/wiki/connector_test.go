@@ -15,9 +15,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/internal/datasource/connector/feishu/core"
-	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
+	"github.com/sirupsen/logrus"
 )
 
 func TestMain(m *testing.M) {
@@ -758,11 +758,14 @@ func TestFetchAll_LogsSummaryWithSkipBreakdown(t *testing.T) {
 	defer ts.Close()
 
 	var buf bytes.Buffer
-	logger.SetOutput(&buf)
-	defer logger.SetOutput(os.Stderr)
+	testLogger := logrus.New()
+	testLogger.SetOutput(&buf)
+	testLogger.SetFormatter(&logrus.TextFormatter{DisableColors: true, DisableTimestamp: true})
+	testLogger.SetLevel(logrus.InfoLevel)
+	ctx := context.WithValue(context.Background(), types.LoggerContextKey, logrus.NewEntry(testLogger))
 
 	c := NewConnector(core.RegionFeishu)
-	if _, err := c.FetchAll(context.Background(), makeConfig(cfg, []string{"space1"}), []string{"space1"}); err != nil {
+	if _, err := c.FetchAll(ctx, makeConfig(cfg, []string{"space1"}), []string{"space1"}); err != nil {
 		t.Fatalf("FetchAll() error: %v", err)
 	}
 
