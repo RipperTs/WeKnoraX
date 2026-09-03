@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -39,6 +40,8 @@ type externalDocumentLocalLock struct {
 	mu   sync.Mutex
 	refs int
 }
+
+type externalDocumentUploadContextKey struct{}
 
 // NewExternalDocumentService creates the external document synchronization service.
 func NewExternalDocumentService(
@@ -97,19 +100,8 @@ func (s *externalDocumentService) UpsertExternalDocument(
 			return nil
 		}
 
-		action := types.ExternalDocumentActionCreated
-		if existing != nil {
-			action = types.ExternalDocumentActionUpdated
-			if err := s.knowledgeService.DeleteKnowledge(lockCtx, existing.ID); err != nil {
-				return fmt.Errorf("delete replaced external document %s: %w", existing.ID, err)
-			}
-			if err := repo.HardDeleteKnowledge(lockCtx, tenantID, existing.ID); err != nil {
-				logger.Warnf(lockCtx, "failed to hard-delete replaced external document %s: %v", existing.ID, err)
-			}
-		}
-
 		knowledge, err := s.knowledgeService.CreateKnowledgeFromFile(
-			lockCtx,
+			withExternalDocumentUpload(lockCtx),
 			knowledgeBaseID,
 			file,
 			externalDocumentMetadata(metadata, sourceID, externalID, dataSourceID, fingerprint),
@@ -122,6 +114,26 @@ func (s *externalDocumentService) UpsertExternalDocument(
 		if err != nil {
 			return err
 		}
+
+		action := types.ExternalDocumentActionCreated
+		if existing != nil {
+			if knowledge.ParseStatus == types.ParseStatusFailed {
+				createErr := fmt.Errorf(
+					"replacement external document %s failed to start processing: %s",
+					knowledge.ID,
+					knowledge.ErrorMessage,
+				)
+				return s.rollbackCreatedExternalDocument(lockCtx, tenantID, knowledge.ID, createErr)
+			}
+			action = types.ExternalDocumentActionUpdated
+			if err := s.knowledgeService.DeleteKnowledge(lockCtx, existing.ID); err != nil {
+				deleteErr := fmt.Errorf("delete replaced external document %s: %w", existing.ID, err)
+				return s.rollbackCreatedExternalDocument(lockCtx, tenantID, knowledge.ID, deleteErr)
+			}
+			if err := repo.HardDeleteKnowledge(lockCtx, tenantID, existing.ID); err != nil {
+				logger.Warnf(lockCtx, "failed to hard-delete replaced external document %s: %v", existing.ID, err)
+			}
+		}
 		result = newExternalDocumentResult(action, sourceID, externalID, knowledge)
 		return nil
 	})
@@ -129,6 +141,33 @@ func (s *externalDocumentService) UpsertExternalDocument(
 		return nil, err
 	}
 	return result, nil
+}
+
+func (s *externalDocumentService) rollbackCreatedExternalDocument(
+	ctx context.Context,
+	tenantID uint64,
+	knowledgeID string,
+	cause error,
+) error {
+	rollbackCtx, cancel := externalDocumentRollbackContext(ctx)
+	defer cancel()
+
+	if err := s.knowledgeService.DeleteKnowledge(rollbackCtx, knowledgeID); err != nil {
+		return errors.Join(cause, fmt.Errorf("rollback external document %s: %w", knowledgeID, err))
+	}
+	if err := s.knowledgeService.GetRepository().HardDeleteKnowledge(rollbackCtx, tenantID, knowledgeID); err != nil {
+		logger.Warnf(rollbackCtx, "failed to hard-delete rolled-back external document %s: %v", knowledgeID, err)
+	}
+	return cause
+}
+
+func externalDocumentRollbackContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	rollbackCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopOwnershipWatch := context.AfterFunc(redislock.OwnershipContext(ctx), cancel)
+	return rollbackCtx, func() {
+		stopOwnershipWatch()
+		cancel()
+	}
 }
 
 func (s *externalDocumentService) GetExternalDocument(
@@ -342,6 +381,15 @@ func externalDocumentCanBeSkipped(knowledge *types.Knowledge, fingerprint string
 
 func externalDocumentDataSourceID(sourceID string) string {
 	return externalDocumentDataSourcePrefix + sourceID
+}
+
+func withExternalDocumentUpload(ctx context.Context) context.Context {
+	return context.WithValue(ctx, externalDocumentUploadContextKey{}, true)
+}
+
+func isExternalDocumentUpload(ctx context.Context) bool {
+	isExternalUpload, _ := ctx.Value(externalDocumentUploadContextKey{}).(bool)
+	return isExternalUpload
 }
 
 func externalDocumentLockKey(tenantID uint64, knowledgeBaseID, sourceID, externalID string) string {

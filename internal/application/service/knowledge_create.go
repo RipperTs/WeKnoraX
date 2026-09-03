@@ -98,7 +98,7 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		logger.Errorf(ctx, "Failed to check knowledge existence: %v", err)
 		return nil, err
 	}
-	if exists && !isDifferentExternalDocument(metadata, existingKnowledge) {
+	if exists && !isExternalDocumentUpload(ctx) {
 		logger.Infof(ctx, "File already exists: %s", fileName)
 		// Update creation time for existing knowledge
 		if err := s.repo.UpdateKnowledgeColumn(ctx, existingKnowledge.ID, "created_at", time.Now()); err != nil {
@@ -275,23 +275,6 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 
 	logger.Infof(ctx, "Knowledge from file created successfully, ID: %s", knowledge.ID)
 	return knowledge, nil
-}
-
-// isDifferentExternalDocument lets two independently managed external records
-// contain identical bytes. Their source_id + external_id pair, rather than the
-// content hash, is the ownership boundary used by the external document API.
-func isDifferentExternalDocument(metadata map[string]string, existing *types.Knowledge) bool {
-	if existing == nil {
-		return false
-	}
-	sourceID := metadata[types.ExternalDocumentSourceIDMetadataKey]
-	externalID := metadata[types.ExternalDocumentIDMetadataKey]
-	if sourceID == "" || externalID == "" {
-		return false
-	}
-	existingMetadata := existing.GetMetadata()
-	return existingMetadata[types.ExternalDocumentSourceIDMetadataKey] != sourceID ||
-		existingMetadata[types.ExternalDocumentIDMetadataKey] != externalID
 }
 
 // CreateKnowledgeFromURL creates a knowledge entry from a URL source
