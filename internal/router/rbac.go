@@ -254,6 +254,13 @@ func apiKeyChat(base middleware.APIKeyRoutePolicy) middleware.APIKeyRoutePolicy 
 	return base.WithCapability(types.APIKeyCapabilityChat)
 }
 
+// apiKeyKnowledgeChat admits the narrower third-party knowledge-chat grant.
+// Callers with the existing chat capability remain allowed through the base
+// policy; custom-agent routes deliberately never add this capability.
+func apiKeyKnowledgeChat(base middleware.APIKeyRoutePolicy) middleware.APIKeyRoutePolicy {
+	return base.WithCapability(types.APIKeyCapabilityKnowledgeChat)
+}
+
 // apiKeyReadAgents layers the "read_agents" capability on top of a base
 // policy so scoped integrations can inspect available agents without chat or
 // authoring permissions.

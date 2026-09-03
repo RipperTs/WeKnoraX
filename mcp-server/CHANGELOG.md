@@ -7,7 +7,11 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-02
+
 ### 新增
+- 新增跨知识库 `knowledge_search` 工具。
+- `wkic_` 第三方连接凭证自动启用只读工具集合。
 - 新增 `create_knowledge_from_text` 工具：通过手动 Markdown 文本创建知识条目，调用既有 `/knowledge-bases/{id}/knowledge/manual` 接口，补齐 #323 中"文本"部分。默认 `status="publish"`，创建后即进入解析/索引流程、可被检索；可传 `status="draft"` 仅保存不索引。
 - README 工具清单补列既有的 `create_knowledge_from_file`。
 

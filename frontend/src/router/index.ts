@@ -6,6 +6,7 @@ import { autoSetup, getCurrentUser, userInfoFromApi } from '@/api/auth'
 import type { DeploymentCapabilityKey } from '@/config/deploymentCapabilities'
 import { MessagePlugin } from 'tdesign-vue-next'
 import i18n from '@/i18n'
+import { rememberIntegrationLoginReturn } from '@/utils/loginReturn'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
@@ -72,6 +73,18 @@ const router = createRouter({
       name: "workspaceOnboarding",
       component: () => import("../views/auth/WorkspaceOnboarding.vue"),
       meta: { requiresAuth: true, requiresInit: false, requiresTenant: false }
+    },
+    {
+      path: '/integrations/authorize',
+      name: 'integrationAuthorization',
+      component: () => import('../views/integrations/IntegrationAuthorization.vue'),
+      meta: { requiresInit: true, requiresAuth: true },
+    },
+    {
+      path: '/integrations/launch/:connectionId',
+      name: 'integrationLaunch',
+      component: () => import('../views/integrations/IntegrationLaunch.vue'),
+      meta: { requiresInit: true, requiresAuth: true },
     },
     {
       path: "/join",
@@ -380,6 +393,9 @@ router.beforeEach(async (to, from, next) => {
         } catch {
           markAutoSetupFailed()
         }
+      }
+      if (to.path.startsWith('/integrations/')) {
+        rememberIntegrationLoginReturn(to.fullPath)
       }
       next('/login')
       return

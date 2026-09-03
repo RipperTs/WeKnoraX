@@ -322,6 +322,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoleLabel } from '@/composables/useRoleLabel'
 import { notifyLoginSuccess } from '@/utils/loginNotify'
+import {
+  clearIntegrationOIDCAttempted,
+  consumeIntegrationLoginReturn,
+  hasIntegrationOIDCAttempted,
+  markIntegrationOIDCAttempted,
+  peekIntegrationLoginReturn,
+} from '@/utils/loginReturn'
 import { Swiper, SwiperSlide } from 'swiper/vue'
 import { Autoplay, EffectFade, Pagination } from 'swiper/modules'
 import 'swiper/css'
@@ -588,6 +595,11 @@ const persistLoginResponse = async (response: any, skipRedirect = false) => {
   await authStore.refreshFromAuthMe()
   await nextTick()
   if (skipRedirect) return
+  const integrationReturn = consumeIntegrationLoginReturn()
+  if (integrationReturn) {
+    router.replace(integrationReturn)
+    return
+  }
   router.replace(authStore.hasValidTenant ? '/platform/knowledge-bases' : '/onboarding/workspace')
 }
 
@@ -634,6 +646,7 @@ const handleOIDCLogin = async () => {
     const authorizationURL = response.authorization_url
 
     if (!response.success || !authorizationURL) {
+      clearIntegrationOIDCAttempted()
       MessagePlugin.error(response.message || t('auth.oidcLoginFailed'))
       return
     }
@@ -644,6 +657,7 @@ const handleOIDCLogin = async () => {
     }
     window.location.href = authorizationURL
   } catch (error: any) {
+    clearIntegrationOIDCAttempted()
     console.error('OIDC 登录跳转失败:', error)
     MessagePlugin.error(error.message || t('auth.oidcLoginFailed'))
   } finally {
@@ -907,9 +921,11 @@ onMounted(async () => {
     }
   }
 
-  loadOIDCConfig()
-  loadFushunSSOConfig()
-  loadAuthConfig()
+  await Promise.all([loadOIDCConfig(), loadFushunSSOConfig(), loadAuthConfig()])
+  if (peekIntegrationLoginReturn() && oidcEnabled.value && !hasIntegrationOIDCAttempted()) {
+    markIntegrationOIDCAttempted()
+    await handleOIDCLogin()
+  }
 })
 </script>
 

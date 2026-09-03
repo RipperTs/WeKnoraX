@@ -3,6 +3,7 @@ import axios from "axios";
 import { generateRandomString, MAX_FILE_SIZE_MB } from "./index";
 import i18n from '@/i18n'
 import { getApiBaseUrl } from './api-base';
+import { rememberIntegrationLoginReturn } from './loginReturn';
 
 const t = (key: string) => i18n.global.t(key)
 
@@ -51,10 +52,12 @@ instance.interceptors.request.use(
     // 静默丢失 header，前端"切换了"但实际仍跑在 home 空间里——把"切
     // 换之后只有第一批请求带 X-Tenant-ID"调成永久状态。
     // 后端 IsTenantAccessible 已经允许 header 指向 home 空间（自家），
-    // 所以无脑附不会引入新风险。
+    // 所以默认附带不会引入新风险；调用方显式指定目标空间时则保留该值，
+    // 供授权跳转等场景先由服务端校验，再更新本地激活空间。
     if (!isEmbedAuth && !isEmbedPath) {
+      const explicitTenantId = config.headers?.["X-Tenant-ID"] ?? config.headers?.["x-tenant-id"];
       const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
-      if (selectedTenantId) {
+      if (!explicitTenantId && selectedTenantId) {
         config.headers["X-Tenant-ID"] = selectedTenantId;
       }
     }
@@ -114,6 +117,11 @@ function redirectToLogin() {
   if (window.location.pathname === '/login') return;
   // Embed 渠道用 Embed token 鉴权，匿名访问不应被踢到登录页
   if (isEmbedPage()) return;
+  if (window.location.pathname.startsWith('/integrations/')) {
+    rememberIntegrationLoginReturn(
+      `${window.location.pathname}${window.location.search}${window.location.hash}`
+    );
+  }
   window.location.href = '/login';
 }
 

@@ -80,6 +80,10 @@ const (
 	// (sessions + agent listing + self identity) without granting broader
 	// tenant management access.
 	APIKeyCapabilityChat APIKeyCapability = "chat"
+	// APIKeyCapabilityKnowledgeChat is the narrower conversation grant used
+	// by third-party knowledge integrations. It permits knowledge-base chat
+	// session state, but not custom-agent discovery or agent execution.
+	APIKeyCapabilityKnowledgeChat APIKeyCapability = "knowledge_chat"
 	// APIKeyCapabilityReadAgents lets a scoped key list and inspect agents
 	// without allowing chat sessions or agent authoring.
 	APIKeyCapabilityReadAgents APIKeyCapability = "read_agents"
@@ -172,6 +176,8 @@ func NormalizeAPIKeyCapability(c APIKeyCapability) APIKeyCapability {
 		return APIKeyCapabilityRetrieve
 	case APIKeyCapabilityChat:
 		return APIKeyCapabilityChat
+	case APIKeyCapabilityKnowledgeChat:
+		return APIKeyCapabilityKnowledgeChat
 	case APIKeyCapabilityReadAgents:
 		return APIKeyCapabilityReadAgents
 	case APIKeyCapabilityIngest:
@@ -267,11 +273,13 @@ func (k *TenantAPIKey) AfterFind(tx *gorm.DB) error {
 
 // TenantAPIKeyScope is the request-context projection used by middleware.
 type TenantAPIKeyScope struct {
-	KeyID            uint64
-	ScopeType        APIKeyScopeType
-	FullAccess       bool
-	KnowledgeBaseIDs StringArray
-	Capabilities     StringArray
+	KeyID                   uint64
+	ScopeType               APIKeyScopeType
+	FullAccess              bool
+	KnowledgeBaseRestricted bool
+	KnowledgeBaseIDs        StringArray
+	KnowledgeBaseTenantIDs  map[string]uint64
+	Capabilities            StringArray
 }
 
 func WithTenantAPIKeyScope(ctx context.Context, scope TenantAPIKeyScope) context.Context {
@@ -290,12 +298,21 @@ func TenantAPIKeyScopeFromContext(ctx context.Context) (TenantAPIKeyScope, bool)
 }
 
 func (s TenantAPIKeyScope) Normalize() TenantAPIKeyScope {
+	knowledgeBaseTenantIDs := make(map[string]uint64, len(s.KnowledgeBaseTenantIDs))
+	for knowledgeBaseID, tenantID := range s.KnowledgeBaseTenantIDs {
+		knowledgeBaseID = strings.TrimSpace(knowledgeBaseID)
+		if knowledgeBaseID != "" && tenantID != 0 {
+			knowledgeBaseTenantIDs[knowledgeBaseID] = tenantID
+		}
+	}
 	return TenantAPIKeyScope{
-		KeyID:            s.KeyID,
-		ScopeType:        NormalizeAPIKeyScopeType(s.ScopeType),
-		FullAccess:       s.FullAccess,
-		KnowledgeBaseIDs: normalizeIDArray(s.KnowledgeBaseIDs),
-		Capabilities:     NormalizeAPIKeyCapabilities(s.Capabilities),
+		KeyID:                   s.KeyID,
+		ScopeType:               NormalizeAPIKeyScopeType(s.ScopeType),
+		FullAccess:              s.FullAccess,
+		KnowledgeBaseRestricted: s.KnowledgeBaseRestricted,
+		KnowledgeBaseIDs:        normalizeIDArray(s.KnowledgeBaseIDs),
+		KnowledgeBaseTenantIDs:  knowledgeBaseTenantIDs,
+		Capabilities:            NormalizeAPIKeyCapabilities(s.Capabilities),
 	}
 }
 
@@ -324,7 +341,7 @@ func (s TenantAPIKeyScope) AllowsKnowledgeBase(kbID string) bool {
 	}
 	s = s.Normalize()
 	if len(s.KnowledgeBaseIDs) == 0 {
-		return true
+		return !s.KnowledgeBaseRestricted
 	}
 	for _, allowed := range s.KnowledgeBaseIDs {
 		if allowed == kbID {
@@ -335,13 +352,14 @@ func (s TenantAPIKeyScope) AllowsKnowledgeBase(kbID string) bool {
 }
 
 func (s TenantAPIKeyScope) IsKnowledgeBaseRestricted() bool {
-	return len(s.Normalize().KnowledgeBaseIDs) > 0
+	s = s.Normalize()
+	return s.KnowledgeBaseRestricted || len(s.KnowledgeBaseIDs) > 0
 }
 
 func (s TenantAPIKeyScope) AllowsKnowledgeBases(kbIDs []string) bool {
 	s = s.Normalize()
 	if len(s.KnowledgeBaseIDs) == 0 {
-		return true
+		return !s.KnowledgeBaseRestricted
 	}
 	if len(kbIDs) == 0 {
 		return false

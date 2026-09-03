@@ -13,6 +13,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/dig"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
@@ -86,6 +87,8 @@ type RouterParams struct {
 	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler
 	WikiPageHandler              *handler.WikiPageHandler
 	MemoryHandler                *handler.MemoryHandler
+	IntegrationHandler           *handler.IntegrationHandler
+	IntegrationService           *service.IntegrationService
 }
 
 // NewRouter 创建新的路由
@@ -180,7 +183,14 @@ func NewRouter(params RouterParams) *gin.Engine {
 	r.GET("/api/v1/system/branding/logo", params.SystemHandler.GetSiteLogo)
 
 	// 认证中间件
-	r.Use(middleware.Auth(params.TenantService, params.UserService, params.TenantMemberService, params.TenantAPIKeyService, params.Config))
+	r.Use(middleware.AuthWithIntegrations(
+		params.TenantService,
+		params.UserService,
+		params.TenantMemberService,
+		params.TenantAPIKeyService,
+		params.IntegrationService,
+		params.Config,
+	))
 
 	// 文件服务：统一代理本地/MinIO/COS/TOS存储后端（需要认证）
 	serveFilesWithResources(r, params.FileService, params.StorageBackendResolver, params.ResourceCatalog)
@@ -275,6 +285,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		params.SystemHandler.BindDeploymentCapabilities(deploymentCapabilitiesFromRouter(params))
 		RegisterSystemRoutes(v1, params.SystemHandler, rbacGuards)
 		RegisterSystemAdminRoutes(v1, params.SystemHandler, params.AuditLogHandler, rbacGuards)
+		RegisterIntegrationRoutes(v1, params.IntegrationHandler, rbacGuards)
 		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler, params.MCPCredentialsHandler, params.MCPOAuthHandler, rbacGuards)
 		RegisterWebSearchRoutes(v1, params.WebSearchHandler, rbacGuards)
 		RegisterWebSearchProviderRoutes(v1, params.WebSearchProviderHandler, params.WebSearchCredentialsHandler, rbacGuards)

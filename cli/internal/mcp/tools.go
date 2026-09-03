@@ -87,6 +87,11 @@ type knowledgeService interface {
 	GetKnowledge(ctx context.Context, knowledgeID string) (*sdk.Knowledge, error)
 	OpenKnowledgeFile(ctx context.Context, knowledgeID string) (string, io.ReadCloser, error)
 	HybridSearch(ctx context.Context, kbID string, params *sdk.SearchParams) ([]*sdk.SearchResult, error)
+	SearchKnowledge(
+		ctx context.Context,
+		request *sdk.SearchKnowledgeRequest,
+		opts ...sdk.ResourceURLOptions,
+	) ([]*sdk.SearchResult, error)
 }
 
 type chatService interface {
@@ -117,7 +122,7 @@ type sessionAskService interface {
 	AgentQAStreamWithRequest(ctx context.Context, sessionID string, req *sdk.AgentQARequest, cb sdk.AgentEventCallback, opts ...sdk.ResourceURLOptions) error
 }
 
-// registerTools wires the curated 10 tools onto server. Adding a tool here
+// registerTools wires the curated 11 tools onto server. Adding a tool here
 // is a deliberate API expansion - the agent-callable surface is the
 // reason this CLI ships an MCP server, not its CLI command list, so this
 // list must be maintained by hand.
@@ -136,10 +141,57 @@ func registerTools(server *mcpsdk.Server, svc ServiceClient) {
 	addDocView(server, svc)
 	addDocDownload(server, svc)
 	addSearchChunks(server, svc)
+	addKnowledgeSearch(server, svc)
 	addChat(server, svc)
 	addAgentList(server, svc)
 	addSessionAsk(server, svc)
 	addChunkList(server, svc)
+}
+
+// ---- knowledge_search ----------------------------------------------------
+
+type knowledgeSearchInput struct {
+	Query            string   `json:"query" jsonschema:"natural-language search query"`
+	KnowledgeBaseIDs []string `json:"knowledge_base_ids,omitempty" jsonschema:"KB IDs; omit for integration scope"`
+}
+
+type knowledgeSearchOutput struct {
+	Results []*sdk.SearchResult `json:"results"`
+}
+
+func addKnowledgeSearch(server *mcpsdk.Server, svc knowledgeService) {
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "knowledge_search",
+		Description: "Search across multiple knowledge bases without LLM synthesis. " +
+			"With an integration credential, omit knowledge_base_ids to search the connection's effective scope. " +
+			"Returns grounded chunks for the host agent to answer from.",
+		Annotations: &mcpsdk.ToolAnnotations{
+			Title:           "Search Knowledge Bases",
+			DestructiveHint: bptr(false),
+			ReadOnlyHint:    true,
+			IdempotentHint:  true,
+			OpenWorldHint:   bptr(false),
+		},
+	}, func(
+		ctx context.Context,
+		_ *mcpsdk.CallToolRequest,
+		in knowledgeSearchInput,
+	) (*mcpsdk.CallToolResult, any, error) {
+		if strings.TrimSpace(in.Query) == "" {
+			return toolErrorResult(cmdutil.NewError(cmdutil.CodeInputMissingFlag, "query cannot be empty")), nil, nil
+		}
+		results, err := svc.SearchKnowledge(ctx, &sdk.SearchKnowledgeRequest{
+			Query:            in.Query,
+			KnowledgeBaseIDs: in.KnowledgeBaseIDs,
+		})
+		if err != nil {
+			return toolErrorResult(cmdutil.WrapHTTP(err, "search knowledge bases")), nil, nil
+		}
+		if results == nil {
+			results = []*sdk.SearchResult{}
+		}
+		return successResult(knowledgeSearchOutput{Results: results}), nil, nil
+	})
 }
 
 // ---- kb_list -------------------------------------------------------------

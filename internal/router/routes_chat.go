@@ -19,10 +19,12 @@ func RegisterMessageRoutes(r *gin.RouterGroup, handler *handler.MessageHandler, 
 	// exceptions are explicit capabilities:
 	//   - chat: load/delete messages inside the caller's own session, where
 	//     ownership is enforced by the message service.
+	//   - knowledge_chat: the same own-session message access for integration
+	//     credentials, without admitting them to Agent routes.
 	//   - message_history: search/read tenant chat-history metadata without
 	//     granting every other full-access API.
 	messages := g.apiKeyGroup(r.Group("/messages"), apiKeyFullAccess())
-	chatMessages := messages.With(apiKeyChat(apiKeyFullAccess()))
+	chatMessages := messages.With(apiKeyKnowledgeChat(apiKeyChat(apiKeyFullAccess())))
 	historyMessages := messages.With(apiKeyMessageHistory(apiKeyFullAccess()))
 	{
 		historyMessages.POST("/search", g.Viewer(), handler.SearchMessages)
@@ -46,9 +48,12 @@ func RegisterSessionRoutes(
 	g *rbacGuards,
 ) {
 	// Sessions are per-user chat state, not knowledge-base content. The
-	// chat capability lets a scoped key run the full conversation flow
-	// (create/manage its own sessions) without full tenant access.
-	sessions := g.apiKeyGroup(r.Group("/sessions", g.Viewer()), apiKeyChat(apiKeyFullAccess()))
+	// chat and knowledge_chat let a scoped key manage its own conversation
+	// state without full tenant access. Only chat is accepted by agent routes.
+	sessions := g.apiKeyGroup(
+		r.Group("/sessions", g.Viewer()),
+		apiKeyKnowledgeChat(apiKeyChat(apiKeyFullAccess())),
+	)
 	{
 		sessions.POST("", handler.CreateSession)
 		sessions.DELETE("/batch", handler.BatchDeleteSessions)
@@ -102,8 +107,12 @@ func RegisterSessionRoutes(
 // authorisation is enforced inside the handlers.
 func RegisterChatRoutes(r *gin.RouterGroup, handler *session.Handler, g *rbacGuards) {
 	// These POST routes append messages and run generation, so a scoped key
-	// needs the explicit chat capability unless it has full tenant access.
-	knowledgeChat := g.apiKeyGroup(r.Group("/knowledge-chat", g.Viewer()), apiKeyChat(apiKeyFullAccess()))
+	// needs chat or the narrower knowledge_chat capability unless it has full
+	// tenant access. Agent chat below deliberately accepts only chat.
+	knowledgeChat := g.apiKeyGroup(
+		r.Group("/knowledge-chat", g.Viewer()),
+		apiKeyKnowledgeChat(apiKeyChat(apiKeyFullAccess())),
+	)
 	{
 		knowledgeChat.POST("/:session_id", handler.KnowledgeQA)
 	}

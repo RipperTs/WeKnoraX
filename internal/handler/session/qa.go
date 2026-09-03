@@ -121,6 +121,9 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		logger.Error(ctx, "Query content is empty")
 		return nil, nil, errors.NewBadRequestError("Query content cannot be empty")
 	}
+	if err := validateIntegrationKnowledgeChatRequest(ctx, &request); err != nil {
+		return nil, nil, err
+	}
 
 	// Resolve the storage-reference representation up front: once the SSE stream
 	// has started an invalid value can no longer be reported as a 400.
@@ -167,7 +170,21 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 
 	// Merge @mentioned items into knowledge_base_ids and knowledge_ids
 	kbIDs, knowledgeIDs := mergeKnowledgeTargets(request.KnowledgeBaseIDs, request.KnowledgeIds, request.MentionedItems)
-	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(ctx, kbIDs, knowledgeIDs); err != nil {
+	mentionScopes := tagScopesFromMentionedItems(request.MentionedItems)
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser &&
+		len(kbIDs) == 0 && len(knowledgeIDs) == 0 && len(mentionScopes) == 0 {
+		if scope, exists := types.TenantAPIKeyScopeFromContext(ctx); exists {
+			kbIDs = append(kbIDs, scope.KnowledgeBaseIDs...)
+		}
+		if len(kbIDs) == 0 {
+			return nil, nil, errors.NewBadRequestError(
+				"integration knowledge chat requires at least one accessible knowledge base",
+			)
+		}
+	}
+	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(
+		ctx, knowledgeBaseIDsWithTagScopes(kbIDs, mentionScopes), knowledgeIDs,
+	); err != nil {
 		return nil, nil, err
 	}
 
@@ -324,12 +341,16 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		attachmentIDs = normalizedIDs
 	}
 
-	mentionScopes := tagScopesFromMentionedItems(request.MentionedItems)
 	requestTagIDs := dedupRequestStrings(request.TagIDs)
 	if err := validateUnscopedTagIDs(orphanTagIDsForScope(requestTagIDs, mentionScopes), secutils.SanitizeForLogArray(kbIDs)); err != nil {
 		return nil, nil, errors.NewBadRequestError(err.Error())
 	}
 	tagScopes := mergeTagScopesFromRequestIDs(mentionScopes, requestTagIDs, secutils.SanitizeForLogArray(kbIDs))
+	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(
+		ctx, knowledgeBaseIDsWithTagScopes(kbIDs, tagScopes), nil,
+	); err != nil {
+		return nil, nil, err
+	}
 	tagIDs := dedupRequestStrings(append(request.TagIDs, mentionedIDsByType(request.MentionedItems, "tag")...))
 	mcpServiceIDs := dedupRequestStrings(append(request.MCPServiceIDs, mentionedIDsByType(request.MentionedItems, "mcp")...))
 	skillNames := dedupRequestStrings(append(request.SkillNames, mentionedIDsByType(request.MentionedItems, "skill")...))
@@ -391,6 +412,23 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 	}
 
 	return reqCtx, &request, nil
+}
+
+func validateIntegrationKnowledgeChatRequest(ctx context.Context, request *CreateKnowledgeQARequest) error {
+	principal, ok := types.PrincipalFromContext(ctx)
+	if !ok || principal.Type != types.PrincipalIntegrationUser || request == nil {
+		return nil
+	}
+	if request.AgentEnabled || request.AgentID != "" || request.AgentSourceTenantID != 0 ||
+		request.WebSearchEnabled || len(request.MCPServiceIDs) > 0 || len(request.SkillNames) > 0 {
+		return errors.NewForbiddenError("integration knowledge chat does not allow agents or external tools")
+	}
+	for _, item := range request.MentionedItems {
+		if item.Type == "mcp" || item.Type == "skill" {
+			return errors.NewForbiddenError("integration knowledge chat does not allow agents or external tools")
+		}
+	}
+	return nil
 }
 
 func decodeAndValidateAttachmentUploads(
@@ -748,6 +786,13 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 			knowledgeBaseIDs = append(knowledgeBaseIDs, request.KnowledgeBaseID)
 		}
 	}
+	if len(knowledgeBaseIDs) == 0 && len(request.KnowledgeIDs) == 0 {
+		if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser {
+			if scope, exists := types.TenantAPIKeyScopeFromContext(ctx); exists {
+				knowledgeBaseIDs = append(knowledgeBaseIDs, scope.KnowledgeBaseIDs...)
+			}
+		}
+	}
 
 	mentionScopes := tagScopesFromMentionedItems(request.MentionedItems)
 	requestTagIDs := dedupRequestStrings(request.TagIDs)
@@ -763,7 +808,9 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 		c.Error(errors.NewBadRequestError("At least one knowledge_base_id, knowledge_base_ids, knowledge_ids, or scoped tag must be provided"))
 		return
 	}
-	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(ctx, knowledgeBaseIDs, request.KnowledgeIDs); err != nil {
+	if err := types.AuthorizeTenantAPIKeyKnowledgeTargets(
+		ctx, knowledgeBaseIDsWithTagScopes(knowledgeBaseIDs, tagScopes), request.KnowledgeIDs,
+	); err != nil {
 		c.Error(err)
 		return
 	}

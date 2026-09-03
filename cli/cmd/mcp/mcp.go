@@ -27,8 +27,8 @@ func NewCmd(f *cmdutil.Factory) *cobra.Command {
 		Long: `Exposes weknora's tool surface as MCP tools so any
 MCP-compatible client can call them over JSON-RPC.
 
-Curated 10-tool surface: kb_list / kb_view / doc_list / doc_view /
-doc_download / search_chunks / chunk_list / agent_list are read-only;
+Curated 11-tool surface: kb_list / kb_view / doc_list / doc_view /
+doc_download / search_chunks / knowledge_search / chunk_list / agent_list are read-only;
 chat and session_ask create conversation/message records. Destructive
 verbs (create / delete / upload) are deliberately excluded - the agent
 should ask the user before mutating; the CLI's exit-10 protocol covers

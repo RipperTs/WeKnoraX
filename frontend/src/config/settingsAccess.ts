@@ -25,6 +25,7 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
   members: 'viewer',
   mymemory: 'viewer',
   memory: 'admin',
+  'third-party-integrations': 'viewer',
 }
 
 /**
@@ -42,4 +43,5 @@ export const SYSTEM_ADMIN_SETTINGS_SECTIONS = new Set([
   'runtime-queues',
   'platform-api-keys',
   'system-audit-log',
+  'third-party-applications',
 ])

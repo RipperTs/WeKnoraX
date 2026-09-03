@@ -152,6 +152,14 @@ func mergeTagScopesFromRequestIDs(scopes []types.TagScope, tagIDs, kbIDs []strin
 	return append(scopes, types.TagScope{KnowledgeBaseID: kbID, TagIDs: dedupRequestStrings(orphan)})
 }
 
+func knowledgeBaseIDsWithTagScopes(kbIDs []string, scopes []types.TagScope) []string {
+	combined := append([]string(nil), kbIDs...)
+	for _, scope := range scopes {
+		combined = append(combined, scope.KnowledgeBaseID)
+	}
+	return dedupRequestStrings(combined)
+}
+
 func mentionedIDsByType(items []MentionedItemRequest, itemType string) []string {
 	seen := make(map[string]bool)
 	result := make([]string, 0)

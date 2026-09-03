@@ -4,6 +4,11 @@
 >
 > 也可通过 PyPI 安装：`pip install tencent-weknora-mcp`，或使用 `uvx --from tencent-weknora-mcp weknora-mcp-server`（官方包名 `tencent-weknora-mcp`，由 [Tencent/WeKnora](https://github.com/Tencent/WeKnora) 维护）。
 
+第三方系统应把授权码换取到的 `wkic_...` 用户连接凭证填入
+`WEKNORA_API_KEY`。该凭证只能放在第三方服务端或用户本机 MCP 配置中，
+不要传到浏览器，也不要填写 WeKnora 登录 JWT 或 OIDC Token。每个用户连接
+使用独立的 MCP 进程或容器，禁止在一个共享进程中切换多个用户凭证。
+
 ## 1. 安装 uv
 
 ```bash

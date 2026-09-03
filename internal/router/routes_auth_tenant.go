@@ -201,9 +201,9 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	r.POST("/auth/refresh", handler.RefreshToken)
 	r.GET("/auth/validate", handler.ValidateToken)
 	r.POST("/auth/logout", handler.Logout)
-	// auth/me returns only the caller's own identity/profile, so it is safe
-	// for any valid API key. Chat clients / MCP call it to discover "who am I";
-	// leaving it default-deny was why scoped keys got a 403 here.
+	// auth/me returns the caller's identity/profile to regular API keys. The
+	// handler rejects per-user integration credentials because knowledge.read
+	// does not grant access to account or cross-workspace membership metadata.
 	g.apiKeyRoute(r, http.MethodGet, "/auth/me", apiKeyAny(), handler.GetCurrentUser)
 	r.PUT("/auth/me/profile", handler.UpdateMyProfile)
 	r.PUT("/auth/me/preferences", handler.UpdateMyPreferences)

@@ -808,6 +808,11 @@ func validateTenantAPIKeyRequest(
 	if strings.TrimSpace(req.Name) == "" {
 		return errors.NewValidationError("name is required")
 	}
+	for _, capability := range req.Capabilities {
+		if types.NormalizeAPIKeyCapability(types.APIKeyCapability(capability)) == types.APIKeyCapabilityKnowledgeChat {
+			return errors.NewValidationError("knowledge_chat capability is reserved for integration credentials")
+		}
+	}
 	if req.FullAccess {
 		return nil
 	}

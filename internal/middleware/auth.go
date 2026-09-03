@@ -53,6 +53,7 @@ var noAuthAPI = map[string][]string{
 	"/api/v1/auth/oidc/url":           {"GET"},
 	"/api/v1/auth/oidc/start":         {"GET"},
 	"/api/v1/auth/oidc/callback":      {"GET"},
+	"/api/v1/integrations/token":      {"POST"},
 	// MCP OAuth provider redirect: the third-party authorization server
 	// redirects the browser here without a WeKnora bearer token. The request
 	// is authenticated by the opaque, single-use `state` parameter instead.
@@ -134,6 +135,32 @@ func Auth(
 	apiKeyService interfaces.TenantAPIKeyService,
 	cfg *config.Config,
 ) gin.HandlerFunc {
+	return AuthWithIntegrations(
+		tenantService, userService, memberService, apiKeyService, nil, cfg,
+	)
+}
+
+// IntegrationCredentialAuthenticator is the narrow service contract required
+// to authenticate per-user third-party integration credentials.
+type IntegrationCredentialAuthenticator interface {
+	AuthenticateCredential(ctx context.Context, token string) (*types.IntegrationCredentialSession, error)
+	EffectiveKnowledgeBases(
+		ctx context.Context,
+		session *types.IntegrationCredentialSession,
+		role types.TenantRole,
+	) ([]*types.KnowledgeBase, types.StringArray, error)
+}
+
+// AuthWithIntegrations extends Auth with the wkic_ credential channel while
+// preserving Auth's existing signature for focused middleware tests.
+func AuthWithIntegrations(
+	tenantService interfaces.TenantService,
+	userService interfaces.UserService,
+	memberService interfaces.TenantMemberService,
+	apiKeyService interfaces.TenantAPIKeyService,
+	integrationAuthenticator IntegrationCredentialAuthenticator,
+	cfg *config.Config,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// ignore OPTIONS request
 		if c.Request.Method == http.MethodOptions {
@@ -163,6 +190,14 @@ func Auth(
 
 		// 尝试X-API-Key认证（兼容模式）
 		if apiKey := c.GetHeader("X-API-Key"); apiKey != "" {
+			if strings.HasPrefix(strings.TrimSpace(apiKey), "wkic_") {
+				if authenticateIntegrationCredential(
+					c, tenantService, userService, memberService, integrationAuthenticator, cfg, apiKey,
+				) {
+					c.Next()
+				}
+				return
+			}
 			if apiKeyService == nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: API key service is not configured"})
 				c.Abort()
@@ -182,6 +217,134 @@ func Auth(
 		}
 		c.Abort()
 	}
+}
+
+func authenticateIntegrationCredential(
+	c *gin.Context,
+	tenantService interfaces.TenantService,
+	userService interfaces.UserService,
+	memberService interfaces.TenantMemberService,
+	authenticator IntegrationCredentialAuthenticator,
+	cfg *config.Config,
+	token string,
+) bool {
+	if authenticator == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: integration credentials are not configured"})
+		c.Abort()
+		return false
+	}
+	ctx := c.Request.Context()
+	session, err := authenticator.AuthenticateCredential(ctx, token)
+	if errors.Is(err, types.ErrIntegrationInvalidCredential) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid integration credential"})
+		c.Abort()
+		return false
+	}
+	if err != nil || session == nil || session.Connection == nil {
+		logger.Errorf(ctx, "[auth] integration credential authentication failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	connection := session.Connection
+	user, err := userService.GetUserByID(ctx, connection.UserID)
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration user lookup failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	if user == nil || !user.IsActive {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: integration user is unavailable"})
+		c.Abort()
+		return false
+	}
+	tenant, err := tenantService.GetTenantByID(ctx, connection.TenantID)
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration workspace lookup failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	if tenant == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: integration workspace is unavailable"})
+		c.Abort()
+		return false
+	}
+	role, ok, err := resolveIntegrationTenantRole(ctx, memberService, user, connection.TenantID, cfg)
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration membership lookup failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: integration user is not a workspace member"})
+		c.Abort()
+		return false
+	}
+	knowledgeBases, knowledgeBaseIDs, err := authenticator.EffectiveKnowledgeBases(ctx, session, role)
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration knowledge-base scope resolution failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	capabilities := types.StringArray{string(types.APIKeyCapabilityRetrieve)}
+	if types.IntegrationScopesContain(session.Scopes, types.IntegrationScopeKnowledgeChat) {
+		capabilities = append(capabilities, string(types.APIKeyCapabilityKnowledgeChat))
+	}
+	knowledgeBaseTenantIDs := make(map[string]uint64, len(knowledgeBases))
+	for _, knowledgeBase := range knowledgeBases {
+		if knowledgeBase != nil {
+			knowledgeBaseTenantIDs[knowledgeBase.ID] = knowledgeBase.TenantID
+		}
+	}
+	applyAuthSession(c, authSession{
+		User:      user,
+		Principal: types.Principal{Type: types.PrincipalIntegrationUser, ID: connection.ID},
+		TenantID:  connection.TenantID,
+		Tenant:    tenant,
+		Role:      role,
+		// Integration credentials never inherit the human user's system-admin authority.
+		SystemAdmin: false,
+		APIKeyScope: &types.TenantAPIKeyScope{
+			ScopeType:               types.APIKeyScopeTenant,
+			KnowledgeBaseRestricted: true,
+			KnowledgeBaseIDs:        knowledgeBaseIDs,
+			KnowledgeBaseTenantIDs:  knowledgeBaseTenantIDs,
+			Capabilities:            capabilities,
+		},
+	})
+	return true
+}
+
+// resolveIntegrationTenantRole validates a long-lived integration credential
+// without the human-login recovery behavior in resolveTenantRole. In
+// particular, it must never recreate an orphaned membership or fail open when
+// RBAC enforcement is disabled.
+func resolveIntegrationTenantRole(
+	ctx context.Context,
+	memberService interfaces.TenantMemberService,
+	user *types.User,
+	tenantID uint64,
+	cfg *config.Config,
+) (types.TenantRole, bool, error) {
+	if memberService == nil || user == nil || tenantID == 0 {
+		return "", false, nil
+	}
+	member, err := memberService.GetMembership(ctx, user.ID, tenantID)
+	if err == nil && member != nil && member.Status == types.TenantMemberStatusActive {
+		return member.Role, true, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if tenantID != user.TenantID && user.CanAccessAllTenants && cfg != nil && cfg.Tenant != nil &&
+		cfg.Tenant.EnableCrossTenantAccess {
+		return types.TenantRoleAdmin, true, nil
+	}
+	return "", false, nil
 }
 
 // bearerToken extracts the Bearer token from the Authorization header.

@@ -28,6 +28,13 @@ func (h *Handler) UploadTemporaryDocument(c *gin.Context) {
 	}
 	maxBytes := secutils.GetMaxFileSizeMB()*1024*1024 + 1024*1024
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+	agentID := c.PostForm("agent_id")
+	sourceTenantValue := c.PostForm(types.AgentSourceTenantIDParam)
+	if principal, ok := types.PrincipalFromContext(ctx); ok && principal.Type == types.PrincipalIntegrationUser &&
+		(strings.TrimSpace(agentID) != "" || strings.TrimSpace(sourceTenantValue) != "") {
+		c.Error(apperrors.NewForbiddenError("integration knowledge chat does not allow agent attachment parsing"))
+		return
+	}
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		c.Error(apperrors.NewBadRequestError(fmt.Sprintf("invalid attachment upload: %v", err)))
@@ -40,12 +47,12 @@ func (h *Handler) UploadTemporaryDocument(c *gin.Context) {
 	}
 	defer file.Close()
 
-	sourceTenantID, parseErr := types.ParseAgentSourceTenantID(c.PostForm(types.AgentSourceTenantIDParam))
+	sourceTenantID, parseErr := types.ParseAgentSourceTenantID(sourceTenantValue)
 	if parseErr != nil {
 		c.Error(apperrors.NewBadRequestError(parseErr.Error()))
 		return
 	}
-	agent, resourceTenantID, _ := h.resolveAgent(ctx, c, c.PostForm("agent_id"), sourceTenantID)
+	agent, resourceTenantID, _ := h.resolveAgent(ctx, c, agentID, sourceTenantID)
 	if sourceTenantID != 0 && agent == nil {
 		c.Error(apperrors.NewNotFoundError("Shared agent not found"))
 		return

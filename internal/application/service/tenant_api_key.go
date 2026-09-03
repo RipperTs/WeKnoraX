@@ -41,7 +41,10 @@ func (s *tenantAPIKeyService) CreateAPIKey(
 	if scopeType == types.APIKeyScopePlatform && req.FullAccess {
 		return nil, errors.New("platform API keys require explicit capabilities")
 	}
-	capabilities := types.NormalizeAPIKeyCapabilities(types.StringArray(req.Capabilities))
+	capabilities, err := normalizePublicAPIKeyCapabilities(req.Capabilities)
+	if err != nil {
+		return nil, err
+	}
 	if scopeType == types.APIKeyScopePlatform && len(capabilities) == 0 {
 		return nil, errors.New("platform API keys require at least one capability")
 	}
@@ -98,6 +101,9 @@ func (s *tenantAPIKeyService) AuthenticateAPIKey(ctx context.Context, token stri
 	if key.ExpiresAt != nil && time.Now().UTC().After(key.ExpiresAt.UTC()) {
 		return nil, apprepo.ErrTenantAPIKeyNotFound
 	}
+	if _, err := normalizePublicAPIKeyCapabilities([]string(key.Capabilities)); err != nil {
+		return nil, apprepo.ErrTenantAPIKeyNotFound
+	}
 	s.touchAPIKeyLastUsedAsync(key.ID)
 	return key, nil
 }
@@ -145,7 +151,10 @@ func (s *tenantAPIKeyService) UpdateAPIKey(
 	if name == "" {
 		return nil, errors.New("name is required")
 	}
-	capabilities := types.NormalizeAPIKeyCapabilities(types.StringArray(req.Capabilities))
+	capabilities, err := normalizePublicAPIKeyCapabilities(req.Capabilities)
+	if err != nil {
+		return nil, err
+	}
 	if !req.FullAccess && len(capabilities) == 0 {
 		return nil, errors.New("capabilities are required for scoped API keys")
 	}
@@ -233,4 +242,14 @@ func normalizeAPIKeyIDs(in []string) types.StringArray {
 		out = append(out, id)
 	}
 	return out
+}
+
+func normalizePublicAPIKeyCapabilities(in []string) (types.StringArray, error) {
+	capabilities := types.NormalizeAPIKeyCapabilities(types.StringArray(in))
+	for _, capability := range capabilities {
+		if capability == string(types.APIKeyCapabilityKnowledgeChat) {
+			return nil, errors.New("knowledge_chat capability is reserved for integration credentials")
+		}
+	}
+	return capabilities, nil
 }

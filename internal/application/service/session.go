@@ -23,6 +23,14 @@ func sessionUserIDFromContext(ctx context.Context) string {
 	return types.SessionOwnerIDFromContext(ctx)
 }
 
+func mayUseAdminSessionView(ctx context.Context) bool {
+	principal, ok := types.PrincipalFromContext(ctx)
+	if ok && principal.Type == types.PrincipalIntegrationUser {
+		return false
+	}
+	return types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin)
+}
+
 // runtimeMayBypassAdminConsoleRead reports whether a non-admin caller on the
 // owner-scoped read path may open a channel-managed session. Admin console reads
 // use the GetByID fallback in loadSessionForRead and never call this helper.
@@ -65,7 +73,7 @@ func loadSessionForRead(
 	tenantID uint64,
 	ownerID, sessionID string,
 ) (*types.Session, error) {
-	isAdmin := types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin)
+	isAdmin := mayUseAdminSessionView(ctx)
 
 	session, err := repo.Get(ctx, tenantID, ownerID, sessionID)
 	if err == nil {
@@ -333,7 +341,7 @@ func (s *sessionService) ListSessions(
 	// Owner/admin can observe sessions that are otherwise isolated per key,
 	// visitor, or IM identity; everyone else stays scoped to their own principal.
 	if types.SessionListSourceRequiresAdmin(query.Source) {
-		if !types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) {
+		if !mayUseAdminSessionView(ctx) {
 			return nil, apperrors.NewForbiddenError(
 				"listing channel sessions requires tenant admin or owner role",
 			)

@@ -19,6 +19,12 @@ zero-disk — no `profile add` / `auth login` needed. `auth token` echoes that e
 credential; `auth status` / `doctor` confirm it. The steps below set up a
 **persistent named profile** instead (interactive / multi-environment use).
 
+For a third-party user connection, `WEKNORA_API_KEY` is the long-lived
+`wkic_...` credential returned by the authorization-code exchange. Send it only
+as `X-API-Key`; never substitute a browser JWT or an OIDC token. A `wkic_`
+credential is read-scoped to the connection's currently effective knowledge
+bases, so do not use it for create, update, upload, or delete commands.
+
 Authentication is a **two-step sequence**. `weknora auth login` operates on the
 *active profile*, so the profile must exist first:
 
@@ -191,8 +197,15 @@ KB Q&A with an LLM; `session ask --agent <id>` = invoke a *custom agent*;
 For your own scripted control, use the CLI (richer: dry-run, exit-10, all verbs).
 For an IDE/host agent that speaks MCP, `weknora mcp serve` exposes a curated
 read+chat tool set: `kb_list`, `kb_view`, `doc_list`, `doc_view`, `doc_download`,
-`search_chunks`, `chunk_list`, `agent_list`, `chat`, `session_ask`. MCP tools
+`search_chunks`, `knowledge_search`, `chunk_list`, `agent_list`, `chat`, `session_ask`. MCP tools
 take raw ids (no name resolution); resolve names via `kb_list` first.
+
+With a third-party connection credential, prefer `knowledge_search` and omit
+the knowledge-base ID list to search the connection's complete effective scope.
+The `chat` tool requires the optional `knowledge.chat` scope. `session_ask` and
+agent discovery remain unavailable to integration credentials even with that
+scope. The standalone Python MCP server additionally removes non-read tools
+from its advertised tool list for third-party connection credentials.
 
 ## 10. Agent self-help
 

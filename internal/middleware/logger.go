@@ -57,7 +57,9 @@ func sanitizeBody(body string) string {
 var sensitiveQueryFields = map[string]struct{}{
 	"access_token":          {},
 	"authorization_attempt": {},
+	"client_secret":         {},
 	"code":                  {},
+	"code_verifier":         {},
 	"id_token":              {},
 	"refresh_token":         {},
 	"state":                 {},
@@ -166,7 +168,12 @@ func Logger() gin.HandlerFunc {
 
 		// 读取请求体（在Next之前读取，因为Next会消费body）
 		var requestBody string
-		if c.Request.Method == "POST" || c.Request.Method == "PUT" || c.Request.Method == "PATCH" {
+		skipBodyLogging := path == "/api/v1/integrations/token" ||
+			path == "/api/v1/integrations/token/" ||
+			path == "/api/v1/integrations/authorization" ||
+			path == "/api/v1/integrations/authorization/"
+		if !skipBodyLogging &&
+			(c.Request.Method == "POST" || c.Request.Method == "PUT" || c.Request.Method == "PATCH") {
 			requestBody = readRequestBody(c)
 		}
 
@@ -205,7 +212,7 @@ func Logger() gin.HandlerFunc {
 
 		// 读取响应体
 		responseBodyStr := ""
-		if responseBody.Len() > 0 {
+		if !skipBodyLogging && responseBody.Len() > 0 {
 			contentType := c.Writer.Header().Get("Content-Type")
 			if strings.Contains(contentType, "text/event-stream") {
 				responseBodyStr = "[SSE流式响应，已跳过]"

@@ -33,7 +33,7 @@ def read_requirements():
 
 setup(
     name="tencent-weknora-mcp",
-    version="1.1.1",
+    version="1.2.0",
     author="WeKnora Team",
     author_email="support@weknora.com",
     description="WeKnora MCP Server - Model Context Protocol server for WeKnora API",
