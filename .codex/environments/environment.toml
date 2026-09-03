@@ -1,0 +1,34 @@
+version = 1
+name = "WeKnora"
+
+[setup]
+script = ""
+
+[setup.darwin]
+script = '''
+cd "$CODEX_WORKTREE_PATH"
+./scripts/setup_codex_worktree.sh'''
+
+[cleanup]
+script = ""
+
+[cleanup.darwin]
+script = "./scripts/cleanup_codex_worktree.sh"
+
+[[actions]]
+name = "启动开发环境基础设施"
+icon = "run"
+command = "make dev-start"
+platform = "darwin"
+
+[[actions]]
+name = "启动后端"
+icon = "run"
+command = "make dev-app"
+platform = "darwin"
+
+[[actions]]
+name = "启动前端"
+icon = "run"
+command = "make dev-frontend"
+platform = "darwin"
