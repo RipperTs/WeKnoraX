@@ -1792,8 +1792,8 @@ func (s *Service) HandleMessage(ctx context.Context, msg *IncomingMessage, chann
 		// worker below shares the same *session.
 		sessionForTitle := *session
 		titleModelID := ""
-		if customAgent != nil && customAgent.Config.ModelID != "" {
-			titleModelID = customAgent.Config.ModelID
+		if customAgent != nil {
+			titleModelID = customAgent.Config.ResolveTitleModelID()
 		}
 		s.sessionService.GenerateTitleAsync(sessionCtx, &sessionForTitle, msg.Content, titleModelID, nil)
 	}

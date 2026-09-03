@@ -119,6 +119,9 @@ type CustomAgentConfig struct {
 	// ===== Model Settings =====
 	// Model ID to use for conversations
 	ModelID string `yaml:"model_id" json:"model_id"`
+	// Dedicated model ID for automatic session title generation.
+	// When empty, ModelID is used.
+	TitleModelID string `yaml:"title_model_id" json:"title_model_id,omitempty"`
 	// ReRank model ID for retrieval
 	RerankModelID string `yaml:"rerank_model_id" json:"rerank_model_id"`
 	// Temperature for LLM (0-1)
@@ -293,6 +296,14 @@ type CustomAgentConfig struct {
 	// before the first user turn and the contextual follow-up questions shown
 	// after a completed assistant answer.
 	QuestionSuggestions *QuestionSuggestionConfig `yaml:"question_suggestions,omitempty" json:"question_suggestions,omitempty"`
+}
+
+// ResolveTitleModelID returns the model used for automatic session title generation.
+func (c CustomAgentConfig) ResolveTitleModelID() string {
+	if c.TitleModelID != "" {
+		return c.TitleModelID
+	}
+	return c.ModelID
 }
 
 const (
