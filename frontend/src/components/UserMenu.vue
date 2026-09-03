@@ -37,7 +37,7 @@
           @keydown.space.prevent="handleQuickNav('userprofile')">
           <div class="dropdown-user-avatar">
             <img v-if="userAvatar" :src="userAvatar" :alt="$t('common.avatar')" />
-            <span v-else class="dropdown-user-avatar-placeholder">{{ userInitial }}</span>
+            <span v-else class="dropdown-user-avatar-placeholder">{{ sidebarUserInitial }}</span>
           </div>
           <div class="dropdown-user-meta">
             <div class="dropdown-user-name-row">
@@ -250,11 +250,6 @@ const userAvatar = computed(() => userInfo.value.avatar)
 // 左下角默认头像与账号下方的辅助文案保持一致
 const sidebarUserInitial = computed(() => {
   return userAccountDetail.value.trim().charAt(0).toUpperCase()
-})
-
-// 用户名首字母（用于无头像时显示）
-const userInitial = computed(() => {
-  return userName.value.charAt(0).toUpperCase()
 })
 
 // 切换菜单显示
