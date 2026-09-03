@@ -39,11 +39,29 @@
             </div>
           </div>
           <div class="app-actions">
+            <t-button
+              size="small"
+              variant="outline"
+              :loading="testingId === app.id"
+              :disabled="Boolean(testingId) && testingId !== app.id"
+              @click="testConnection(app)"
+            >
+              {{ t('thirdPartyIntegration.system.testConnection') }}
+            </t-button>
             <t-button size="small" variant="outline" @click="openEdit(app)">
               {{ t('common.edit') }}
             </t-button>
-            <t-button size="small" variant="text" @click="confirmRotate(app)">
+            <t-button size="small" variant="outline" theme="warning" @click="confirmRotate(app)">
               {{ t('thirdPartyIntegration.system.rotateSecret') }}
+            </t-button>
+            <t-button
+              size="small"
+              variant="outline"
+              theme="danger"
+              :loading="deletingId === app.id"
+              @click="confirmDelete(app)"
+            >
+              {{ t('common.delete') }}
             </t-button>
           </div>
         </article>
@@ -81,8 +99,12 @@
 
         <label>{{ t('thirdPartyIntegration.fields.scopes') }}</label>
         <div class="scope-options">
-          <t-checkbox v-model="readScope" disabled>knowledge.read</t-checkbox>
-          <t-checkbox v-model="chatScope">knowledge.chat</t-checkbox>
+          <t-checkbox v-model="readScope" disabled>
+            {{ t(integrationScopeLabelKeys['knowledge.read']) }}
+          </t-checkbox>
+          <t-checkbox v-model="chatScope">
+            {{ t(integrationScopeLabelKeys['knowledge.chat']) }}
+          </t-checkbox>
         </div>
 
         <div class="switch-row">
@@ -122,10 +144,13 @@ import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
 import { copyWithToast } from '@/utils/clipboard'
+import { integrationScopeLabelKeys } from '@/utils/integrationScope'
 import {
   createIntegrationApplication,
+  deleteIntegrationApplication,
   listIntegrationApplications,
   rotateIntegrationApplicationSecret,
+  testIntegrationApplicationCallbacks,
   updateIntegrationApplication,
   type IntegrationApplication,
   type IntegrationApplicationInput,
@@ -136,6 +161,8 @@ const { t } = useI18n()
 const apps = ref<IntegrationApplication[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const testingId = ref('')
+const deletingId = ref('')
 const drawerVisible = ref(false)
 const editingId = ref('')
 const redirectURIText = ref('')
@@ -147,7 +174,7 @@ const secretClientID = ref('')
 const form = reactive({ name: '', description: '', enabled: true })
 
 function scopeLabels(scopes: IntegrationScope[]) {
-  return scopes.join(' · ')
+  return scopes.map(scope => t(integrationScopeLabelKeys[scope])).join(' · ')
 }
 
 function resetForm() {
@@ -231,10 +258,39 @@ async function saveApplication() {
   }
 }
 
+async function testConnection(app: IntegrationApplication) {
+  testingId.value = app.id
+  try {
+    const response = await testIntegrationApplicationCallbacks(app.id)
+    const results = response.data || []
+    const failed = results.filter(result => !result.reachable)
+    if (failed.length === 0) {
+      const statuses = results.map(result => result.status_code).join(', ')
+      MessagePlugin.success(t('thirdPartyIntegration.system.testSuccess', {
+        count: results.length,
+        statuses,
+      }))
+      return
+    }
+    const firstFailure = failed[0]
+    MessagePlugin.error(t('thirdPartyIntegration.system.testFailed', {
+      reachable: results.length - failed.length,
+      total: results.length,
+      url: firstFailure.redirect_uri,
+      error: firstFailure.error || t('thirdPartyIntegration.system.testUnknownError'),
+    }))
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('thirdPartyIntegration.system.testRequestFailed'))
+  } finally {
+    testingId.value = ''
+  }
+}
+
 function confirmRotate(app: IntegrationApplication) {
   const dialog = DialogPlugin.confirm({
     header: t('thirdPartyIntegration.system.rotateTitle'),
     body: t('thirdPartyIntegration.system.rotateConfirm', { name: app.name }),
+    confirmBtn: { content: t('common.confirm'), theme: 'warning' },
     onConfirm: async () => {
       dialog.destroy()
       try {
@@ -244,6 +300,29 @@ function confirmRotate(app: IntegrationApplication) {
         secretVisible.value = true
       } catch (error: any) {
         MessagePlugin.error(error?.message || t('thirdPartyIntegration.system.rotateFailed'))
+      }
+    },
+    onCancel: () => dialog.destroy(),
+  })
+}
+
+function confirmDelete(app: IntegrationApplication) {
+  const dialog = DialogPlugin.confirm({
+    header: t('thirdPartyIntegration.system.deleteTitle'),
+    body: t('thirdPartyIntegration.system.deleteConfirm', { name: app.name }),
+    confirmBtn: { content: t('common.delete'), theme: 'danger' },
+    cancelBtn: t('common.cancel'),
+    onConfirm: async () => {
+      dialog.destroy()
+      deletingId.value = app.id
+      try {
+        await deleteIntegrationApplication(app.id)
+        MessagePlugin.success(t('thirdPartyIntegration.system.deleted'))
+        await loadApplications()
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || t('thirdPartyIntegration.system.deleteFailed'))
+      } finally {
+        deletingId.value = ''
       }
     },
     onCancel: () => dialog.destroy(),
@@ -287,7 +366,7 @@ onMounted(loadApplications)
 .app-copy > p { margin: 7px 0 10px; color: var(--td-text-color-secondary); }
 .app-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; color: var(--td-text-color-placeholder); font-size: 12px; }
 .app-meta code { color: var(--td-text-color-secondary); }
-.app-actions { display: flex; align-items: center; flex: none; }
+.app-actions { display: flex; align-items: center; flex: none; flex-wrap: wrap; gap: 8px; }
 .empty-state { padding: 72px 20px; text-align: center; color: var(--td-text-color-placeholder); }
 .empty-state h3 { margin: 14px 0 6px; color: var(--td-text-color-primary); }
 .empty-state p { margin: 0; }

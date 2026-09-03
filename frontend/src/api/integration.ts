@@ -84,6 +84,13 @@ export interface IntegrationApplicationInput {
   enabled: boolean
 }
 
+export interface IntegrationCallbackTestResult {
+  redirect_uri: string
+  reachable: boolean
+  status_code?: number
+  error?: string
+}
+
 type DataResponse<T> = { success: boolean; data: T }
 
 export function listIntegrationApplications(): Promise<DataResponse<IntegrationApplication[]>> {
@@ -103,10 +110,20 @@ export function updateIntegrationApplication(
   return put(`/api/v1/system/admin/integration-applications/${id}`, input)
 }
 
+export function deleteIntegrationApplication(id: string): Promise<{ success: boolean }> {
+  return del(`/api/v1/system/admin/integration-applications/${id}`)
+}
+
 export function rotateIntegrationApplicationSecret(
   id: string,
 ): Promise<DataResponse<{ application: IntegrationApplication; client_secret: string }>> {
   return post(`/api/v1/system/admin/integration-applications/${id}/rotate-secret`, {})
+}
+
+export function testIntegrationApplicationCallbacks(
+  id: string,
+): Promise<DataResponse<IntegrationCallbackTestResult[]>> {
+  return post(`/api/v1/system/admin/integration-applications/${id}/test-callbacks`, {})
 }
 
 export function listTenantIntegrationApplications(): Promise<

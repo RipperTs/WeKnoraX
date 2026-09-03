@@ -18,7 +18,9 @@ func RegisterIntegrationRoutes(
 		admin.GET("", handler.ListApplications)
 		admin.POST("", handler.CreateApplication)
 		admin.PUT("/:id", handler.UpdateApplication)
+		admin.DELETE("/:id", handler.DeleteApplication)
 		admin.POST("/:id/rotate-secret", handler.RotateApplicationSecret)
+		admin.POST("/:id/test-callbacks", handler.TestApplicationCallbacks)
 	}
 
 	integrations := r.Group("/integrations")

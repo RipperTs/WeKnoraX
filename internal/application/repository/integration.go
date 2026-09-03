@@ -59,6 +59,17 @@ func (r *integrationRepository) UpdateApplication(
 	return nil
 }
 
+func (r *integrationRepository) DeleteApplication(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).Where("id = ?", id).Delete(&types.IntegrationApplication{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrIntegrationApplicationNotFound
+	}
+	return nil
+}
+
 func (r *integrationRepository) UpdateApplicationSecret(
 	ctx context.Context, id, clientSecretHash string, updatedAt time.Time,
 ) error {

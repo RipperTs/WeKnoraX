@@ -34,7 +34,7 @@
             <p>
               {{ item.available ? t('thirdPartyIntegration.connections.summary', {
                 count: item.knowledge_bases.length,
-                scopes: item.effective_scopes.join(' · '),
+                scopes: scopeLabels(item.effective_scopes),
               }) : t('thirdPartyIntegration.connections.unavailableSummary') }}
             </p>
             <div class="kb-chips">
@@ -124,12 +124,14 @@
 
         <label>{{ t('thirdPartyIntegration.fields.scopes') }}</label>
         <div class="scope-options">
-          <t-checkbox v-model="policyRead" disabled>knowledge.read</t-checkbox>
+          <t-checkbox v-model="policyRead" disabled>
+            {{ t(integrationScopeLabelKeys['knowledge.read']) }}
+          </t-checkbox>
           <t-checkbox
             v-model="policyChat"
             :disabled="!selectedApplication?.allowed_scopes.includes('knowledge.chat')"
           >
-            knowledge.chat
+            {{ t(integrationScopeLabelKeys['knowledge.chat']) }}
           </t-checkbox>
         </div>
 
@@ -155,6 +157,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
+import { integrationScopeLabelKeys } from '@/utils/integrationScope'
 import {
   listIntegrationConnections,
   listTenantIntegrationApplications,
@@ -163,6 +166,7 @@ import {
   updateTenantIntegrationPolicy,
   type IntegrationApplication,
   type IntegrationConnectionView,
+  type IntegrationScope,
   type TenantIntegrationApplicationView,
 } from '@/api/integration'
 
@@ -190,12 +194,16 @@ function isAvailable(item: TenantIntegrationApplicationView) {
   return item.application.enabled && (item.policy?.enabled ?? true)
 }
 
+function scopeLabels(scopes: IntegrationScope[]) {
+  return scopes.map(scope => t(integrationScopeLabelKeys[scope])).join(' · ')
+}
+
 function policySummary(item: TenantIntegrationApplicationView) {
   const scopes = item.policy?.allowed_scopes || item.application.allowed_scopes
   const count = item.policy?.knowledge_base_ids?.length || 0
   return count
-    ? t('thirdPartyIntegration.tenant.restrictedSummary', { scopes: scopes.join(' · '), count })
-    : t('thirdPartyIntegration.tenant.unrestrictedSummary', { scopes: scopes.join(' · ') })
+    ? t('thirdPartyIntegration.tenant.restrictedSummary', { scopes: scopeLabels(scopes), count })
+    : t('thirdPartyIntegration.tenant.unrestrictedSummary', { scopes: scopeLabels(scopes) })
 }
 
 async function loadAll() {

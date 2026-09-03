@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -20,9 +21,21 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
-const integrationCodeLifetime = 5 * time.Minute
+const (
+	integrationCodeLifetime        = 5 * time.Minute
+	integrationCallbackTestTimeout = 5 * time.Second
+	integrationCallbackConcurrency = 5
+)
+
+var integrationCallbackTestHTTPClient = &http.Client{
+	Timeout: integrationCallbackTestTimeout,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 var (
 	// ErrIntegrationInvalidApplication indicates invalid client metadata or credentials.
@@ -58,6 +71,14 @@ type IntegrationApplicationInput struct {
 type IntegrationApplicationSecretResult struct {
 	Application  *types.IntegrationApplication `json:"application"`
 	ClientSecret string                        `json:"client_secret"`
+}
+
+// IntegrationCallbackTestResult describes whether a registered callback URL is reachable.
+type IntegrationCallbackTestResult struct {
+	RedirectURI string `json:"redirect_uri"`
+	Reachable   bool   `json:"reachable"`
+	StatusCode  int    `json:"status_code,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // TenantIntegrationPolicyInput narrows an application's permissions in one workspace.
@@ -224,6 +245,11 @@ func (s *IntegrationService) UpdateApplication(
 	return app, nil
 }
 
+// DeleteApplication removes a registered client and its dependent authorization data.
+func (s *IntegrationService) DeleteApplication(ctx context.Context, id string) error {
+	return s.repo.DeleteApplication(ctx, id)
+}
+
 // RotateApplicationSecret invalidates the old client secret and returns a new one once.
 func (s *IntegrationService) RotateApplicationSecret(
 	ctx context.Context, id string,
@@ -242,6 +268,46 @@ func (s *IntegrationService) RotateApplicationSecret(
 		return nil, err
 	}
 	return &IntegrationApplicationSecretResult{Application: app, ClientSecret: clientSecret}, nil
+}
+
+// TestApplicationCallbacks checks whether the registered callback URLs accept a network connection.
+func (s *IntegrationService) TestApplicationCallbacks(
+	ctx context.Context, id string,
+) ([]IntegrationCallbackTestResult, error) {
+	app, err := s.repo.GetApplicationByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]IntegrationCallbackTestResult, len(app.RedirectURIs))
+	var group errgroup.Group
+	group.SetLimit(integrationCallbackConcurrency)
+	for index, redirectURI := range app.RedirectURIs {
+		group.Go(func() error {
+			results[index] = testIntegrationCallback(ctx, redirectURI)
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return results, nil
+}
+
+func testIntegrationCallback(ctx context.Context, redirectURI string) IntegrationCallbackTestResult {
+	result := IntegrationCallbackTestResult{RedirectURI: redirectURI}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, redirectURI, nil)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	req.Header.Set("User-Agent", "WeKnora-Integration-Connectivity-Test/1.0")
+	resp, err := integrationCallbackTestHTTPClient.Do(req)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	result.Reachable = true
+	result.StatusCode = resp.StatusCode
+	_ = resp.Body.Close()
+	return result
 }
 
 // ListApplications returns all registered clients for system administration.

@@ -88,6 +88,22 @@ func (h *IntegrationHandler) UpdateApplication(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": app})
 }
 
+// DeleteApplication godoc
+// @Summary 删除第三方应用
+// @Description 删除应用及其关联的授权、连接和访问凭证
+// @Tags 第三方集成
+// @Param id path string true "应用 ID"
+// @Success 200 {object} map[string]interface{}
+// @Security Bearer
+// @Router /system/admin/integration-applications/{id} [delete]
+func (h *IntegrationHandler) DeleteApplication(c *gin.Context) {
+	if err := h.service.DeleteApplication(c.Request.Context(), c.Param("id")); err != nil {
+		writeIntegrationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // RotateApplicationSecret godoc
 // @Summary 轮换第三方应用密钥
 // @Description 旧密钥立即失效，新密钥仅在本次响应中返回
@@ -105,6 +121,23 @@ func (h *IntegrationHandler) RotateApplicationSecret(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+// TestApplicationCallbacks godoc
+// @Summary 测试第三方应用回调地址连通性
+// @Tags 第三方集成
+// @Produce json
+// @Param id path string true "应用 ID"
+// @Success 200 {object} map[string]interface{}
+// @Security Bearer
+// @Router /system/admin/integration-applications/{id}/test-callbacks [post]
+func (h *IntegrationHandler) TestApplicationCallbacks(c *gin.Context) {
+	results, err := h.service.TestApplicationCallbacks(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		writeIntegrationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 }
 
 // ListTenantApplications godoc

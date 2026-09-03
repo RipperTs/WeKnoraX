@@ -12,6 +12,7 @@ import (
 type IntegrationRepository interface {
 	CreateApplication(ctx context.Context, app *types.IntegrationApplication) error
 	UpdateApplication(ctx context.Context, app *types.IntegrationApplication) error
+	DeleteApplication(ctx context.Context, id string) error
 	UpdateApplicationSecret(ctx context.Context, id, clientSecretHash string, updatedAt time.Time) error
 	GetApplicationByID(ctx context.Context, id string) (*types.IntegrationApplication, error)
 	GetApplicationByClientID(ctx context.Context, clientID string) (*types.IntegrationApplication, error)
