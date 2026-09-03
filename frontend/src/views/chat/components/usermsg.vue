@@ -191,7 +191,7 @@ const closePreImg = () => {
 };
 
 const handleCopyMessage = async () => {
-    await copyWithToast(props.content?.trim(), 'chat.copySuccess', 'chat.copyFailed');
+    await copyWithToast(props.content, 'chat.copySuccess', 'chat.copyFailed');
 };
 </script>
 <style scoped lang="less">
