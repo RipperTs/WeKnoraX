@@ -5,7 +5,14 @@
         <h2>{{ t('systemUsers.title') }}</h2>
         <p class="section-description">{{ t('systemUsers.description') }}</p>
       </div>
-      <t-button theme="primary" @click="openCreateDialog">
+      <t-button
+        type="button"
+        theme="primary"
+        variant="text"
+        size="medium"
+        class="section-action-trigger"
+        @click="openCreateDialog"
+      >
         <template #icon><t-icon name="user-add" /></template>
         {{ t('systemUsers.create.action') }}
       </t-button>
@@ -642,7 +649,7 @@ async function submitPasswordReset() {
 
 .section-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 24px;
@@ -651,6 +658,26 @@ async function submitPasswordReset() {
     margin: 0 0 8px;
     font-size: 22px;
     line-height: 1.3;
+  }
+}
+
+.section-action-trigger {
+  --td-bg-color-container-hover: transparent;
+  flex-shrink: 0;
+  padding-left: 0;
+  padding-right: 0;
+  font-weight: 600;
+
+  &:hover,
+  &:focus,
+  &.t-is-active,
+  &:active {
+    background-color: transparent !important;
+    color: var(--td-brand-color-hover);
+  }
+
+  &:active {
+    color: var(--td-brand-color-active);
   }
 }
 

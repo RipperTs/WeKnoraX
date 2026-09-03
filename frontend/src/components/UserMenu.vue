@@ -4,7 +4,7 @@
     <div class="user-button" data-guide="user-menu" @click="toggleMenu">
       <div class="user-avatar">
         <img v-if="userAvatar" :src="userAvatar" :alt="$t('common.avatar')" />
-        <span v-else class="avatar-placeholder">{{ userInitial }}</span>
+        <span v-else class="avatar-placeholder">{{ sidebarUserInitial }}</span>
       </div>
       <template v-if="!uiStore.sidebarCollapsed">
         <div class="user-info">
@@ -246,6 +246,11 @@ const userRealName = computed(() => (
 ))
 const userAccountDetail = computed(() => userRealName.value.trim() || userEmail.value)
 const userAvatar = computed(() => userInfo.value.avatar)
+
+// 左下角默认头像与账号下方的辅助文案保持一致
+const sidebarUserInitial = computed(() => {
+  return userAccountDetail.value.trim().charAt(0).toUpperCase()
+})
 
 // 用户名首字母（用于无头像时显示）
 const userInitial = computed(() => {

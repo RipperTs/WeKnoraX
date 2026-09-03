@@ -5,7 +5,14 @@
         <h2>{{ t('thirdPartyIntegration.system.title') }}</h2>
         <p>{{ t('thirdPartyIntegration.system.description') }}</p>
       </div>
-      <t-button theme="primary" @click="openCreate">
+      <t-button
+        type="button"
+        theme="primary"
+        variant="text"
+        size="medium"
+        class="section-action-trigger"
+        @click="openCreate"
+      >
         <template #icon><t-icon name="add" /></template>
         {{ t('thirdPartyIntegration.system.create') }}
       </t-button>
@@ -252,9 +259,24 @@ onMounted(loadApplications)
 
 <style lang="less" scoped>
 .third-party-apps { min-height: 420px; }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.section-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .section-header h2 { margin: 0 0 8px; font-size: 22px; }
 .section-header p { margin: 0; color: var(--td-text-color-secondary); line-height: 1.6; }
+.section-action-trigger {
+  --td-bg-color-container-hover: transparent;
+  flex-shrink: 0;
+  padding-left: 0;
+  padding-right: 0;
+  font-weight: 600;
+}
+.section-action-trigger:hover,
+.section-action-trigger:focus,
+.section-action-trigger.t-is-active,
+.section-action-trigger:active {
+  background-color: transparent !important;
+  color: var(--td-brand-color-hover);
+}
+.section-action-trigger:active { color: var(--td-brand-color-active); }
 .app-list { display: grid; gap: 12px; }
 .app-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; border: 1px solid var(--td-component-stroke); border-radius: 10px; background: var(--td-bg-color-container); }
 .app-card__main { display: flex; min-width: 0; gap: 14px; }
