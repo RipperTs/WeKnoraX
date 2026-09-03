@@ -115,16 +115,20 @@ func (s *externalDocumentService) UpsertExternalDocument(
 			return err
 		}
 
-		action := types.ExternalDocumentActionCreated
-		if existing != nil {
-			if knowledge.ParseStatus == types.ParseStatusFailed {
-				createErr := fmt.Errorf(
-					"replacement external document %s failed to start processing: %s",
-					knowledge.ID,
-					knowledge.ErrorMessage,
-				)
+		if knowledge.ParseStatus == types.ParseStatusFailed {
+			createErr := fmt.Errorf(
+				"external document %s failed to start processing: %s",
+				knowledge.ID,
+				knowledge.ErrorMessage,
+			)
+			if existing != nil {
 				return s.rollbackCreatedExternalDocument(lockCtx, tenantID, knowledge.ID, createErr)
 			}
+			return createErr
+		}
+
+		action := types.ExternalDocumentActionCreated
+		if existing != nil {
 			action = types.ExternalDocumentActionUpdated
 			if err := s.knowledgeService.DeleteKnowledge(lockCtx, existing.ID); err != nil {
 				deleteErr := fmt.Errorf("delete replaced external document %s: %w", existing.ID, err)

@@ -151,9 +151,13 @@ func (h *KnowledgeHandler) externalDocumentContext(
 		c.Error(errors.NewServiceUnavailableError("external document service is unavailable"))
 		return nil, "", "", "", false
 	}
-	_, knowledgeBaseID, tenantID, permission, err := h.validateKnowledgeBaseAccess(c)
+	knowledgeBase, knowledgeBaseID, tenantID, permission, err := h.validateKnowledgeBaseAccess(c)
 	if err != nil {
 		c.Error(err)
+		return nil, "", "", "", false
+	}
+	if knowledgeBase.TenantID != c.GetUint64(types.TenantIDContextKey.String()) {
+		c.Error(errors.NewForbiddenError("External document API only supports knowledge bases in the current workspace"))
 		return nil, "", "", "", false
 	}
 	if permission != types.OrgRoleAdmin && permission != types.OrgRoleEditor {
