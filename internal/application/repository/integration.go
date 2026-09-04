@@ -155,20 +155,32 @@ func (r *integrationRepository) UpsertTenantPolicy(
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "application_id"}, {Name: "tenant_id"}},
 		DoUpdates: clause.Assignments(map[string]any{
-			"enabled":            policy.Enabled,
-			"allowed_scopes":     policy.AllowedScopes,
-			"knowledge_base_ids": policy.KnowledgeBaseIDs,
-			"updated_at":         policy.UpdatedAt,
+			"enabled":        policy.Enabled,
+			"allowed_scopes": policy.AllowedScopes,
+			"updated_at":     policy.UpdatedAt,
 		}),
 	}).Create(policy).Error
 }
 
+func (r *integrationRepository) ListApplicationPolicies(
+	ctx context.Context, applicationID string, tenantIDs []uint64,
+) ([]*types.TenantIntegrationPolicy, error) {
+	if len(tenantIDs) == 0 {
+		return nil, nil
+	}
+	var policies []*types.TenantIntegrationPolicy
+	err := r.db.WithContext(ctx).
+		Where("application_id = ? AND tenant_id IN ?", applicationID, tenantIDs).
+		Find(&policies).Error
+	return policies, err
+}
+
 func (r *integrationRepository) FindConnection(
-	ctx context.Context, applicationID string, tenantID uint64, userID string,
+	ctx context.Context, applicationID, userID string,
 ) (*types.IntegrationConnection, error) {
 	var connection types.IntegrationConnection
 	err := r.db.WithContext(ctx).
-		Where("application_id = ? AND tenant_id = ? AND user_id = ?", applicationID, tenantID, userID).
+		Where("application_id = ? AND user_id = ?", applicationID, userID).
 		First(&connection).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -203,28 +215,28 @@ func (r *integrationRepository) ListConnectionsByUser(
 	return connections, err
 }
 
-func (r *integrationRepository) ListConnectionKnowledgeBaseIDs(
+func (r *integrationRepository) ListConnectionTenantIDs(
 	ctx context.Context, connectionID string,
-) ([]string, error) {
-	var ids []string
+) ([]uint64, error) {
+	var ids []uint64
 	err := r.db.WithContext(ctx).
-		Model(&types.IntegrationConnectionKnowledgeBase{}).
+		Model(&types.IntegrationConnectionTenant{}).
 		Where("connection_id = ?", connectionID).
-		Order("created_at ASC, knowledge_base_id ASC").
-		Pluck("knowledge_base_id", &ids).Error
+		Order("created_at ASC, tenant_id ASC").
+		Pluck("tenant_id", &ids).Error
 	return ids, err
 }
 
 func (r *integrationRepository) SaveAuthorization(
 	ctx context.Context,
 	connection *types.IntegrationConnection,
-	knowledgeBaseIDs []string,
+	tenantIDs []uint64,
 	code *types.IntegrationAuthorizationCode,
 ) (*types.IntegrationConnection, error) {
 	var saved types.IntegrationConnection
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "application_id"}, {Name: "tenant_id"}, {Name: "user_id"}},
+			Columns: []clause.Column{{Name: "application_id"}, {Name: "user_id"}},
 			DoUpdates: clause.Assignments(map[string]any{
 				"scopes":     connection.Scopes,
 				"status":     types.IntegrationConnectionActive,
@@ -235,21 +247,21 @@ func (r *integrationRepository) SaveAuthorization(
 		}
 
 		if err := tx.Where(
-			"application_id = ? AND tenant_id = ? AND user_id = ?",
-			connection.ApplicationID, connection.TenantID, connection.UserID,
+			"application_id = ? AND user_id = ?",
+			connection.ApplicationID, connection.UserID,
 		).First(&saved).Error; err != nil {
 			return err
 		}
 
 		if err := tx.Where("connection_id = ?", saved.ID).
-			Delete(&types.IntegrationConnectionKnowledgeBase{}).Error; err != nil {
+			Delete(&types.IntegrationConnectionTenant{}).Error; err != nil {
 			return err
 		}
-		if len(knowledgeBaseIDs) > 0 {
-			grants := make([]*types.IntegrationConnectionKnowledgeBase, 0, len(knowledgeBaseIDs))
-			for _, kbID := range knowledgeBaseIDs {
-				grants = append(grants, &types.IntegrationConnectionKnowledgeBase{
-					ConnectionID: saved.ID, KnowledgeBaseID: kbID,
+		if len(tenantIDs) > 0 {
+			grants := make([]*types.IntegrationConnectionTenant, 0, len(tenantIDs))
+			for _, tenantID := range tenantIDs {
+				grants = append(grants, &types.IntegrationConnectionTenant{
+					ConnectionID: saved.ID, TenantID: tenantID,
 				})
 			}
 			if err := tx.Create(&grants).Error; err != nil {

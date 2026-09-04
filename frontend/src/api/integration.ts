@@ -20,7 +20,6 @@ export interface TenantIntegrationPolicy {
   tenant_id: number
   enabled: boolean
   allowed_scopes: IntegrationScope[]
-  knowledge_base_ids: string[]
 }
 
 export interface TenantIntegrationApplicationView {
@@ -34,12 +33,19 @@ export interface IntegrationKnowledgeBase {
   description?: string
   type: string
   tenant_id: number
+  access_tenant_id?: number
+}
+
+export interface IntegrationTenant {
+  id: number
+  name: string
+  description?: string
+  role: 'owner' | 'admin' | 'contributor' | 'viewer'
 }
 
 export interface IntegrationConnection {
   id: string
   application_id: string
-  tenant_id: number
   user_id: string
   scopes: IntegrationScope[]
   status: 'active' | 'revoked'
@@ -51,11 +57,12 @@ export interface IntegrationConnection {
 export interface IntegrationConnectionView {
   connection: IntegrationConnection
   application: IntegrationApplication
+  tenants: IntegrationTenant[]
   knowledge_bases: IntegrationKnowledgeBase[]
   effective_knowledge_base_ids: string[]
   effective_scopes: IntegrationScope[]
   available: boolean
-  unavailable_reason?: 'application_disabled' | 'tenant_policy_disabled' | 'scope_unavailable'
+  unavailable_reason?: 'application_disabled' | 'workspace_unavailable' | 'scope_unavailable'
 }
 
 export interface IntegrationAuthorizationParameters {
@@ -65,13 +72,14 @@ export interface IntegrationAuthorizationParameters {
   scope: string
   code_challenge: string
   code_challenge_method: string
+  prompt?: string
 }
 
 export interface IntegrationAuthorizationView {
   application: IntegrationApplication
   scopes: IntegrationScope[]
-  knowledge_bases: IntegrationKnowledgeBase[]
-  selected_knowledge_base_ids: string[]
+  tenants: IntegrationTenant[]
+  selected_tenant_ids: number[]
   connection_id?: string
   requires_consent: boolean
 }
@@ -132,15 +140,9 @@ export function listTenantIntegrationApplications(): Promise<
   return get('/api/v1/integrations/applications')
 }
 
-export function listTenantIntegrationKnowledgeBases(): Promise<
-  DataResponse<IntegrationKnowledgeBase[]>
-> {
-  return get('/api/v1/integrations/knowledge-bases')
-}
-
 export function updateTenantIntegrationPolicy(
   applicationId: string,
-  input: Pick<TenantIntegrationPolicy, 'enabled' | 'allowed_scopes' | 'knowledge_base_ids'>,
+  input: Pick<TenantIntegrationPolicy, 'enabled' | 'allowed_scopes'>,
 ): Promise<DataResponse<TenantIntegrationPolicy>> {
   return put(`/api/v1/integrations/applications/${applicationId}/policy`, input)
 }
@@ -151,9 +153,8 @@ export function listIntegrationConnections(): Promise<DataResponse<IntegrationCo
 
 export function getIntegrationConnection(
   id: string,
-  tenantId?: number,
 ): Promise<DataResponse<IntegrationConnectionView>> {
-  return get(`/api/v1/integrations/connections/${id}`, integrationTenantConfig(tenantId))
+  return get(`/api/v1/integrations/connections/${id}`)
 }
 
 export function revokeIntegrationConnection(id: string): Promise<{ success: boolean }> {
@@ -162,24 +163,20 @@ export function revokeIntegrationConnection(id: string): Promise<{ success: bool
 
 export function getIntegrationAuthorization(
   params: IntegrationAuthorizationParameters,
-  tenantId?: number,
 ): Promise<DataResponse<IntegrationAuthorizationView>> {
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     query.set(key, value)
   }
-  return get(
-    `/api/v1/integrations/authorization?${query.toString()}`,
-    integrationTenantConfig(tenantId),
-  )
+  return get(`/api/v1/integrations/authorization?${query.toString()}`)
 }
 
 export function authorizeIntegration(input: {
   parameters: IntegrationAuthorizationParameters
   approved: boolean
   reuse_existing: boolean
-  knowledge_base_ids: string[]
-}, tenantId?: number): Promise<DataResponse<{ redirect_uri: string; connection_id?: string }>> {
+  tenant_ids: number[]
+}): Promise<DataResponse<{ redirect_uri: string; connection_id?: string }>> {
   const { scope, ...parameters } = input.parameters
   return post(
     '/api/v1/integrations/authorization',
@@ -190,11 +187,5 @@ export function authorizeIntegration(input: {
         scopes: String(scope || '').split(/\s+/).filter(Boolean),
       },
     },
-    integrationTenantConfig(tenantId),
   )
-}
-
-function integrationTenantConfig(tenantId?: number) {
-  if (!tenantId) return undefined
-  return { headers: { 'X-Tenant-ID': String(tenantId) } }
 }

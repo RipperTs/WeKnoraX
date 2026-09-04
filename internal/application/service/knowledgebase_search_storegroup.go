@@ -184,11 +184,12 @@ func classifyFactoryError(
 }
 
 // authorizeKBAccess rejects multi-KB searches whose scope includes a KB
-// that the caller is not entitled to read. Same-tenant KBs always pass.
-// Foreign-tenant KBs (Organization-shared) must pass an explicit
-// tenant-scoped permission check via kbShareService.HasTenantKBPermission,
-// applying the 3-D cap (share role + caller's tenant-org role + tenant
-// Viewer cap) introduced in Plan 3 of #1303.
+// that the caller is not entitled to read. Integration callers must match
+// the credential's live KB-to-owner-tenant scope. For other callers,
+// same-tenant KBs always pass and foreign-tenant KBs (Organization-shared)
+// must pass an explicit tenant-scoped permission check via
+// kbShareService.HasTenantKBPermission, applying the 3-D cap (share role +
+// caller's tenant-org role + tenant Viewer cap) introduced in Plan 3 of #1303.
 //
 // Returning NotFound rather than Forbidden avoids leaking the existence
 // of unauthorized KB IDs that the caller could not otherwise observe.
@@ -205,8 +206,21 @@ func (s *knowledgeBaseService) authorizeKBAccess(
 	}
 
 	callerTenantRole := types.TenantRoleFromContext(ctx)
+	integrationKBTenantIDs, integrationRequest := types.IntegrationKnowledgeBaseTenantIDsFromContext(ctx)
 
 	for _, kb := range kbs {
+		if integrationRequest {
+			if integrationKBTenantIDs[kb.ID] == kb.TenantID {
+				continue
+			}
+			logger.WarnWithFields(ctx, logger.Fields{
+				"caller_tenant_id": requestTenantID,
+				"kb_tenant_id":     kb.TenantID,
+				"kb_id":            kb.ID,
+				"reason":           "integration scope does not allow knowledge base owner tenant",
+			}, "search scope rejected: unauthorized integration knowledge base")
+			return apperrors.NewNotFoundError("knowledge base not found")
+		}
 		if kb.TenantID == requestTenantID {
 			continue
 		}

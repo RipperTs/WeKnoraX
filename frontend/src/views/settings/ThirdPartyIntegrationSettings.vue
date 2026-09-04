@@ -33,16 +33,17 @@
             </div>
             <p>
               {{ item.available ? t('thirdPartyIntegration.connections.summary', {
+                spaces: item.tenants.length,
                 count: item.knowledge_bases.length,
                 scopes: scopeLabels(item.effective_scopes),
               }) : t('thirdPartyIntegration.connections.unavailableSummary') }}
             </p>
-            <div class="kb-chips">
-              <t-tag v-for="kb in item.knowledge_bases.slice(0, 4)" :key="kb.id" size="small" variant="light">
-                {{ kb.name }}
+            <div class="workspace-chips">
+              <t-tag v-for="tenant in item.tenants.slice(0, 4)" :key="tenant.id" size="small" variant="light">
+                {{ tenant.name }}
               </t-tag>
-              <span v-if="item.knowledge_bases.length > 4">
-                +{{ item.knowledge_bases.length - 4 }}
+              <span v-if="item.tenants.length > 4">
+                +{{ item.tenants.length - 4 }}
               </span>
             </div>
           </div>
@@ -134,17 +135,6 @@
             {{ t(integrationScopeLabelKeys['knowledge.chat']) }}
           </t-checkbox>
         </div>
-
-        <label>{{ t('thirdPartyIntegration.policy.knowledgeBases') }}</label>
-        <t-select
-          v-model="policyForm.knowledgeBaseIds"
-          multiple
-          filterable
-          clearable
-          :options="knowledgeBaseOptions"
-          :placeholder="t('thirdPartyIntegration.policy.allKnowledgeBases')"
-        />
-        <p>{{ t('thirdPartyIntegration.policy.knowledgeBasesHint') }}</p>
       </div>
     </SettingDrawer>
   </div>
@@ -161,7 +151,6 @@ import { integrationScopeLabelKeys } from '@/utils/integrationScope'
 import {
   listIntegrationConnections,
   listTenantIntegrationApplications,
-  listTenantIntegrationKnowledgeBases,
   revokeIntegrationConnection,
   updateTenantIntegrationPolicy,
   type IntegrationApplication,
@@ -175,7 +164,6 @@ const router = useRouter()
 const authStore = useAuthStore()
 const applications = ref<TenantIntegrationApplicationView[]>([])
 const connections = ref<IntegrationConnectionView[]>([])
-const knowledgeBases = ref<Array<{ id: string; name: string }>>([])
 const loading = ref(false)
 const saving = ref(false)
 const policyVisible = ref(false)
@@ -183,13 +171,9 @@ const selectedApplication = ref<IntegrationApplication | null>(null)
 const selectedPolicyItem = ref<TenantIntegrationApplicationView | null>(null)
 const policyRead = ref(true)
 const policyChat = ref(false)
-const policyForm = reactive({ enabled: true, knowledgeBaseIds: [] as string[] })
+const policyForm = reactive({ enabled: true })
 
 const canManage = computed(() => authStore.canAccessAllTenants || authStore.hasRole('admin'))
-const knowledgeBaseOptions = computed(() =>
-  knowledgeBases.value.map(kb => ({ label: kb.name, value: kb.id })),
-)
-
 function isAvailable(item: TenantIntegrationApplicationView) {
   return item.application.enabled && (item.policy?.enabled ?? true)
 }
@@ -200,23 +184,18 @@ function scopeLabels(scopes: IntegrationScope[]) {
 
 function policySummary(item: TenantIntegrationApplicationView) {
   const scopes = item.policy?.allowed_scopes || item.application.allowed_scopes
-  const count = item.policy?.knowledge_base_ids?.length || 0
-  return count
-    ? t('thirdPartyIntegration.tenant.restrictedSummary', { scopes: scopeLabels(scopes), count })
-    : t('thirdPartyIntegration.tenant.unrestrictedSummary', { scopes: scopeLabels(scopes) })
+  return t('thirdPartyIntegration.tenant.unrestrictedSummary', { scopes: scopeLabels(scopes) })
 }
 
 async function loadAll() {
   loading.value = true
   try {
-    const [applicationResponse, connectionResponse, kbResponse] = await Promise.all([
+    const [applicationResponse, connectionResponse] = await Promise.all([
       listTenantIntegrationApplications(),
       listIntegrationConnections(),
-      listTenantIntegrationKnowledgeBases(),
     ])
     applications.value = applicationResponse.data || []
     connections.value = connectionResponse.data || []
-    knowledgeBases.value = kbResponse.data || []
   } catch (error: any) {
     MessagePlugin.error(error?.message || t('thirdPartyIntegration.tenant.loadFailed'))
   } finally {
@@ -228,7 +207,6 @@ function openPolicy(item: TenantIntegrationApplicationView) {
   selectedPolicyItem.value = item
   selectedApplication.value = item.application
   policyForm.enabled = item.policy?.enabled ?? true
-  policyForm.knowledgeBaseIds = [...(item.policy?.knowledge_base_ids || [])]
   const scopes = item.policy?.allowed_scopes || item.application.allowed_scopes
   policyRead.value = true
   policyChat.value = item.application.allowed_scopes.includes('knowledge.chat') && scopes.includes('knowledge.chat')
@@ -244,7 +222,6 @@ async function savePolicy() {
       allowed_scopes: policyChat.value
         ? ['knowledge.read', 'knowledge.chat']
         : ['knowledge.read'],
-      knowledge_base_ids: policyForm.knowledgeBaseIds,
     })
     policyVisible.value = false
     MessagePlugin.success(t('thirdPartyIntegration.tenant.saved'))
@@ -291,7 +268,7 @@ onMounted(loadAll)
 .row-copy { min-width: 0; flex: 1; }
 .row-title { display: flex; align-items: center; gap: 9px; margin-bottom: 5px; }
 .row-copy p { font-size: 13px; }
-.kb-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 9px; color: var(--td-text-color-placeholder); font-size: 12px; }
+.workspace-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 9px; color: var(--td-text-color-placeholder); font-size: 12px; }
 .row-actions { display: flex; align-items: center; flex: none; }
 .policy-summary { display: block; margin-top: 7px; color: var(--td-text-color-placeholder); font-size: 12px; }
 .inline-empty { padding: 34px 18px; text-align: center; color: var(--td-text-color-placeholder); }

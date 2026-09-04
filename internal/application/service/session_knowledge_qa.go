@@ -475,9 +475,14 @@ func (s *sessionService) buildSearchTargets(
 		}
 	}
 	userID, _ := types.UserIDFromContext(ctx)
+	integrationKBTenantIDs, _ := types.IntegrationKnowledgeBaseTenantIDsFromContext(ctx)
 	resolveKBTenant := func(kbID string) uint64 {
 		if kbTenantMap[kbID] != 0 {
 			return kbTenantMap[kbID]
+		}
+		if authorizedTenantID := integrationKBTenantIDs[kbID]; authorizedTenantID != 0 {
+			kbTenantMap[kbID] = authorizedTenantID
+			return authorizedTenantID
 		}
 		kb := kbByID[kbID]
 		if kb == nil {

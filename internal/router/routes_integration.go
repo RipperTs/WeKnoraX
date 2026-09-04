@@ -30,7 +30,6 @@ func RegisterIntegrationRoutes(
 		integrations.POST("/token", middleware.PublicAuthRateLimit(), handler.ExchangeToken)
 
 		integrations.GET("/applications", g.Viewer(), handler.ListTenantApplications)
-		integrations.GET("/knowledge-bases", g.Viewer(), handler.ListTenantKnowledgeBases)
 		integrations.PUT("/applications/:id/policy", g.Admin(), handler.UpsertTenantPolicy)
 
 		integrations.GET("/authorization", g.Viewer(), handler.GetAuthorization)

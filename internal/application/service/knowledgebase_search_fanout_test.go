@@ -802,6 +802,52 @@ func ctxWithTenantForAuth(tenantID uint64) context.Context {
 	return context.WithValue(context.Background(), types.TenantIDContextKey, tenantID)
 }
 
+func TestAuthorizeKBAccess_IntegrationAllowsTwoAuthorizedWorkspaces(t *testing.T) {
+	t.Parallel()
+	s := &knowledgeBaseService{kbShareService: &fakeKBShareForAuth{}}
+	ctx := types.WithPrincipal(ctxWithTenantForAuth(7), types.Principal{
+		Type: types.PrincipalIntegrationUser,
+		ID:   "connection-1",
+	})
+	ctx = types.WithTenantAPIKeyScope(ctx, types.TenantAPIKeyScope{
+		KnowledgeBaseRestricted: true,
+		KnowledgeBaseIDs:        types.StringArray{"kb-own", "kb-other"},
+		KnowledgeBaseTenantIDs: map[string]uint64{
+			"kb-own":   7,
+			"kb-other": 99,
+		},
+	})
+	kbs := []*types.KnowledgeBase{
+		{ID: "kb-own", TenantID: 7},
+		{ID: "kb-other", TenantID: 99},
+	}
+
+	err := s.authorizeKBAccess(ctx, kbs, 7)
+
+	require.NoError(t, err)
+}
+
+func TestAuthorizeKBAccess_IntegrationRejectsOwnerTenantMismatch(t *testing.T) {
+	t.Parallel()
+	s := &knowledgeBaseService{kbShareService: &fakeKBShareForAuth{}}
+	ctx := types.WithPrincipal(ctxWithTenantForAuth(7), types.Principal{
+		Type: types.PrincipalIntegrationUser,
+		ID:   "connection-1",
+	})
+	ctx = types.WithTenantAPIKeyScope(ctx, types.TenantAPIKeyScope{
+		KnowledgeBaseRestricted: true,
+		KnowledgeBaseIDs:        types.StringArray{"kb-own"},
+		KnowledgeBaseTenantIDs:  map[string]uint64{"kb-own": 99},
+	})
+
+	err := s.authorizeKBAccess(ctx, []*types.KnowledgeBase{{ID: "kb-own", TenantID: 7}}, 7)
+
+	require.Error(t, err)
+	app, ok := apperrors.IsAppError(err)
+	require.True(t, ok)
+	assert.Equal(t, apperrors.ErrNotFound, app.Code)
+}
+
 func TestAuthorizeKBAccess_SameTenantAllPass(t *testing.T) {
 	t.Parallel()
 	s := &knowledgeBaseService{kbShareService: &fakeKBShareForAuth{}}

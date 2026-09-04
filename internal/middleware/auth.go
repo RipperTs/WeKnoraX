@@ -144,11 +144,9 @@ func Auth(
 // to authenticate per-user third-party integration credentials.
 type IntegrationCredentialAuthenticator interface {
 	AuthenticateCredential(ctx context.Context, token string) (*types.IntegrationCredentialSession, error)
-	EffectiveKnowledgeBases(
-		ctx context.Context,
-		session *types.IntegrationCredentialSession,
-		role types.TenantRole,
-	) ([]*types.KnowledgeBase, types.StringArray, error)
+	ResolveCredentialAccess(
+		ctx context.Context, session *types.IntegrationCredentialSession,
+	) (*types.IntegrationCredentialAccess, error)
 }
 
 // AuthWithIntegrations extends Auth with the wkic_ credential channel while
@@ -192,7 +190,7 @@ func AuthWithIntegrations(
 		if apiKey := c.GetHeader("X-API-Key"); apiKey != "" {
 			if strings.HasPrefix(strings.TrimSpace(apiKey), "wkic_") {
 				if authenticateIntegrationCredential(
-					c, tenantService, userService, memberService, integrationAuthenticator, cfg, apiKey,
+					c, tenantService, userService, integrationAuthenticator, apiKey,
 				) {
 					c.Next()
 				}
@@ -223,9 +221,7 @@ func authenticateIntegrationCredential(
 	c *gin.Context,
 	tenantService interfaces.TenantService,
 	userService interfaces.UserService,
-	memberService interfaces.TenantMemberService,
 	authenticator IntegrationCredentialAuthenticator,
-	cfg *config.Config,
 	token string,
 ) bool {
 	if authenticator == nil {
@@ -259,7 +255,26 @@ func authenticateIntegrationCredential(
 		c.Abort()
 		return false
 	}
-	tenant, err := tenantService.GetTenantByID(ctx, connection.TenantID)
+	access, err := authenticator.ResolveCredentialAccess(ctx, session)
+	if err != nil {
+		logger.Errorf(ctx, "[auth] integration workspace scope resolution failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
+		c.Abort()
+		return false
+	}
+	if access == nil || access.TenantID == 0 ||
+		!types.IntegrationScopesContain(access.Scopes, types.IntegrationScopeKnowledgeRead) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: integration has no authorized workspace"})
+		c.Abort()
+		return false
+	}
+	tenantID, role, ok := selectIntegrationTenant(user, access)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: integration has no authorized workspace"})
+		c.Abort()
+		return false
+	}
+	tenant, err := tenantService.GetTenantByID(ctx, tenantID)
 	if err != nil {
 		logger.Errorf(ctx, "[auth] integration workspace lookup failed: %v", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
@@ -271,39 +286,14 @@ func authenticateIntegrationCredential(
 		c.Abort()
 		return false
 	}
-	role, ok, err := resolveIntegrationTenantRole(ctx, memberService, user, connection.TenantID, cfg)
-	if err != nil {
-		logger.Errorf(ctx, "[auth] integration membership lookup failed: %v", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
-		c.Abort()
-		return false
-	}
-	if !ok {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: integration user is not a workspace member"})
-		c.Abort()
-		return false
-	}
-	knowledgeBases, knowledgeBaseIDs, err := authenticator.EffectiveKnowledgeBases(ctx, session, role)
-	if err != nil {
-		logger.Errorf(ctx, "[auth] integration knowledge-base scope resolution failed: %v", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Unavailable: integration authentication failed"})
-		c.Abort()
-		return false
-	}
 	capabilities := types.StringArray{string(types.APIKeyCapabilityRetrieve)}
-	if types.IntegrationScopesContain(session.Scopes, types.IntegrationScopeKnowledgeChat) {
+	if types.IntegrationScopesContain(access.Scopes, types.IntegrationScopeKnowledgeChat) {
 		capabilities = append(capabilities, string(types.APIKeyCapabilityKnowledgeChat))
-	}
-	knowledgeBaseTenantIDs := make(map[string]uint64, len(knowledgeBases))
-	for _, knowledgeBase := range knowledgeBases {
-		if knowledgeBase != nil {
-			knowledgeBaseTenantIDs[knowledgeBase.ID] = knowledgeBase.TenantID
-		}
 	}
 	applyAuthSession(c, authSession{
 		User:      user,
 		Principal: types.Principal{Type: types.PrincipalIntegrationUser, ID: connection.ID},
-		TenantID:  connection.TenantID,
+		TenantID:  tenantID,
 		Tenant:    tenant,
 		Role:      role,
 		// Integration credentials never inherit the human user's system-admin authority.
@@ -311,40 +301,28 @@ func authenticateIntegrationCredential(
 		APIKeyScope: &types.TenantAPIKeyScope{
 			ScopeType:               types.APIKeyScopeTenant,
 			KnowledgeBaseRestricted: true,
-			KnowledgeBaseIDs:        knowledgeBaseIDs,
-			KnowledgeBaseTenantIDs:  knowledgeBaseTenantIDs,
+			KnowledgeBaseIDs:        access.KnowledgeBaseIDs,
+			KnowledgeBaseTenantIDs:  access.KnowledgeBaseTenantIDs,
 			Capabilities:            capabilities,
 		},
 	})
 	return true
 }
 
-// resolveIntegrationTenantRole validates a long-lived integration credential
-// without the human-login recovery behavior in resolveTenantRole. In
-// particular, it must never recreate an orphaned membership or fail open when
-// RBAC enforcement is disabled.
-func resolveIntegrationTenantRole(
-	ctx context.Context,
-	memberService interfaces.TenantMemberService,
-	user *types.User,
-	tenantID uint64,
-	cfg *config.Config,
-) (types.TenantRole, bool, error) {
-	if memberService == nil || user == nil || tenantID == 0 {
-		return "", false, nil
+func selectIntegrationTenant(
+	user *types.User, access *types.IntegrationCredentialAccess,
+) (uint64, types.TenantRole, bool) {
+	if user == nil || access == nil || access.TenantID == 0 {
+		return 0, "", false
 	}
-	member, err := memberService.GetMembership(ctx, user.ID, tenantID)
-	if err == nil && member != nil && member.Status == types.TenantMemberStatusActive {
-		return member.Role, true, nil
+	if homeRole, ok := access.TenantRoles[user.TenantID]; ok {
+		return user.TenantID, homeRole, true
 	}
-	if err != nil {
-		return "", false, err
+	role, ok := access.TenantRoles[access.TenantID]
+	if !ok {
+		return 0, "", false
 	}
-	if tenantID != user.TenantID && user.CanAccessAllTenants && cfg != nil && cfg.Tenant != nil &&
-		cfg.Tenant.EnableCrossTenantAccess {
-		return types.TenantRoleAdmin, true, nil
-	}
-	return "", false, nil
+	return access.TenantID, role, true
 }
 
 // bearerToken extracts the Bearer token from the Authorization header.

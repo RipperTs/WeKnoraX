@@ -151,6 +151,33 @@ func tagTargetContext() context.Context {
 	return context.WithValue(context.Background(), types.TenantIDContextKey, uint64(100))
 }
 
+func TestBuildSearchTargets_IntegrationUsesAuthorizedWorkspaceMapping(t *testing.T) {
+	svc := newTagTargetSessionService()
+	kbService := svc.knowledgeBaseService.(*tagTargetKnowledgeBaseService)
+	kbService.kbs["other-kb"] = &types.KnowledgeBase{
+		ID: "other-kb", TenantID: 200, Type: types.KnowledgeBaseTypeDocument,
+	}
+	ctx := types.WithPrincipal(tagTargetContext(), types.Principal{
+		Type: types.PrincipalIntegrationUser,
+		ID:   "connection-1",
+	})
+	ctx = types.WithTenantAPIKeyScope(ctx, types.TenantAPIKeyScope{
+		KnowledgeBaseRestricted: true,
+		KnowledgeBaseIDs:        types.StringArray{"doc-kb", "other-kb"},
+		KnowledgeBaseTenantIDs: map[string]uint64{
+			"doc-kb":   100,
+			"other-kb": 200,
+		},
+	})
+
+	targets, err := svc.buildSearchTargets(ctx, 100, []string{"doc-kb", "other-kb"}, nil, nil)
+
+	require.NoError(t, err)
+	require.Len(t, targets, 2)
+	assert.Equal(t, uint64(100), targets.GetTenantIDForKB("doc-kb"))
+	assert.Equal(t, uint64(200), targets.GetTenantIDForKB("other-kb"))
+}
+
 func TestBuildSearchTargets_DocumentTagScopeResolvesKnowledgeIDs(t *testing.T) {
 	svc := newTagTargetSessionService()
 

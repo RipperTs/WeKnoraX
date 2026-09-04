@@ -351,6 +351,27 @@ func (s TenantAPIKeyScope) AllowsKnowledgeBase(kbID string) bool {
 	return false
 }
 
+// IntegrationKnowledgeBaseTenantIDsFromContext returns the authorized owner
+// workspace for each knowledge base in an integration request. The boolean
+// reports whether the caller is an integration even when its scope is absent.
+func IntegrationKnowledgeBaseTenantIDsFromContext(ctx context.Context) (map[string]uint64, bool) {
+	principal, ok := PrincipalFromContext(ctx)
+	if !ok || principal.Type != PrincipalIntegrationUser {
+		return nil, false
+	}
+	scope, ok := TenantAPIKeyScopeFromContext(ctx)
+	if !ok {
+		return nil, true
+	}
+	tenantIDs := make(map[string]uint64, len(scope.KnowledgeBaseIDs))
+	for _, kbID := range scope.KnowledgeBaseIDs {
+		if tenantID := scope.KnowledgeBaseTenantIDs[kbID]; tenantID != 0 {
+			tenantIDs[kbID] = tenantID
+		}
+	}
+	return tenantIDs, true
+}
+
 func (s TenantAPIKeyScope) IsKnowledgeBaseRestricted() bool {
 	s = s.Normalize()
 	return s.KnowledgeBaseRestricted || len(s.KnowledgeBaseIDs) > 0

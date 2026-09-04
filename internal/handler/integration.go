@@ -158,26 +158,6 @@ func (h *IntegrationHandler) ListTenantApplications(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": views})
 }
 
-// ListTenantKnowledgeBases godoc
-// @Summary 列出当前空间可授权的知识库
-// @Tags 第三方集成
-// @Produce json
-// @Success 200 {object} map[string]interface{}
-// @Security Bearer
-// @Router /integrations/knowledge-bases [get]
-func (h *IntegrationHandler) ListTenantKnowledgeBases(c *gin.Context) {
-	knowledgeBases, err := h.service.ListTenantIntegrationKnowledgeBases(
-		c.Request.Context(),
-		c.GetUint64(types.TenantIDContextKey.String()),
-		types.TenantRoleFromContext(c.Request.Context()),
-	)
-	if err != nil {
-		writeIntegrationError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": knowledgeBases})
-}
-
 // UpsertTenantPolicy godoc
 // @Summary 配置第三方应用的空间策略
 // @Tags 第三方集成
@@ -197,7 +177,6 @@ func (h *IntegrationHandler) UpsertTenantPolicy(c *gin.Context) {
 	policy, err := h.service.UpsertTenantPolicy(
 		c.Request.Context(),
 		c.GetUint64(types.TenantIDContextKey.String()),
-		types.TenantRoleFromContext(c.Request.Context()),
 		c.Param("id"),
 		input,
 	)
@@ -218,6 +197,7 @@ func (h *IntegrationHandler) UpsertTenantPolicy(c *gin.Context) {
 // @Param scope query string true "空格分隔的权限范围"
 // @Param code_challenge query string true "PKCE S256 challenge"
 // @Param code_challenge_method query string true "固定为 S256"
+// @Param prompt query string false "传 consent 时强制重新选择授权空间"
 // @Success 200 {object} map[string]interface{}
 // @Security Bearer
 // @Router /integrations/authorization [get]
@@ -226,9 +206,7 @@ func (h *IntegrationHandler) GetAuthorization(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(c.Request.Context())
 	view, err := h.service.GetAuthorizationView(
 		c.Request.Context(),
-		c.GetUint64(types.TenantIDContextKey.String()),
 		userID,
-		types.TenantRoleFromContext(c.Request.Context()),
 		params,
 	)
 	if err != nil {
@@ -257,9 +235,7 @@ func (h *IntegrationHandler) Authorize(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(c.Request.Context())
 	result, err := h.service.Authorize(
 		c.Request.Context(),
-		c.GetUint64(types.TenantIDContextKey.String()),
 		userID,
-		types.TenantRoleFromContext(c.Request.Context()),
 		decision,
 	)
 	if err != nil {
@@ -315,9 +291,7 @@ func (h *IntegrationHandler) ListConnections(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(c.Request.Context())
 	views, err := h.service.ListUserConnections(
 		c.Request.Context(),
-		c.GetUint64(types.TenantIDContextKey.String()),
 		userID,
-		types.TenantRoleFromContext(c.Request.Context()),
 	)
 	if err != nil {
 		writeIntegrationError(c, err)
@@ -338,10 +312,8 @@ func (h *IntegrationHandler) GetConnection(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(c.Request.Context())
 	view, err := h.service.GetUserConnection(
 		c.Request.Context(),
-		c.GetUint64(types.TenantIDContextKey.String()),
 		userID,
 		c.Param("id"),
-		types.TenantRoleFromContext(c.Request.Context()),
 	)
 	if err != nil {
 		writeIntegrationError(c, err)
@@ -362,7 +334,6 @@ func (h *IntegrationHandler) RevokeConnection(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(c.Request.Context())
 	if err := h.service.RevokeUserConnection(
 		c.Request.Context(),
-		c.GetUint64(types.TenantIDContextKey.String()),
 		userID,
 		c.Param("id"),
 	); err != nil {
@@ -380,6 +351,7 @@ func authorizationParametersFromQuery(c *gin.Context) service.IntegrationAuthori
 		Scopes:              strings.Fields(c.Query("scope")),
 		CodeChallenge:       c.Query("code_challenge"),
 		CodeChallengeMethod: c.Query("code_challenge_method"),
+		Prompt:              c.Query("prompt"),
 	}
 }
 
