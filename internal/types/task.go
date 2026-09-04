@@ -303,6 +303,7 @@ type DocumentProcessPayload struct {
 	KnowledgeID              string   `json:"knowledge_id"`
 	KnowledgeBaseID          string   `json:"knowledge_base_id"`
 	ExternalDocumentLockKey  string   `json:"external_document_lock_key,omitempty"`
+	ReplacedKnowledgeID      string   `json:"replaced_knowledge_id,omitempty"`
 	FilePath                 string   `json:"file_path,omitempty"` // 文件路径（文件导入时使用）
 	FileName                 string   `json:"file_name,omitempty"` // 文件名（文件导入时使用）
 	FileType                 string   `json:"file_type,omitempty"` // 文件类型（文件导入时使用）

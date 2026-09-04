@@ -766,6 +766,7 @@ func (r *knowledgeRepository) FindByDataSourceExternalID(
 	err := r.db.WithContext(ctx).
 		Where("tenant_id = ? AND knowledge_base_id = ? AND deleted_at IS NULL", tenantID, kbID).
 		Where("metadata->>'datasource_id' = ? AND metadata->>'external_id' = ?", dataSourceID, externalID).
+		Order("created_at DESC").
 		First(&knowledge).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

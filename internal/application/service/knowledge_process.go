@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	werrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/infrastructure/chunker"
@@ -3196,6 +3197,9 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 
 	logger.Infof(ctx, "Processing document task: knowledge_id=%s, file_path=%s, retry=%d/%d",
 		payload.KnowledgeID, payload.FilePath, retryCount, maxRetry)
+	if err := s.cleanupReplacedExternalDocument(ctx, payload); err != nil {
+		return err
+	}
 
 	// 幂等性检查：获取knowledge记录
 	knowledge, err := s.repo.GetKnowledgeByID(ctx, payload.TenantID, payload.KnowledgeID)
@@ -3580,6 +3584,25 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 	// Step 4: Process chunks (vectorize + index + enqueue async tasks)
 	s.processChunks(ctx, kb, knowledge, chunks, processOpts)
 
+	return nil
+}
+
+func (s *knowledgeService) cleanupReplacedExternalDocument(
+	ctx context.Context,
+	payload types.DocumentProcessPayload,
+) error {
+	if payload.ReplacedKnowledgeID == "" {
+		return nil
+	}
+	if err := s.DeleteKnowledge(ctx, payload.ReplacedKnowledgeID); err != nil {
+		if errors.Is(err, repository.ErrKnowledgeNotFound) {
+			return nil
+		}
+		return fmt.Errorf("delete replaced external document %s: %w", payload.ReplacedKnowledgeID, err)
+	}
+	if err := s.repo.HardDeleteKnowledge(ctx, payload.TenantID, payload.ReplacedKnowledgeID); err != nil {
+		logger.Warnf(ctx, "failed to hard-delete replaced external document %s: %v", payload.ReplacedKnowledgeID, err)
+	}
 	return nil
 }
 

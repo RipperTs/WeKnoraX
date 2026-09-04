@@ -43,7 +43,8 @@ type externalDocumentLocalLock struct {
 type externalDocumentUploadContextKey struct{}
 
 type externalDocumentUploadContext struct {
-	processingLockKey string
+	processingLockKey   string
+	replacedKnowledgeID string
 }
 
 var externalDocumentLocks = externalDocumentLocalLocks{
@@ -105,11 +106,13 @@ func (s *externalDocumentService) UpsertExternalDocument(
 		}
 
 		processingLockKey := ""
+		replacedKnowledgeID := ""
 		if existing != nil {
 			processingLockKey = lockKey
+			replacedKnowledgeID = existing.ID
 		}
 		knowledge, err := s.knowledgeService.CreateKnowledgeFromFile(
-			withExternalDocumentUpload(lockCtx, processingLockKey),
+			withExternalDocumentUpload(lockCtx, processingLockKey, replacedKnowledgeID),
 			knowledgeBaseID,
 			file,
 			externalDocumentMetadata(metadata, sourceID, externalID, dataSourceID, fingerprint),
@@ -139,10 +142,13 @@ func (s *externalDocumentService) UpsertExternalDocument(
 		if existing != nil {
 			action = types.ExternalDocumentActionUpdated
 			if err := s.knowledgeService.DeleteKnowledge(lockCtx, existing.ID); err != nil {
-				deleteErr := fmt.Errorf("delete replaced external document %s: %w", existing.ID, err)
-				return s.rollbackCreatedExternalDocument(lockCtx, tenantID, knowledge.ID, deleteErr)
-			}
-			if err := repo.HardDeleteKnowledge(lockCtx, tenantID, existing.ID); err != nil {
+				logger.Warnf(
+					lockCtx,
+					"failed to delete replaced external document %s; processing task will retry: %v",
+					existing.ID,
+					err,
+				)
+			} else if err := repo.HardDeleteKnowledge(lockCtx, tenantID, existing.ID); err != nil {
 				logger.Warnf(lockCtx, "failed to hard-delete replaced external document %s: %v", existing.ID, err)
 			}
 		}
@@ -404,9 +410,14 @@ func externalDocumentDataSourceID(sourceID string) string {
 	return externalDocumentDataSourcePrefix + sourceID
 }
 
-func withExternalDocumentUpload(ctx context.Context, processingLockKey string) context.Context {
+func withExternalDocumentUpload(
+	ctx context.Context,
+	processingLockKey string,
+	replacedKnowledgeID string,
+) context.Context {
 	return context.WithValue(ctx, externalDocumentUploadContextKey{}, externalDocumentUploadContext{
-		processingLockKey: processingLockKey,
+		processingLockKey:   processingLockKey,
+		replacedKnowledgeID: replacedKnowledgeID,
 	})
 }
 
@@ -418,6 +429,11 @@ func isExternalDocumentUpload(ctx context.Context) bool {
 func externalDocumentProcessingLockKey(ctx context.Context) string {
 	uploadContext, _ := ctx.Value(externalDocumentUploadContextKey{}).(externalDocumentUploadContext)
 	return uploadContext.processingLockKey
+}
+
+func replacedExternalDocumentKnowledgeID(ctx context.Context) string {
+	uploadContext, _ := ctx.Value(externalDocumentUploadContextKey{}).(externalDocumentUploadContext)
+	return uploadContext.replacedKnowledgeID
 }
 
 func externalDocumentLockKey(tenantID uint64, knowledgeBaseID, sourceID, externalID string) string {
