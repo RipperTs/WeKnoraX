@@ -108,7 +108,7 @@ func TestClientDownloadRejectsOversizedAttachment(t *testing.T) {
 
 	cli := newClient(&config{BaseURL: server.URL})
 	_, err := cli.download(context.Background(), "1", "manual.pdf")
-	require.Error(t, err)
+	require.ErrorIs(t, err, errAttachmentTooLarge)
 	assert.Contains(t, err.Error(), "maximum download size")
 }
 

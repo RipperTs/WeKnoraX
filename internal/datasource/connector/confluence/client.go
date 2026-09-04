@@ -3,6 +3,7 @@ package confluence
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/datasource"
 )
+
+var errAttachmentTooLarge = errors.New("confluence attachment exceeds maximum download size")
 
 type client struct {
 	baseURL    string
@@ -128,20 +131,14 @@ func (c *client) download(ctx context.Context, containerID, fileName string) ([]
 		return nil, err
 	}
 	if resp.ContentLength > maxAttachmentDownloadBytes {
-		return nil, fmt.Errorf(
-			"Confluence attachment exceeds maximum download size (%d MB)",
-			maxAttachmentDownloadBytes/(1024*1024),
-		)
+		return nil, fmt.Errorf("%w (%d MB)", errAttachmentTooLarge, maxAttachmentDownloadBytes/(1024*1024))
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentDownloadBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read Confluence attachment: %w", err)
 	}
 	if int64(len(data)) > maxAttachmentDownloadBytes {
-		return nil, fmt.Errorf(
-			"Confluence attachment exceeds maximum download size (%d MB)",
-			maxAttachmentDownloadBytes/(1024*1024),
-		)
+		return nil, fmt.Errorf("%w (%d MB)", errAttachmentTooLarge, maxAttachmentDownloadBytes/(1024*1024))
 	}
 	return data, nil
 }

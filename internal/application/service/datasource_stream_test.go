@@ -200,7 +200,7 @@ func TestStreamHandler_EmitKeepsFailedIngestPending(t *testing.T) {
 	assert.Equal(t, 1, h.result.Failed)
 }
 
-func TestStreamHandler_EmitDefersDeletionWhenDisabled(t *testing.T) {
+func TestStreamHandler_EmitAdvancesDeletionWhenDisabled(t *testing.T) {
 	h := newStreamHandler(
 		&DataSourceService{},
 		&types.DataSource{SyncDeletions: false},
@@ -213,7 +213,7 @@ func TestStreamHandler_EmitDefersDeletionWhenDisabled(t *testing.T) {
 		IsDeleted:  true,
 	})
 	require.NoError(t, err)
-	assert.False(t, handled)
+	assert.True(t, handled)
 	assert.Zero(t, h.result.Deleted)
 }
 
