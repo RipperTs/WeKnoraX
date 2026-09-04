@@ -3,7 +3,6 @@ package confluence
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -280,21 +279,12 @@ func (c *Connector) fetchStream(
 			if comparison[externalID] != signature {
 				content, fetchErr := cli.download(ctx, attachmentMeta.Container.ID, attachmentMeta.Title)
 				if fetchErr != nil {
-					item := failedItem(externalID, attachmentMeta.Title, spaceKey, fetchErr)
-					if errors.Is(fetchErr, errAttachmentTooLarge) {
-						item = types.FetchedItem{
-							ExternalID: externalID,
-							Title:      attachmentMeta.Title,
-							Metadata:   map[string]string{"channel": types.ChannelConfluence},
-						}
-					}
-					handled, emitErr := handler.Emit(ctx, item)
-					if emitErr != nil {
+					if _, emitErr := handler.Emit(
+						ctx, failedItem(externalID, attachmentMeta.Title, spaceKey, fetchErr),
+					); emitErr != nil {
 						return nil, emitErr
 					}
-					if handled && errors.Is(fetchErr, errAttachmentTooLarge) {
-						next.Items[externalID] = signature
-					} else if next.FullSync {
+					if next.FullSync {
 						fullSyncHasPendingItems = true
 					}
 				} else {
