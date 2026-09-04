@@ -342,6 +342,15 @@ func resolveKBAccessOnce(
 	if kb == nil {
 		return nil, errKBAccessNotFound
 	}
+	if principal, ok := types.PrincipalFromContext(ctx); ok &&
+		principal.Type == types.PrincipalIntegrationUser && requiredPermission == types.OrgRoleViewer {
+		if scope, exists := types.TenantAPIKeyScopeFromContext(ctx); exists &&
+			scope.AllowsKnowledgeBase(kbID) && scope.KnowledgeBaseTenantIDs[kbID] == kb.TenantID {
+			return &KBAccess{
+				KnowledgeBase: kb, EffectiveTenantID: kb.TenantID, Permission: types.OrgRoleViewer,
+			}, nil
+		}
+	}
 
 	// 1. Own KB.
 	if kb.TenantID == tenantID {

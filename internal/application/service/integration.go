@@ -83,9 +83,8 @@ type IntegrationCallbackTestResult struct {
 
 // TenantIntegrationPolicyInput narrows an application's permissions in one workspace.
 type TenantIntegrationPolicyInput struct {
-	Enabled          bool     `json:"enabled"`
-	AllowedScopes    []string `json:"allowed_scopes"`
-	KnowledgeBaseIDs []string `json:"knowledge_base_ids"`
+	Enabled       bool     `json:"enabled"`
+	AllowedScopes []string `json:"allowed_scopes"`
 }
 
 // TenantIntegrationApplicationView combines a global application with its optional workspace policy.
@@ -102,33 +101,43 @@ type IntegrationAuthorizationParameters struct {
 	Scopes              []string `json:"scopes"`
 	CodeChallenge       string   `json:"code_challenge"`
 	CodeChallengeMethod string   `json:"code_challenge_method"`
+	Prompt              string   `json:"prompt,omitempty"`
 }
 
 // IntegrationKnowledgeBaseView exposes only metadata needed by integration clients.
 type IntegrationKnowledgeBaseView struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Description string `json:"description,omitempty"`
-	TenantID    uint64 `json:"tenant_id"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	Description    string `json:"description,omitempty"`
+	TenantID       uint64 `json:"tenant_id"`
+	AccessTenantID uint64 `json:"access_tenant_id"`
+}
+
+// IntegrationTenantView exposes the workspace metadata needed by consent and launch pages.
+type IntegrationTenantView struct {
+	ID          uint64           `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Role        types.TenantRole `json:"role"`
 }
 
 // IntegrationAuthorizationView describes the consent screen and any reusable connection.
 type IntegrationAuthorizationView struct {
-	Application              *types.IntegrationApplication  `json:"application"`
-	Scopes                   types.StringArray              `json:"scopes"`
-	KnowledgeBases           []IntegrationKnowledgeBaseView `json:"knowledge_bases"`
-	SelectedKnowledgeBaseIDs types.StringArray              `json:"selected_knowledge_base_ids"`
-	ConnectionID             string                         `json:"connection_id,omitempty"`
-	RequiresConsent          bool                           `json:"requires_consent"`
+	Application       *types.IntegrationApplication `json:"application"`
+	Scopes            types.StringArray             `json:"scopes"`
+	Tenants           []IntegrationTenantView       `json:"tenants"`
+	SelectedTenantIDs []uint64                      `json:"selected_tenant_ids"`
+	ConnectionID      string                        `json:"connection_id,omitempty"`
+	RequiresConsent   bool                          `json:"requires_consent"`
 }
 
 // IntegrationAuthorizationDecision records the user's approval or denial.
 type IntegrationAuthorizationDecision struct {
-	Parameters       IntegrationAuthorizationParameters `json:"parameters"`
-	Approved         bool                               `json:"approved"`
-	ReuseExisting    bool                               `json:"reuse_existing"`
-	KnowledgeBaseIDs []string                           `json:"knowledge_base_ids"`
+	Parameters    IntegrationAuthorizationParameters `json:"parameters"`
+	Approved      bool                               `json:"approved"`
+	ReuseExisting bool                               `json:"reuse_existing"`
+	TenantIDs     []uint64                           `json:"tenant_ids"`
 }
 
 // IntegrationAuthorizationResult contains the exact callback destination after a decision.
@@ -152,7 +161,6 @@ type IntegrationTokenExchangeResult struct {
 	AccessToken  string            `json:"access_token"`
 	TokenType    string            `json:"token_type"`
 	ConnectionID string            `json:"connection_id"`
-	TenantID     uint64            `json:"tenant_id"`
 	LaunchPath   string            `json:"launch_path"`
 	Scopes       types.StringArray `json:"scopes"`
 }
@@ -161,6 +169,7 @@ type IntegrationTokenExchangeResult struct {
 type IntegrationConnectionView struct {
 	Connection                *types.IntegrationConnection   `json:"connection"`
 	Application               *types.IntegrationApplication  `json:"application"`
+	Tenants                   []IntegrationTenantView        `json:"tenants"`
 	KnowledgeBases            []IntegrationKnowledgeBaseView `json:"knowledge_bases"`
 	EffectiveKnowledgeBaseIDs types.StringArray              `json:"effective_knowledge_base_ids"`
 	EffectiveScopes           types.StringArray              `json:"effective_scopes"`
@@ -173,6 +182,8 @@ type IntegrationService struct {
 	repo           interfaces.IntegrationRepository
 	kbService      interfaces.KnowledgeBaseService
 	kbShareService interfaces.KBShareService
+	tenantService  interfaces.TenantService
+	memberService  interfaces.TenantMemberService
 	lastUsedTouch  sync.Map
 }
 
@@ -181,8 +192,13 @@ func NewIntegrationService(
 	repo interfaces.IntegrationRepository,
 	kbService interfaces.KnowledgeBaseService,
 	kbShareService interfaces.KBShareService,
+	tenantService interfaces.TenantService,
+	memberService interfaces.TenantMemberService,
 ) *IntegrationService {
-	return &IntegrationService{repo: repo, kbService: kbService, kbShareService: kbShareService}
+	return &IntegrationService{
+		repo: repo, kbService: kbService, kbShareService: kbShareService,
+		tenantService: tenantService, memberService: memberService,
+	}
 }
 
 // CreateApplication registers a client and returns its plaintext secret once.
@@ -341,22 +357,10 @@ func (s *IntegrationService) ListTenantApplications(
 	return views, nil
 }
 
-// ListTenantIntegrationKnowledgeBases returns knowledge bases available to workspace policies.
-func (s *IntegrationService) ListTenantIntegrationKnowledgeBases(
-	ctx context.Context, tenantID uint64, role types.TenantRole,
-) ([]IntegrationKnowledgeBaseView, error) {
-	knowledgeBases, err := s.listAccessibleKnowledgeBases(ctx, tenantID, role, &types.TenantIntegrationPolicy{})
-	if err != nil {
-		return nil, err
-	}
-	return BuildIntegrationKnowledgeBaseViews(knowledgeBases), nil
-}
-
 // UpsertTenantPolicy creates or replaces one workspace's restrictions for a client.
 func (s *IntegrationService) UpsertTenantPolicy(
 	ctx context.Context,
 	tenantID uint64,
-	role types.TenantRole,
 	applicationID string,
 	input TenantIntegrationPolicyInput,
 ) (*types.TenantIntegrationPolicy, error) {
@@ -371,20 +375,15 @@ func (s *IntegrationService) UpsertTenantPolicy(
 	if !scopesSubset(scopes, app.AllowedScopes) {
 		return nil, ErrIntegrationInvalidScope
 	}
-	ids := normalizeIntegrationIDs(input.KnowledgeBaseIDs)
-	if err := s.validateKnowledgeBaseSelection(ctx, tenantID, role, ids, nil); err != nil {
-		return nil, err
-	}
 	now := time.Now().UTC()
 	policy := &types.TenantIntegrationPolicy{
-		ID:               uuid.NewString(),
-		ApplicationID:    applicationID,
-		TenantID:         tenantID,
-		Enabled:          input.Enabled,
-		AllowedScopes:    scopes,
-		KnowledgeBaseIDs: ids,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:            uuid.NewString(),
+		ApplicationID: applicationID,
+		TenantID:      tenantID,
+		Enabled:       input.Enabled,
+		AllowedScopes: scopes,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	if err := s.repo.UpsertTenantPolicy(ctx, policy); err != nil {
 		return nil, err
@@ -395,56 +394,107 @@ func (s *IntegrationService) UpsertTenantPolicy(
 // GetAuthorizationView validates an authorization request and builds its consent state.
 func (s *IntegrationService) GetAuthorizationView(
 	ctx context.Context,
-	tenantID uint64,
 	userID string,
-	role types.TenantRole,
 	params IntegrationAuthorizationParameters,
 ) (*IntegrationAuthorizationView, error) {
-	app, policy, scopes, err := s.validateAuthorizationParameters(ctx, tenantID, params)
+	app, scopes, err := s.validateAuthorizationParameters(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	knowledgeBases, err := s.listAccessibleKnowledgeBases(ctx, tenantID, role, policy)
+	tenants, err := s.listAuthorizableTenants(ctx, userID, app, scopes)
 	if err != nil {
 		return nil, err
 	}
-	connection, err := s.repo.FindConnection(ctx, app.ID, tenantID, userID)
+	connection, err := s.repo.FindConnection(ctx, app.ID, userID)
 	if err != nil {
 		return nil, err
 	}
 	view := &IntegrationAuthorizationView{
 		Application:     app,
 		Scopes:          scopes,
-		KnowledgeBases:  BuildIntegrationKnowledgeBaseViews(knowledgeBases),
+		Tenants:         tenants,
 		RequiresConsent: true,
 	}
 	if connection == nil || connection.Status != types.IntegrationConnectionActive {
 		return view, nil
 	}
 	view.ConnectionID = connection.ID
-	grants, err := s.repo.ListConnectionKnowledgeBaseIDs(ctx, connection.ID)
+	grants, err := s.repo.ListConnectionTenantIDs(ctx, connection.ID)
 	if err != nil {
 		return nil, err
 	}
-	accessible := knowledgeBaseIDSet(knowledgeBases)
+	accessible := integrationTenantViewIDSet(tenants)
 	for _, id := range grants {
 		if accessible[id] {
-			view.SelectedKnowledgeBaseIDs = append(view.SelectedKnowledgeBaseIDs, id)
+			view.SelectedTenantIDs = append(view.SelectedTenantIDs, id)
 		}
 	}
-	view.RequiresConsent = !scopesSubset(scopes, connection.Scopes) || len(view.SelectedKnowledgeBaseIDs) == 0
+	view.RequiresConsent = params.Prompt == "consent" ||
+		!scopesSubset(scopes, connection.Scopes) || len(view.SelectedTenantIDs) == 0
 	return view, nil
+}
+
+func (s *IntegrationService) listAuthorizableTenants(
+	ctx context.Context,
+	userID string,
+	app *types.IntegrationApplication,
+	requestedScopes []string,
+) ([]IntegrationTenantView, error) {
+	memberships, err := s.memberService.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	roleByTenant := make(map[uint64]types.TenantRole, len(memberships))
+	tenantIDs := make([]uint64, 0, len(memberships))
+	for _, membership := range memberships {
+		if membership == nil || membership.Status != types.TenantMemberStatusActive || membership.TenantID == 0 {
+			continue
+		}
+		roleByTenant[membership.TenantID] = membership.Role
+		tenantIDs = append(tenantIDs, membership.TenantID)
+	}
+	policies, err := s.repo.ListApplicationPolicies(ctx, app.ID, tenantIDs)
+	if err != nil {
+		return nil, err
+	}
+	policyByTenant := make(map[uint64]*types.TenantIntegrationPolicy, len(policies))
+	for _, policy := range policies {
+		policyByTenant[policy.TenantID] = policy
+	}
+	tenantByID, err := s.tenantService.GetTenantsByIDs(ctx, tenantIDs)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]IntegrationTenantView, 0, len(tenantIDs))
+	for tenantID, role := range roleByTenant {
+		policy := policyByTenant[tenantID]
+		if policy != nil && (!policy.Enabled || !scopesSubset(requestedScopes, policy.AllowedScopes)) {
+			continue
+		}
+		tenant := tenantByID[tenantID]
+		if tenant == nil {
+			continue
+		}
+		views = append(views, IntegrationTenantView{
+			ID: tenant.ID, Name: tenant.Name, Description: tenant.Description, Role: role,
+		})
+	}
+	sort.Slice(views, func(i, j int) bool {
+		if views[i].Name == views[j].Name {
+			return views[i].ID < views[j].ID
+		}
+		return views[i].Name < views[j].Name
+	})
+	return views, nil
 }
 
 // Authorize applies a consent decision and redirects with a single-use code or denial.
 func (s *IntegrationService) Authorize(
 	ctx context.Context,
-	tenantID uint64,
 	userID string,
-	role types.TenantRole,
 	decision IntegrationAuthorizationDecision,
 ) (*IntegrationAuthorizationResult, error) {
-	view, err := s.GetAuthorizationView(ctx, tenantID, userID, role, decision.Parameters)
+	view, err := s.GetAuthorizationView(ctx, userID, decision.Parameters)
 	if err != nil {
 		return nil, err
 	}
@@ -458,19 +508,21 @@ func (s *IntegrationService) Authorize(
 		}
 		return &IntegrationAuthorizationResult{RedirectURI: redirectURI}, nil
 	}
-	selectedIDs := normalizeIntegrationIDs(decision.KnowledgeBaseIDs)
+	selectedIDs := normalizeIntegrationTenantIDs(decision.TenantIDs)
 	if decision.ReuseExisting {
 		if view.RequiresConsent {
 			return nil, ErrIntegrationConsentRequired
 		}
-		selectedIDs = view.SelectedKnowledgeBaseIDs
+		selectedIDs = view.SelectedTenantIDs
 	}
 	if len(selectedIDs) == 0 {
 		return nil, ErrIntegrationAccessDenied
 	}
-	allowedKnowledgeBases := integrationKnowledgeBaseViewIDSet(view.KnowledgeBases)
-	if err := validateKnowledgeBaseIDsInSet(selectedIDs, allowedKnowledgeBases); err != nil {
-		return nil, err
+	allowedTenants := integrationTenantViewIDSet(view.Tenants)
+	for _, tenantID := range selectedIDs {
+		if !allowedTenants[tenantID] {
+			return nil, ErrIntegrationAccessDenied
+		}
 	}
 	codeValue, err := generateIntegrationSecret("wkac_", 32)
 	if err != nil {
@@ -480,7 +532,6 @@ func (s *IntegrationService) Authorize(
 	connection := &types.IntegrationConnection{
 		ID:            uuid.NewString(),
 		ApplicationID: view.Application.ID,
-		TenantID:      tenantID,
 		UserID:        userID,
 		Scopes:        view.Scopes,
 		Status:        types.IntegrationConnectionActive,
@@ -556,11 +607,15 @@ func (s *IntegrationService) ExchangeAuthorizationCode(
 	if connection.Status != types.IntegrationConnectionActive {
 		return nil, apprepo.ErrIntegrationAuthorizationCode
 	}
-	policy, err := s.effectiveTenantPolicy(ctx, app, connection.TenantID)
+	session := &types.IntegrationCredentialSession{
+		Connection: connection, Application: app,
+		Scopes: intersectIntegrationScopes(connection.Scopes, app.AllowedScopes),
+	}
+	access, err := s.ResolveCredentialAccess(ctx, session)
 	if err != nil {
 		return nil, err
 	}
-	if !policy.Enabled || !scopesSubset(code.Scopes, policy.AllowedScopes) {
+	if !types.IntegrationScopesContain(access.Scopes, types.IntegrationScopeKnowledgeRead) {
 		return nil, ErrIntegrationPolicyDisabled
 	}
 	token, err := generateIntegrationSecret("wkic_", 32)
@@ -581,9 +636,8 @@ func (s *IntegrationService) ExchangeAuthorizationCode(
 		AccessToken:  token,
 		TokenType:    "API-Key",
 		ConnectionID: connection.ID,
-		TenantID:     connection.TenantID,
-		LaunchPath:   fmt.Sprintf("/integrations/launch/%s?tenant_id=%d", connection.ID, connection.TenantID),
-		Scopes:       code.Scopes,
+		LaunchPath:   fmt.Sprintf("/integrations/launch/%s", connection.ID),
+		Scopes:       access.Scopes,
 	}, nil
 }
 
@@ -622,73 +676,111 @@ func (s *IntegrationService) AuthenticateCredential(
 	if !app.Enabled {
 		return nil, types.ErrIntegrationInvalidCredential
 	}
-	policy, err := s.effectiveTenantPolicy(ctx, app, connection.TenantID)
-	if err != nil {
-		return nil, err
-	}
-	if !policy.Enabled {
-		return nil, types.ErrIntegrationInvalidCredential
-	}
-	scopes := intersectIntegrationScopes(connection.Scopes, app.AllowedScopes, policy.AllowedScopes)
+	scopes := intersectIntegrationScopes(connection.Scopes, app.AllowedScopes)
 	if !types.IntegrationScopesContain(scopes, types.IntegrationScopeKnowledgeRead) {
 		return nil, types.ErrIntegrationInvalidCredential
 	}
 	s.touchCredentialLastUsed(credential.ID, connection.ID)
 	return &types.IntegrationCredentialSession{
-		Credential: credential, Connection: connection, Application: app, Policy: policy, Scopes: scopes,
+		Credential: credential, Connection: connection, Application: app, Scopes: scopes,
 	}, nil
 }
 
-// EffectiveKnowledgeBases intersects grants, policy and current workspace access.
-func (s *IntegrationService) EffectiveKnowledgeBases(
+// ResolveCredentialAccess resolves the selected workspaces against live
+// membership, workspace policy and knowledge-base visibility.
+func (s *IntegrationService) ResolveCredentialAccess(
 	ctx context.Context,
 	session *types.IntegrationCredentialSession,
-	role types.TenantRole,
-) ([]*types.KnowledgeBase, types.StringArray, error) {
-	grantedIDs, err := s.repo.ListConnectionKnowledgeBaseIDs(ctx, session.Connection.ID)
+) (*types.IntegrationCredentialAccess, error) {
+	access := &types.IntegrationCredentialAccess{
+		TenantRoles:                  make(map[uint64]types.TenantRole),
+		KnowledgeBases:               make([]*types.KnowledgeBase, 0),
+		KnowledgeBaseIDs:             make(types.StringArray, 0),
+		KnowledgeBaseTenantIDs:       make(map[string]uint64),
+		KnowledgeBaseAccessTenantIDs: make(map[string]uint64),
+	}
+	grantedTenantIDs, err := s.repo.ListConnectionTenantIDs(ctx, session.Connection.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	if len(session.Policy.KnowledgeBaseIDs) > 0 {
-		grantedIDs = filterIntegrationIDs(grantedIDs, integrationIDSet(session.Policy.KnowledgeBaseIDs))
-	}
-	knowledgeBases, err := s.kbService.GetKnowledgeBasesByIDsOnly(ctx, grantedIDs)
+	memberships, err := s.memberService.ListByUser(ctx, session.Connection.UserID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	kbByID := make(map[string]*types.KnowledgeBase, len(knowledgeBases))
-	for _, kb := range knowledgeBases {
-		if kb != nil {
-			kbByID[kb.ID] = kb
+	roleByTenant := make(map[uint64]types.TenantRole, len(memberships))
+	for _, membership := range memberships {
+		if membership != nil && membership.Status == types.TenantMemberStatusActive {
+			roleByTenant[membership.TenantID] = membership.Role
 		}
 	}
-	effective := make([]*types.KnowledgeBase, 0, len(grantedIDs))
-	ids := make(types.StringArray, 0, len(grantedIDs))
-	for _, id := range grantedIDs {
-		kb := kbByID[id]
-		if kb == nil || kb.IsTemporary {
+	policies, err := s.repo.ListApplicationPolicies(ctx, session.Application.ID, grantedTenantIDs)
+	if err != nil {
+		return nil, err
+	}
+	policyByTenant := make(map[uint64]*types.TenantIntegrationPolicy, len(policies))
+	for _, policy := range policies {
+		policyByTenant[policy.TenantID] = policy
+	}
+	baseScopes := intersectIntegrationScopes(session.Scopes, session.Application.AllowedScopes)
+	byID := make(map[string]*types.KnowledgeBase)
+	for _, tenantID := range grantedTenantIDs {
+		role, member := roleByTenant[tenantID]
+		if !member {
 			continue
 		}
-		allowed := kb.TenantID == session.Connection.TenantID
-		if !allowed {
-			allowed, err = s.kbShareService.HasTenantKBPermission(
-				ctx, kb.ID, session.Connection.TenantID, role, types.OrgRoleViewer,
-			)
-			if err != nil {
-				return nil, nil, err
+		policy := policyByTenant[tenantID]
+		if policy == nil {
+			policy = &types.TenantIntegrationPolicy{
+				ApplicationID: session.Application.ID,
+				TenantID:      tenantID,
+				Enabled:       true,
+				AllowedScopes: session.Application.AllowedScopes,
 			}
 		}
-		if allowed {
-			effective = append(effective, kb)
-			ids = append(ids, kb.ID)
+		tenantScopes := intersectIntegrationScopes(baseScopes, policy.AllowedScopes)
+		if !policy.Enabled || !types.IntegrationScopesContain(tenantScopes, types.IntegrationScopeKnowledgeRead) {
+			continue
+		}
+		if access.TenantID == 0 {
+			access.TenantID = tenantID
+			access.Scopes = tenantScopes
+		} else {
+			access.Scopes = intersectIntegrationScopes(access.Scopes, tenantScopes)
+		}
+		access.TenantRoles[tenantID] = role
+		knowledgeBases, listErr := s.listAccessibleKnowledgeBases(ctx, tenantID, role)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, kb := range knowledgeBases {
+			if kb != nil {
+				byID[kb.ID] = kb
+				if access.KnowledgeBaseAccessTenantIDs[kb.ID] == 0 {
+					access.KnowledgeBaseAccessTenantIDs[kb.ID] = tenantID
+				}
+			}
 		}
 	}
-	return effective, ids, nil
+	access.KnowledgeBases = make([]*types.KnowledgeBase, 0, len(byID))
+	for _, kb := range byID {
+		access.KnowledgeBases = append(access.KnowledgeBases, kb)
+	}
+	sort.Slice(access.KnowledgeBases, func(i, j int) bool {
+		if access.KnowledgeBases[i].Name == access.KnowledgeBases[j].Name {
+			return access.KnowledgeBases[i].ID < access.KnowledgeBases[j].ID
+		}
+		return access.KnowledgeBases[i].Name < access.KnowledgeBases[j].Name
+	})
+	for _, kb := range access.KnowledgeBases {
+		access.KnowledgeBaseIDs = append(access.KnowledgeBaseIDs, kb.ID)
+		access.KnowledgeBaseTenantIDs[kb.ID] = kb.TenantID
+	}
+	return access, nil
 }
 
-// ListUserConnections returns the active connections owned by a user in one workspace.
+// ListUserConnections returns every active connection owned by a user.
 func (s *IntegrationService) ListUserConnections(
-	ctx context.Context, tenantID uint64, userID string, role types.TenantRole,
+	ctx context.Context, userID string,
 ) ([]*IntegrationConnectionView, error) {
 	connections, err := s.repo.ListConnectionsByUser(ctx, userID)
 	if err != nil {
@@ -696,10 +788,10 @@ func (s *IntegrationService) ListUserConnections(
 	}
 	views := make([]*IntegrationConnectionView, 0, len(connections))
 	for _, connection := range connections {
-		if connection.TenantID != tenantID || connection.Status != types.IntegrationConnectionActive {
+		if connection.Status != types.IntegrationConnectionActive {
 			continue
 		}
-		view, err := s.connectionView(ctx, connection, role)
+		view, err := s.connectionView(ctx, connection)
 		if err != nil {
 			return nil, err
 		}
@@ -710,17 +802,16 @@ func (s *IntegrationService) ListUserConnections(
 
 // GetUserConnection returns an active connection only to its owning user.
 func (s *IntegrationService) GetUserConnection(
-	ctx context.Context, tenantID uint64, userID, connectionID string, role types.TenantRole,
+	ctx context.Context, userID, connectionID string,
 ) (*IntegrationConnectionView, error) {
 	connection, err := s.repo.GetConnectionByID(ctx, connectionID)
 	if err != nil {
 		return nil, err
 	}
-	if connection.TenantID != tenantID || connection.UserID != userID ||
-		connection.Status != types.IntegrationConnectionActive {
+	if connection.UserID != userID || connection.Status != types.IntegrationConnectionActive {
 		return nil, apprepo.ErrIntegrationConnectionNotFound
 	}
-	view, err := s.connectionView(ctx, connection, role)
+	view, err := s.connectionView(ctx, connection)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +819,7 @@ func (s *IntegrationService) GetUserConnection(
 		switch view.UnavailableReason {
 		case "application_disabled":
 			return nil, ErrIntegrationApplicationDisabled
-		case "tenant_policy_disabled":
+		case "workspace_unavailable":
 			return nil, ErrIntegrationPolicyDisabled
 		default:
 			return nil, ErrIntegrationAccessDenied
@@ -739,20 +830,20 @@ func (s *IntegrationService) GetUserConnection(
 
 // RevokeUserConnection revokes a connection and all of its active credentials.
 func (s *IntegrationService) RevokeUserConnection(
-	ctx context.Context, tenantID uint64, userID, connectionID string,
+	ctx context.Context, userID, connectionID string,
 ) error {
 	connection, err := s.repo.GetConnectionByID(ctx, connectionID)
 	if err != nil {
 		return err
 	}
-	if connection.TenantID != tenantID || connection.UserID != userID {
+	if connection.UserID != userID {
 		return apprepo.ErrIntegrationConnectionNotFound
 	}
 	return s.repo.RevokeConnection(ctx, connectionID, userID, time.Now().UTC())
 }
 
 func (s *IntegrationService) connectionView(
-	ctx context.Context, connection *types.IntegrationConnection, role types.TenantRole,
+	ctx context.Context, connection *types.IntegrationConnection,
 ) (*IntegrationConnectionView, error) {
 	app, err := s.repo.GetApplicationByID(ctx, connection.ApplicationID)
 	if err != nil {
@@ -761,6 +852,7 @@ func (s *IntegrationService) connectionView(
 	view := &IntegrationConnectionView{
 		Connection:                connection,
 		Application:               app,
+		Tenants:                   make([]IntegrationTenantView, 0),
 		KnowledgeBases:            make([]IntegrationKnowledgeBaseView, 0),
 		EffectiveKnowledgeBaseIDs: make(types.StringArray, 0),
 		EffectiveScopes:           make(types.StringArray, 0),
@@ -769,112 +861,118 @@ func (s *IntegrationService) connectionView(
 		view.UnavailableReason = "application_disabled"
 		return view, nil
 	}
-	policy, err := s.effectiveTenantPolicy(ctx, app, connection.TenantID)
-	if err != nil {
-		return nil, err
-	}
-	if !policy.Enabled {
-		view.UnavailableReason = "tenant_policy_disabled"
-		return view, nil
-	}
 	session := &types.IntegrationCredentialSession{
-		Connection: connection, Application: app, Policy: policy,
-		Scopes: intersectIntegrationScopes(connection.Scopes, app.AllowedScopes, policy.AllowedScopes),
+		Connection: connection, Application: app,
+		Scopes: intersectIntegrationScopes(connection.Scopes, app.AllowedScopes),
 	}
-	if !types.IntegrationScopesContain(session.Scopes, types.IntegrationScopeKnowledgeRead) {
-		view.UnavailableReason = "scope_unavailable"
-		return view, nil
-	}
-	knowledgeBases, ids, err := s.EffectiveKnowledgeBases(ctx, session, role)
+	access, err := s.ResolveCredentialAccess(ctx, session)
 	if err != nil {
 		return nil, err
 	}
-	view.KnowledgeBases = BuildIntegrationKnowledgeBaseViews(knowledgeBases)
-	view.EffectiveKnowledgeBaseIDs = ids
-	view.EffectiveScopes = session.Scopes
+	if !types.IntegrationScopesContain(access.Scopes, types.IntegrationScopeKnowledgeRead) {
+		view.UnavailableReason = "scope_unavailable"
+		if len(access.TenantRoles) == 0 {
+			view.UnavailableReason = "workspace_unavailable"
+		}
+		return view, nil
+	}
+	view.Tenants, err = s.buildIntegrationTenantViews(ctx, access.TenantRoles)
+	if err != nil {
+		return nil, err
+	}
+	view.KnowledgeBases = BuildIntegrationKnowledgeBaseViews(access.KnowledgeBases)
+	for index := range view.KnowledgeBases {
+		view.KnowledgeBases[index].AccessTenantID =
+			access.KnowledgeBaseAccessTenantIDs[view.KnowledgeBases[index].ID]
+	}
+	view.EffectiveKnowledgeBaseIDs = access.KnowledgeBaseIDs
+	view.EffectiveScopes = access.Scopes
 	view.Available = true
 	return view, nil
 }
 
 func (s *IntegrationService) validateAuthorizationParameters(
-	ctx context.Context, tenantID uint64, params IntegrationAuthorizationParameters,
-) (*types.IntegrationApplication, *types.TenantIntegrationPolicy, types.StringArray, error) {
+	ctx context.Context, params IntegrationAuthorizationParameters,
+) (*types.IntegrationApplication, types.StringArray, error) {
 	app, err := s.repo.GetApplicationByClientID(ctx, strings.TrimSpace(params.ClientID))
 	if errors.Is(err, apprepo.ErrIntegrationApplicationNotFound) {
-		return nil, nil, nil, ErrIntegrationInvalidApplication
+		return nil, nil, ErrIntegrationInvalidApplication
 	}
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	if !app.Enabled {
-		return nil, nil, nil, ErrIntegrationApplicationDisabled
+		return nil, nil, ErrIntegrationApplicationDisabled
 	}
 	if !stringInSlice(params.RedirectURI, app.RedirectURIs) {
-		return nil, nil, nil, ErrIntegrationInvalidRedirectURI
+		return nil, nil, ErrIntegrationInvalidRedirectURI
 	}
 	if params.State == "" || len(params.State) > 512 {
-		return nil, nil, nil, ErrIntegrationInvalidState
+		return nil, nil, ErrIntegrationInvalidState
 	}
 	if params.CodeChallengeMethod != "S256" || !validCodeChallenge(params.CodeChallenge) {
-		return nil, nil, nil, ErrIntegrationInvalidPKCE
+		return nil, nil, ErrIntegrationInvalidPKCE
 	}
 	scopes, err := validateScopes(params.Scopes)
 	if err != nil || !scopesSubset(scopes, app.AllowedScopes) {
-		return nil, nil, nil, ErrIntegrationInvalidScope
+		return nil, nil, ErrIntegrationInvalidScope
 	}
-	policy, err := s.effectiveTenantPolicy(ctx, app, tenantID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if !policy.Enabled {
-		return nil, nil, nil, ErrIntegrationPolicyDisabled
-	}
-	if !scopesSubset(scopes, policy.AllowedScopes) {
-		return nil, nil, nil, ErrIntegrationInvalidScope
-	}
-	return app, policy, scopes, nil
+	return app, scopes, nil
 }
 
-func (s *IntegrationService) effectiveTenantPolicy(
-	ctx context.Context, app *types.IntegrationApplication, tenantID uint64,
-) (*types.TenantIntegrationPolicy, error) {
-	policy, err := s.repo.GetTenantPolicy(ctx, app.ID, tenantID)
+func (s *IntegrationService) buildIntegrationTenantViews(
+	ctx context.Context, roleByTenant map[uint64]types.TenantRole,
+) ([]IntegrationTenantView, error) {
+	tenantIDs := make([]uint64, 0, len(roleByTenant))
+	for tenantID := range roleByTenant {
+		tenantIDs = append(tenantIDs, tenantID)
+	}
+	tenantByID, err := s.tenantService.GetTenantsByIDs(ctx, tenantIDs)
 	if err != nil {
 		return nil, err
 	}
-	if policy != nil {
-		return policy, nil
+	views := make([]IntegrationTenantView, 0, len(tenantByID))
+	for tenantID, role := range roleByTenant {
+		tenant := tenantByID[tenantID]
+		if tenant == nil {
+			continue
+		}
+		views = append(views, IntegrationTenantView{
+			ID: tenant.ID, Name: tenant.Name, Description: tenant.Description, Role: role,
+		})
 	}
-	return &types.TenantIntegrationPolicy{
-		ApplicationID: app.ID, TenantID: tenantID, Enabled: true, AllowedScopes: app.AllowedScopes,
-	}, nil
+	sort.Slice(views, func(i, j int) bool {
+		if views[i].Name == views[j].Name {
+			return views[i].ID < views[j].ID
+		}
+		return views[i].Name < views[j].Name
+	})
+	return views, nil
 }
 
 func (s *IntegrationService) listAccessibleKnowledgeBases(
 	ctx context.Context,
 	tenantID uint64,
 	role types.TenantRole,
-	policy *types.TenantIntegrationPolicy,
 ) ([]*types.KnowledgeBase, error) {
-	own, err := s.kbService.ListKnowledgeBases(ctx)
+	tenantCtx := context.WithValue(ctx, types.TenantIDContextKey, tenantID)
+	tenantCtx = context.WithValue(tenantCtx, types.TenantRoleContextKey, role)
+	own, err := s.kbService.ListKnowledgeBases(tenantCtx)
 	if err != nil {
 		return nil, err
 	}
-	shared, err := s.kbShareService.ListSharedKnowledgeBases(ctx, tenantID, role)
+	shared, err := s.kbShareService.ListSharedKnowledgeBases(tenantCtx, tenantID, role)
 	if err != nil {
 		return nil, err
 	}
-	allowedByPolicy := integrationIDSet(policy.KnowledgeBaseIDs)
-	restrictedByPolicy := len(allowedByPolicy) > 0
 	byID := make(map[string]*types.KnowledgeBase, len(own)+len(shared))
 	for _, kb := range own {
-		if kb != nil && !kb.IsTemporary && (!restrictedByPolicy || allowedByPolicy[kb.ID]) {
+		if kb != nil && !kb.IsTemporary {
 			byID[kb.ID] = kb
 		}
 	}
 	for _, info := range shared {
-		if info != nil && info.KnowledgeBase != nil && !info.KnowledgeBase.IsTemporary &&
-			(!restrictedByPolicy || allowedByPolicy[info.KnowledgeBase.ID]) {
+		if info != nil && info.KnowledgeBase != nil && !info.KnowledgeBase.IsTemporary {
 			byID[info.KnowledgeBase.ID] = info.KnowledgeBase
 		}
 	}
@@ -889,26 +987,6 @@ func (s *IntegrationService) listAccessibleKnowledgeBases(
 		return result[i].Name < result[j].Name
 	})
 	return result, nil
-}
-
-func (s *IntegrationService) validateKnowledgeBaseSelection(
-	ctx context.Context,
-	tenantID uint64,
-	role types.TenantRole,
-	ids []string,
-	policy *types.TenantIntegrationPolicy,
-) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	if policy == nil {
-		policy = &types.TenantIntegrationPolicy{TenantID: tenantID, Enabled: true}
-	}
-	knowledgeBases, err := s.listAccessibleKnowledgeBases(ctx, tenantID, role, policy)
-	if err != nil {
-		return err
-	}
-	return validateKnowledgeBaseIDsInSet(ids, knowledgeBaseIDSet(knowledgeBases))
 }
 
 func (s *IntegrationService) touchCredentialLastUsed(credentialID, connectionID string) {
@@ -1013,6 +1091,18 @@ func normalizeIntegrationIDs(values []string) types.StringArray {
 	return result
 }
 
+func normalizeIntegrationTenantIDs(values []uint64) []uint64 {
+	seen := make(map[uint64]bool, len(values))
+	result := make([]uint64, 0, len(values))
+	for _, value := range values {
+		if value != 0 && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
 func integrationIDSet(values []string) map[string]bool {
 	set := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -1021,20 +1111,10 @@ func integrationIDSet(values []string) map[string]bool {
 	return set
 }
 
-func knowledgeBaseIDSet(knowledgeBases []*types.KnowledgeBase) map[string]bool {
-	set := make(map[string]bool, len(knowledgeBases))
-	for _, kb := range knowledgeBases {
-		if kb != nil {
-			set[kb.ID] = true
-		}
-	}
-	return set
-}
-
-func integrationKnowledgeBaseViewIDSet(knowledgeBases []IntegrationKnowledgeBaseView) map[string]bool {
-	set := make(map[string]bool, len(knowledgeBases))
-	for _, kb := range knowledgeBases {
-		set[kb.ID] = true
+func integrationTenantViewIDSet(tenants []IntegrationTenantView) map[uint64]bool {
+	set := make(map[uint64]bool, len(tenants))
+	for _, tenant := range tenants {
+		set[tenant.ID] = true
 	}
 	return set
 }
@@ -1054,21 +1134,13 @@ func BuildIntegrationKnowledgeBaseViews(knowledgeBases []*types.KnowledgeBase) [
 // BuildIntegrationKnowledgeBaseView projects one knowledge base to the public integration contract.
 func BuildIntegrationKnowledgeBaseView(kb *types.KnowledgeBase) IntegrationKnowledgeBaseView {
 	return IntegrationKnowledgeBaseView{
-		ID:          kb.ID,
-		Name:        kb.Name,
-		Type:        kb.Type,
-		Description: kb.Description,
-		TenantID:    kb.TenantID,
+		ID:             kb.ID,
+		Name:           kb.Name,
+		Type:           kb.Type,
+		Description:    kb.Description,
+		TenantID:       kb.TenantID,
+		AccessTenantID: kb.TenantID,
 	}
-}
-
-func validateKnowledgeBaseIDsInSet(ids []string, allowed map[string]bool) error {
-	for _, id := range ids {
-		if !allowed[id] {
-			return fmt.Errorf("%w: knowledge base %s", ErrIntegrationAccessDenied, id)
-		}
-	}
-	return nil
 }
 
 func filterIntegrationIDs(values []string, allowed map[string]bool) types.StringArray {

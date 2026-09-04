@@ -39,27 +39,25 @@ type IntegrationApplication struct {
 // TableName returns the integration application table name.
 func (IntegrationApplication) TableName() string { return "integration_applications" }
 
-// TenantIntegrationPolicy optionally narrows a globally enabled application.
-// An absent row means enabled with the application's scopes and all user-visible KBs.
+// TenantIntegrationPolicy optionally narrows a globally enabled application in one workspace.
+// An absent row means enabled with the application's scopes.
 type TenantIntegrationPolicy struct {
-	ID               string      `json:"id" gorm:"type:varchar(36);primaryKey"`
-	ApplicationID    string      `json:"application_id" gorm:"type:varchar(36);not null;uniqueIndex:uq_int_policy"`
-	TenantID         uint64      `json:"tenant_id" gorm:"not null;uniqueIndex:uq_int_policy"`
-	Enabled          bool        `json:"enabled" gorm:"not null;default:true"`
-	AllowedScopes    StringArray `json:"allowed_scopes" gorm:"type:jsonb;not null;default:'[]'"`
-	KnowledgeBaseIDs StringArray `json:"knowledge_base_ids" gorm:"type:jsonb;not null;default:'[]'"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
+	ID            string      `json:"id" gorm:"type:varchar(36);primaryKey"`
+	ApplicationID string      `json:"application_id" gorm:"type:varchar(36);not null;uniqueIndex:uq_int_policy"`
+	TenantID      uint64      `json:"tenant_id" gorm:"not null;uniqueIndex:uq_int_policy"`
+	Enabled       bool        `json:"enabled" gorm:"not null;default:true"`
+	AllowedScopes StringArray `json:"allowed_scopes" gorm:"type:jsonb;not null;default:'[]'"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 // TableName returns the workspace integration policy table name.
 func (TenantIntegrationPolicy) TableName() string { return "tenant_integration_policies" }
 
-// IntegrationConnection binds one client to one WeKnora user and workspace.
+// IntegrationConnection binds one client to one WeKnora user.
 type IntegrationConnection struct {
 	ID            string      `json:"id" gorm:"type:varchar(36);primaryKey"`
 	ApplicationID string      `json:"application_id" gorm:"type:varchar(36);not null;uniqueIndex:uq_integration_conn"`
-	TenantID      uint64      `json:"tenant_id" gorm:"not null;uniqueIndex:uq_integration_conn"`
 	UserID        string      `json:"user_id" gorm:"type:varchar(36);not null;uniqueIndex:uq_integration_conn"`
 	Scopes        StringArray `json:"scopes" gorm:"type:jsonb;not null;default:'[]'"`
 	Status        string      `json:"status" gorm:"type:varchar(16);not null;default:'active'"`
@@ -71,16 +69,16 @@ type IntegrationConnection struct {
 // TableName returns the integration connection table name.
 func (IntegrationConnection) TableName() string { return "integration_connections" }
 
-// IntegrationConnectionKnowledgeBase stores one knowledge-base grant for a connection.
-type IntegrationConnectionKnowledgeBase struct {
-	ConnectionID    string    `json:"connection_id" gorm:"type:varchar(36);primaryKey"`
-	KnowledgeBaseID string    `json:"knowledge_base_id" gorm:"type:varchar(36);primaryKey"`
-	CreatedAt       time.Time `json:"created_at"`
+// IntegrationConnectionTenant stores one workspace grant for a connection.
+type IntegrationConnectionTenant struct {
+	ConnectionID string    `json:"connection_id" gorm:"type:varchar(36);primaryKey"`
+	TenantID     uint64    `json:"tenant_id" gorm:"primaryKey"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
-// TableName returns the integration connection grant table name.
-func (IntegrationConnectionKnowledgeBase) TableName() string {
-	return "integration_connection_knowledge_bases"
+// TableName returns the integration connection workspace-grant table name.
+func (IntegrationConnectionTenant) TableName() string {
+	return "integration_connection_tenants"
 }
 
 // IntegrationAuthorizationCode stores a hashed, short-lived and single-use browser grant.
@@ -121,8 +119,19 @@ type IntegrationCredentialSession struct {
 	Credential  *IntegrationCredential
 	Connection  *IntegrationConnection
 	Application *IntegrationApplication
-	Policy      *TenantIntegrationPolicy
 	Scopes      StringArray
+}
+
+// IntegrationCredentialAccess is the live authorization projection for one
+// integration request across every workspace selected by the user.
+type IntegrationCredentialAccess struct {
+	TenantID                     uint64
+	TenantRoles                  map[uint64]TenantRole
+	KnowledgeBases               []*KnowledgeBase
+	KnowledgeBaseIDs             StringArray
+	KnowledgeBaseTenantIDs       map[string]uint64
+	KnowledgeBaseAccessTenantIDs map[string]uint64
+	Scopes                       StringArray
 }
 
 // NormalizeIntegrationScopes drops unknown values, deduplicates them and

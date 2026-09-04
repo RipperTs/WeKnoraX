@@ -22,18 +22,21 @@ type IntegrationRepository interface {
 		ctx context.Context, applicationID string, tenantID uint64,
 	) (*types.TenantIntegrationPolicy, error)
 	ListTenantPolicies(ctx context.Context, tenantID uint64) ([]*types.TenantIntegrationPolicy, error)
+	ListApplicationPolicies(
+		ctx context.Context, applicationID string, tenantIDs []uint64,
+	) ([]*types.TenantIntegrationPolicy, error)
 	UpsertTenantPolicy(ctx context.Context, policy *types.TenantIntegrationPolicy) error
 
 	FindConnection(
-		ctx context.Context, applicationID string, tenantID uint64, userID string,
+		ctx context.Context, applicationID, userID string,
 	) (*types.IntegrationConnection, error)
 	GetConnectionByID(ctx context.Context, id string) (*types.IntegrationConnection, error)
 	ListConnectionsByUser(ctx context.Context, userID string) ([]*types.IntegrationConnection, error)
-	ListConnectionKnowledgeBaseIDs(ctx context.Context, connectionID string) ([]string, error)
+	ListConnectionTenantIDs(ctx context.Context, connectionID string) ([]uint64, error)
 	SaveAuthorization(
 		ctx context.Context,
 		connection *types.IntegrationConnection,
-		knowledgeBaseIDs []string,
+		tenantIDs []uint64,
 		code *types.IntegrationAuthorizationCode,
 	) (*types.IntegrationConnection, error)
 	RevokeConnection(ctx context.Context, connectionID, userID string, revokedAt time.Time) error

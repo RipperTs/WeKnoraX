@@ -265,44 +265,29 @@ func TestResolveTenantRole_DemotedUserCannotReclaimViaOrphan(t *testing.T) {
 	}
 }
 
-func TestResolveIntegrationTenantRole_RequiresActiveMembershipWithoutRecovery(t *testing.T) {
-	svc := newFakeMemberService()
+func TestSelectIntegrationTenant_RequiresAuthorizedWorkspace(t *testing.T) {
 	user := &types.User{ID: "u1", TenantID: 7}
-
-	if _, ok, err := resolveIntegrationTenantRole(
-		context.Background(), svc, user, 7, cfgWithRBAC(false),
-	); ok || err != nil {
-		t.Fatal("integration credential without membership must be rejected even when RBAC is disabled")
+	if _, _, ok := selectIntegrationTenant(user, &types.IntegrationCredentialAccess{}); ok {
+		t.Fatal("integration credential without an authorized workspace must be rejected")
 	}
-	if len(svc.addCalls) != 0 {
-		t.Fatalf("integration credential must not recreate membership, got %+v", svc.addCalls)
-	}
-
-	svc.failGet = errors.New("transient db failure")
-	if _, ok, err := resolveIntegrationTenantRole(
-		context.Background(), svc, user, 7, cfgWithRBAC(false),
-	); ok || err == nil {
-		t.Fatal("integration membership lookup failure must remain distinguishable from denied access")
-	}
-	if len(svc.addCalls) != 0 {
-		t.Fatalf("integration lookup failure must not recreate membership, got %+v", svc.addCalls)
+	if _, _, ok := selectIntegrationTenant(user, &types.IntegrationCredentialAccess{
+		TenantID: 8, TenantRoles: map[uint64]types.TenantRole{},
+	}); ok {
+		t.Fatal("integration anchor workspace must have a live authorized membership")
 	}
 }
 
-func TestResolveIntegrationTenantRole_CrossTenantSuperuserRequiresFlag(t *testing.T) {
-	svc := newFakeMemberService()
-	user := &types.User{ID: "super", TenantID: 1, CanAccessAllTenants: true}
-
-	if _, ok, err := resolveIntegrationTenantRole(
-		context.Background(), svc, user, 99, cfgCrossTenant(false),
-	); ok || err != nil {
-		t.Fatal("cross-tenant integration access must be rejected while the feature flag is disabled")
+func TestSelectIntegrationTenant_PrefersAuthorizedHomeWorkspace(t *testing.T) {
+	user := &types.User{ID: "u1", TenantID: 7, CanAccessAllTenants: true}
+	access := &types.IntegrationCredentialAccess{
+		TenantID: 8,
+		TenantRoles: map[uint64]types.TenantRole{
+			7: types.TenantRoleOwner,
+			8: types.TenantRoleViewer,
+		},
 	}
-	got, ok, err := resolveIntegrationTenantRole(context.Background(), svc, user, 99, cfgCrossTenant(true))
-	if err != nil || !ok || got != types.TenantRoleAdmin {
-		t.Fatalf("cross-tenant superuser with feature flag should get admin, got (%v, %v, %v)", got, ok, err)
-	}
-	if len(svc.addCalls) != 0 {
-		t.Fatalf("cross-tenant integration access must not create membership, got %+v", svc.addCalls)
+	tenantID, role, ok := selectIntegrationTenant(user, access)
+	if !ok || tenantID != 7 || role != types.TenantRoleOwner {
+		t.Fatalf("authorized home workspace should be preferred, got (%d, %v, %v)", tenantID, role, ok)
 	}
 }

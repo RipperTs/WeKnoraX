@@ -19,13 +19,21 @@
             <p>{{ t('thirdPartyIntegration.launch.description') }}</p>
           </div>
         </header>
+        <section class="workspace-scope">
+          <strong>{{ t('thirdPartyIntegration.launch.workspaces') }}</strong>
+          <div>
+            <t-tag v-for="tenant in connection.tenants" :key="tenant.id" size="small" variant="light">
+              {{ tenant.name }}
+            </t-tag>
+          </div>
+        </section>
         <div class="launch-list">
           <button
             v-for="kb in connection.knowledge_bases"
             :key="kb.id"
             type="button"
             class="knowledge-link"
-            @click="openKnowledgeBase(kb.id)"
+            @click="openKnowledgeBase(kb.id, kb.access_tenant_id)"
           >
             <span class="knowledge-icon"><t-icon name="folder" /></span>
             <span class="knowledge-copy">
@@ -58,24 +66,21 @@ const loading = ref(true)
 const errorMessage = ref('')
 const connection = ref<IntegrationConnectionView | null>(null)
 
-function openKnowledgeBase(id: string) {
+function openKnowledgeBase(id: string, tenantId: number) {
+  const tenant = connection.value?.tenants.find(item => item.id === tenantId)
+  if (tenantId && tenantId !== Number(authStore.effectiveTenantId)) {
+    authStore.setSelectedTenant(tenantId, tenant?.name || null)
+  }
   router.push(`/platform/knowledge-bases/${encodeURIComponent(id)}`)
 }
 
 onMounted(async () => {
   try {
-    const tenantId = Number(route.query.tenant_id)
-    const targetTenantId = Number.isInteger(tenantId) && tenantId > 0 ? tenantId : undefined
-    const response = await getIntegrationConnection(
-      String(route.params.connectionId || ''),
-      targetTenantId,
-    )
-    if (targetTenantId && targetTenantId !== Number(authStore.effectiveTenantId)) {
-      authStore.setSelectedTenant(targetTenantId, null)
-    }
+    const response = await getIntegrationConnection(String(route.params.connectionId || ''))
     connection.value = response.data
     if (response.data.knowledge_bases.length === 1) {
-      openKnowledgeBase(response.data.knowledge_bases[0].id)
+      const knowledgeBase = response.data.knowledge_bases[0]
+      openKnowledgeBase(knowledgeBase.id, knowledgeBase.access_tenant_id)
     }
   } catch (error: any) {
     errorMessage.value = error?.message || t('thirdPartyIntegration.launch.loadFailed')
@@ -94,6 +99,8 @@ onMounted(async () => {
 .launch-card header span { color: var(--td-brand-color); font-size: 12px; font-weight: 600; }
 .launch-card h1 { margin: 4px 0 5px; font-size: 21px; }
 .launch-card p { margin: 0; color: var(--td-text-color-secondary); }
+.workspace-scope { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 18px; border-bottom: 1px solid var(--td-component-stroke); background: var(--td-bg-color-secondarycontainer); font-size: 13px; }
+.workspace-scope > div { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 .launch-list { display: grid; gap: 9px; padding: 18px; }
 .knowledge-link { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px; text-align: left; border: 1px solid var(--td-component-stroke); border-radius: 10px; color: var(--td-text-color-primary); background: transparent; cursor: pointer; transition: border-color .2s, background .2s; }
 .knowledge-link:hover { border-color: var(--td-brand-color); background: var(--td-brand-color-light); }

@@ -448,6 +448,13 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 		logger.ErrorWithFields(ctx, err, nil)
 		return nil, id, 0, "", apperrors.NewInternalServerError(err.Error())
 	}
+	if principal, ok := types.PrincipalFromContext(ctx); ok &&
+		principal.Type == types.PrincipalIntegrationUser {
+		if scope, exists := types.TenantAPIKeyScopeFromContext(ctx); exists &&
+			scope.AllowsKnowledgeBase(id) && scope.KnowledgeBaseTenantIDs[id] == kb.TenantID {
+			return kb, id, kb.TenantID, types.OrgRoleViewer, nil
+		}
+	}
 
 	// Check 1: Verify tenant ownership (owner has full access)
 	if kb.TenantID == tenantID.(uint64) {
