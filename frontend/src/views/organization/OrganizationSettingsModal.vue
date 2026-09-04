@@ -90,6 +90,24 @@
                       </div>
                     </div>
 
+                    <!-- 空间 ID 由系统生成，仅在已有空间的基本信息中展示 -->
+                    <div v-if="!isCreateMode && orgId" class="setting-row">
+                      <div class="setting-info">
+                        <label>{{ $t('organization.editor.spaceId') }}</label>
+                        <p class="desc">{{ $t('organization.editor.spaceIdTip') }}</p>
+                      </div>
+                      <div class="setting-control">
+                        <div class="space-id-control">
+                          <t-input :model-value="orgInfo?.id || orgId" readonly class="space-id-input" />
+                          <t-tooltip :content="$t('common.copy')">
+                            <t-button variant="text" shape="square" @click="copySpaceId">
+                              <t-icon name="file-copy" />
+                            </t-button>
+                          </t-tooltip>
+                        </div>
+                      </div>
+                    </div>
+
                     <!-- 空间描述 -->
                     <div class="setting-row">
                       <div class="setting-info">
@@ -1671,6 +1689,10 @@ const resetAddMemberDialog = () => {
   tenantSearchResults.value = []
 }
 
+const copySpaceId = async () => {
+  await copyWithToast(orgInfo.value?.id || props.orgId, 'common.copied')
+}
+
 const copyInviteCode = async () => {
   await copyWithToast(inviteCode.value, 'common.copied')
 }
@@ -2168,6 +2190,18 @@ watch(addMemberPopupVisible, (visible) => {
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+
+.space-id-control {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.space-id-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .setting-row {

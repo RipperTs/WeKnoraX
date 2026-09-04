@@ -816,17 +816,8 @@ const orgStore = useOrganizationStore()
 const chatResources = useChatResourcesStore()
 const { t } = useI18n()
 
-// 左侧空间选择：默认根据当前角色决定。
-// Viewer 在该空间里通常 0 KB owned，"我的"会显示空状态、又把共享 KB 藏起来，
-// 体验非常误导；所以 Viewer 默认落到 "all"（我的 + 共享给我都显示）。
-// Contributor 及以上一进来主要管理自己创建的 KB，仍默认 "mine"。
-//
-// State lives in `?scope=` so links are shareable/bookmarkable; the
-// composable handles two-way sync with the URL. We keep "mine" as the
-// stored value (not "workspace") for back-compat with any external link
-// that might point at the old query — its display label is rebranded
-// via ListSpaceSidebar's workspaceLabel computed.
-const defaultScope: 'all' | 'mine' = authStore.hasRole('contributor') ? 'mine' : 'all'
+// 默认展示当前用户可访问的全部知识库；显式传入 `?scope=` 时仍按链接筛选。
+const defaultScope = 'all'
 const { scope: spaceSelection, creator: creatorFilter } = useListUrlState({
   defaultScope,
   defaultCreator: 'all',

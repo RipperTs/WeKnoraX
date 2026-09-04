@@ -1626,6 +1626,8 @@ export default {
       basicTitle: 'Basic Information',
       basicDesc: 'Задайте название и описание общего пространства, чтобы участникам было легче его узнавать',
       nameTip: 'Use your team or project name for easy identification',
+      spaceId: 'ID пространства',
+      spaceIdTip: 'Уникальный идентификатор общего пространства, автоматически созданный системой',
       descriptionTip: 'Опишите назначение и цели общего пространства, чтобы участники лучше его понимали',
       permissionsTitle: 'Member Permissions',
       permissionsDesc: 'Узнайте объём прав разных ролей на базы знаний и агентов в общем пространстве',

@@ -858,13 +858,8 @@ interface AgentWithUI extends CustomAgent {
  *  `permission` drives the「可编辑 / 仅查看」分组，仅在 shared 分支携带。 */
 type DisplayAgent = (AgentWithUI & { isMine: true }) | (CustomAgent & { isMine: false; org_name: string; source_tenant_id: number; share_id: string; permission?: string; showMore?: boolean; disabled_by_me?: boolean })
 
-// 左侧空间选择：默认根据当前角色决定。
-// 与 KnowledgeBaseList 同款逻辑：Viewer 在当前空间里通常没有自建智能体，
-// 默认落到 "all" 才能看到内置 + 共享给我的；Contributor 以上仍默认 "mine"。
-// State synced to `?scope=` so links are shareable. The "mine" value is
-// retained for back-compat with existing links; its display label is
-// rebranded to the active tenant name inside ListSpaceSidebar.
-const defaultScope: 'all' | 'mine' = authStore.hasRole('contributor') ? 'mine' : 'all'
+// 默认展示当前用户可访问的全部智能体；显式传入 `?scope=` 时仍按链接筛选。
+const defaultScope = 'all'
 const { scope: spaceSelection, creator: creatorFilter } = useListUrlState({
   defaultScope,
   defaultCreator: 'all',
