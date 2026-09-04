@@ -5,7 +5,15 @@
         <h2>{{ t('thirdPartyIntegration.tenant.title') }}</h2>
         <p>{{ t('thirdPartyIntegration.tenant.description') }}</p>
       </div>
-      <t-button variant="outline" :loading="loading" @click="loadAll">
+      <t-button
+        type="button"
+        theme="primary"
+        variant="text"
+        size="medium"
+        class="refresh-trigger"
+        :loading="loading"
+        @click="loadAll"
+      >
         <template #icon><t-icon name="refresh" /></template>
         {{ t('common.refresh') }}
       </t-button>
@@ -252,9 +260,28 @@ onMounted(loadAll)
 
 <style lang="less" scoped>
 .integration-settings { display: grid; gap: 26px; }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.section-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .section-header h2 { margin: 0 0 8px; font-size: 22px; }
 .section-header p, .block-header p, .row-copy p, .policy-form p { margin: 0; color: var(--td-text-color-secondary); line-height: 1.55; }
+.refresh-trigger {
+  --td-bg-color-container-hover: transparent;
+  flex-shrink: 0;
+  padding-left: 0;
+  padding-right: 0;
+  font-weight: 600;
+
+  &:hover,
+  &:focus,
+  &.t-is-active,
+  &:active {
+    background-color: transparent !important;
+    color: var(--td-brand-color-hover);
+  }
+
+  &:active {
+    color: var(--td-brand-color-active);
+  }
+}
 .settings-block { overflow: hidden; border: 1px solid var(--td-component-stroke); border-radius: 10px; }
 .block-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; background: var(--td-bg-color-secondarycontainer); }
 .block-header h3 { margin: 0 0 4px; font-size: 15px; }
@@ -279,5 +306,5 @@ onMounted(loadAll)
 .switch-row label { font-weight: 600; }
 .switch-row p { margin-top: 4px; font-size: 12px; }
 .scope-options { display: flex; gap: 22px; padding: 12px; border-radius: 8px; background: var(--td-bg-color-secondarycontainer); }
-@media (max-width: 760px) { .connection-row, .application-row, .section-header { align-items: stretch; flex-direction: column; } .row-actions { justify-content: flex-end; } }
+@media (max-width: 760px) { .connection-row, .application-row { align-items: stretch; flex-direction: column; } .row-actions { justify-content: flex-end; } }
 </style>

@@ -6,6 +6,176 @@
 
 分块、标签与分块预览接口（`/chunks`、`/knowledge-bases/:id/tags`、`/chunker/preview`）在[分块与标签](./02-api-chunks.md)。
 
+## 外部文档同步 {#external-documents}
+
+通过这组接口，将来源系统中的文档新增、更新和删除同步到指定知识库，并查询解析状态。路由注册在 `internal/router/routes_external_document.go`。
+
+### 接入准备
+
+1. 打开“知识库设置 → API 接入 → 接入密钥”，创建并保存密钥。
+2. 在“接口文档”页签复制当前知识库的接口地址和调用示例。
+3. 请求中携带 `X-API-Key: <API_KEY>`，将示例中的密钥、知识库 ID、来源标识和文件路径替换为实际值。
+
+密钥只绑定当前知识库。三个接口（包括 GET）均使用 `ingest` 权限，也允许 full-access key；仍受知识库访问范围约束，且只支持当前空间的知识库。
+
+路径：`/api/v1/knowledge-bases/{knowledge_base_id}/external-documents`。
+
+| 方法 | 用途 | 请求形式 | 响应 |
+| --- | --- | --- | --- |
+| `PUT` | 新增或更新文档 | `multipart/form-data` | `202` 已受理；`200` 跳过重复内容 |
+| `GET` | 查询处理状态 | URL 查询参数 | `200`；文档不存在为 `404` |
+| `DELETE` | 删除文档 | URL 查询参数 | `200`；文档原本不存在仍返回成功 |
+
+### 参数
+
+在同一知识库中，以 `source_id + external_id` 唯一定位文档；所有操作均使用这组稳定标识，无需先查询 `knowledge_id`。
+
+| 参数 | 类型 | 必填 | 用途与限制 |
+| --- | --- | --- | --- |
+| `source_id` | string | 是 | 来源系统的稳定标识，最长 128 个字符 |
+| `external_id` | string | 是 | 来源系统内的文档唯一标识，最长 512 个字符 |
+| `file` | file | PUT 必填 | 完整文档文件，更新也需上传；大小受 `MAX_FILE_SIZE_MB` 限制 |
+| `metadata` | JSON 字符串 | 否，仅 PUT | 值均为字符串的 JSON 对象，例如部门、分类；元数据变化也触发更新 |
+
+两个标识均需为有效 UTF-8，首尾空白会被去除。PUT 将参数放入表单，GET 和 DELETE 将标识放入 URL 查询字符串，不需要请求体。cURL 示例用 `--data-urlencode` 编码中文、空格和特殊字符。
+
+### 新增或更新
+
+```bash
+curl --request PUT 'https://your-weknora.example.com/api/v1/knowledge-bases/<knowledge_base_id>/external-documents' \
+  --header 'X-API-Key: <API_KEY>' \
+  --form 'source_id=policy-system' \
+  --form 'external_id=article-10001' \
+  --form 'file=@/path/to/document.pdf' \
+  --form 'metadata={"department":"HR"}'
+```
+
+`--form` 自动设置包含 boundary 的 `Content-Type`，无需手动设置。首次上传创建文档，后续使用相同标识更新文档。
+
+返回 `202` 表示已受理，解析仍在后台进行，应通过 GET 查询处理状态：
+
+```json
+{
+  "success": true,
+  "data": {
+    "action": "created",
+    "source_id": "policy-system",
+    "external_id": "article-10001",
+    "knowledge_id": "7dd32f36-5ad6-40ea-a735-e0a809146dea",
+    "parse_status": "pending",
+    "content_fingerprint": "...",
+    "updated_at": "2026-09-03T10:00:00Z"
+  }
+}
+```
+
+`action` 为 `created` 或 `updated`。文件名、内容和元数据均未变化，且文档正在处理或已经完成时，返回 `200` 和 `skipped`。更新会创建新文档并清理旧文档，`knowledge_id` 随之变化；外部系统应始终使用 `source_id` 和 `external_id` 同步。
+
+### 查询状态
+
+```bash
+curl --get --request GET 'https://your-weknora.example.com/api/v1/knowledge-bases/<knowledge_base_id>/external-documents' \
+  --header 'X-API-Key: <API_KEY>' \
+  --data-urlencode 'source_id=policy-system' \
+  --data-urlencode 'external_id=article-10001'
+```
+
+成功返回 `200`，查询响应不含 `action`：
+
+```json
+{
+  "success": true,
+  "data": {
+    "source_id": "policy-system",
+    "external_id": "article-10001",
+    "knowledge_id": "7dd32f36-5ad6-40ea-a735-e0a809146dea",
+    "parse_status": "completed",
+    "content_fingerprint": "...",
+    "updated_at": "2026-09-03T10:00:00Z"
+  }
+}
+```
+
+| `parse_status` | 含义 |
+| --- | --- |
+| `pending` | 等待处理 |
+| `processing` | 正在解析、分块或向量化 |
+| `finalizing` | 正在生成摘要、问题或知识图谱 |
+| `completed` | 全部处理完成 |
+| `failed` | 处理失败，查看 `error_message`；可重新 PUT 提交文档 |
+| `cancelled` | 处理已取消，可重新 PUT 提交文档 |
+
+查询不到文档时返回 `404`。没有处理错误时，`error_message` 字段省略。
+
+### 删除文档
+
+来源文档被删除或下架时，用相同标识同步删除知识库文档：
+
+```bash
+curl --get --request DELETE 'https://your-weknora.example.com/api/v1/knowledge-bases/<knowledge_base_id>/external-documents' \
+  --header 'X-API-Key: <API_KEY>' \
+  --data-urlencode 'source_id=policy-system' \
+  --data-urlencode 'external_id=article-10001'
+```
+
+`--get` 将参数放入 URL，`--request DELETE` 指定实际方法为 DELETE。删除成功返回 `200`：
+
+```json
+{
+  "success": true,
+  "data": {
+    "action": "deleted",
+    "source_id": "policy-system",
+    "external_id": "article-10001",
+    "knowledge_id": "7dd32f36-5ad6-40ea-a735-e0a809146dea",
+    "parse_status": "completed",
+    "content_fingerprint": "...",
+    "updated_at": "2026-09-03T10:00:00Z"
+  }
+}
+```
+
+删除沿用文档删除流程，清理文档及关联索引。响应中的 `parse_status` 和 `updated_at` 是删除前的文档信息，不代表删除进度。
+
+文档原本不存在时仍返回 `200`，重复删除不会报文档不存在错误：
+
+```json
+{
+  "success": true,
+  "data": {
+    "action": "skipped",
+    "source_id": "policy-system",
+    "external_id": "article-10001"
+  }
+}
+```
+
+### 同步顺序与错误处理
+
+同一文档的请求串行执行，服务端根据文件名、内容和元数据计算指纹以识别重复 PUT。处理失败或取消后重新提交会再次处理。客户端无需计算指纹，但应按文档变更顺序发送请求：服务端没有业务版本号，无法区分新旧版本，最后成功执行的请求生效。
+
+| 状态码 | 含义 |
+| --- | --- |
+| `400` | 参数、文件格式、大小或元数据不符合要求 |
+| `401` | 未提供密钥或密钥无效 |
+| `403` | 密钥缺少当前知识库的 ingest 权限或访问范围不允许 |
+| `404` | 知识库不存在，或 GET 查询的文档不存在 |
+| `409` | 文档与现有记录冲突 |
+| `429` | 当前空间存储配额已用尽 |
+| `500` | 服务端处理失败，需检查服务日志 |
+
+错误响应使用统一结构，例如缺少 `source_id` 时：
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": 1000,
+    "message": "source_id is required, must be valid UTF-8, and must not exceed 128 characters"
+  }
+}
+```
+
 ## 知识库（/api/v1/knowledge-bases）
 
 ### POST /api/v1/knowledge-bases
