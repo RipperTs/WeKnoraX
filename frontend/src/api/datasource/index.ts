@@ -106,6 +106,10 @@ export function updateDataSource(id: string, data: Partial<DataSource>) {
   return put(`/api/v1/datasource/${id}`, data)
 }
 
+export function updateDataSourceWithCredentials(id: string, data: Partial<DataSource>) {
+  return put(`/api/v1/datasource/${id}/configuration`, data)
+}
+
 export function deleteDataSource(id: string) {
   return del(`/api/v1/datasource/${id}`)
 }
@@ -129,6 +133,16 @@ export function validateCredentials(
 export function listResources(id: string, parentId?: string) {
   const query = parentId ? `?parent_id=${encodeURIComponent(parentId)}` : ''
   return get(`/api/v1/datasource/${id}/resources${query}`, { timeout: 120000 })
+}
+
+export function previewResources(
+  id: string,
+  settings: Record<string, any>,
+  credentials?: Record<string, any>,
+) {
+  const payload: Record<string, any> = { settings }
+  if (credentials !== undefined) payload.credentials = credentials
+  return post(`/api/v1/datasource/${id}/resources/preview`, payload, { timeout: 120000 })
 }
 
 // resolveResourceAncestors returns the ExternalIDs of every parent that must be

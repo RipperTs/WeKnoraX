@@ -145,6 +145,20 @@ func (s *DataSourceService) ListDataSources(ctx context.Context, kbID string) ([
 
 // UpdateDataSource updates an existing data source
 func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.DataSource) (*types.DataSource, error) {
+	return s.updateDataSource(ctx, ds, false)
+}
+
+// UpdateDataSourceWithCredentials atomically updates an existing data source
+// and replaces its credential map after validating the combined configuration.
+func (s *DataSourceService) UpdateDataSourceWithCredentials(
+	ctx context.Context, ds *types.DataSource,
+) (*types.DataSource, error) {
+	return s.updateDataSource(ctx, ds, true)
+}
+
+func (s *DataSourceService) updateDataSource(
+	ctx context.Context, ds *types.DataSource, replaceCredentials bool,
+) (*types.DataSource, error) {
 	if ds == nil || ds.ID == "" {
 		return nil, datasource.ErrDataSourceInvalid
 	}
@@ -169,26 +183,26 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 		return nil, datasource.ErrDataSourceInvalid
 	}
 
-	// Credentials NEVER flow through this endpoint — they live behind the
-	// /credentials subresource. Force-preserve the stored credentials map
-	// regardless of what the body says. Log a warning if a stale caller
-	// passes one so we can spot them and migrate later. Non-credential
-	// fields of Config (Type / ResourceIDs / Settings) flow through.
+	// The regular update path preserves stored credentials. The atomic path is
+	// reserved for forms that must validate settings and replacement credentials
+	// together before either value is persisted.
 	var mergedCfg, existingParsedCfg *types.DataSourceConfig
 	if len(ds.Config) > 0 {
 		incomingCfg, parseIncErr := ds.ParseConfig()
 		existingCfg, parseExErr := existing.ParseConfig()
 		if parseIncErr == nil && parseExErr == nil && incomingCfg != nil {
-			if incomingCfg.HasCredentials() {
+			if !replaceCredentials && incomingCfg.HasCredentials() {
 				logger.Warnf(ctx,
 					"deprecated: credentials in PUT /datasource/%s body are ignored; use PUT /credentials instead",
 					secutils.SanitizeForLog(ds.ID))
 			}
 			merged := *incomingCfg
-			if existingCfg != nil {
-				merged.Credentials = existingCfg.Credentials
-			} else {
-				merged.Credentials = nil
+			if !replaceCredentials {
+				if existingCfg != nil {
+					merged.Credentials = existingCfg.Credentials
+				} else {
+					merged.Credentials = nil
+				}
 			}
 			merged.StripNonSecretCredentials(ds.Type)
 			if blob, err := merged.ToJSON(); err == nil {
@@ -197,6 +211,9 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 			mergedCfg = &merged
 			existingParsedCfg = existingCfg
 		}
+	}
+	if replaceCredentials && mergedCfg == nil {
+		return nil, datasource.ErrInvalidConfig
 	}
 
 	// Validate new configuration if non-credential fields changed. Connectors
@@ -211,7 +228,7 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 	if metadata, ok := datasource.ConnectorMetadataRegistry[ds.Type]; ok {
 		canValidateWithoutCredentials = metadata.AuthType == "none" || strings.HasPrefix(metadata.AuthType, "optional_")
 	}
-	if mergedCfg != nil && (hasCreds || canValidateWithoutCredentials) &&
+	if mergedCfg != nil && (replaceCredentials || hasCreds || canValidateWithoutCredentials) &&
 		(ds.Type != existing.Type || configActuallyChanged) {
 		if err := s.validateDataSourceConfig(ctx, ds); err != nil {
 			return nil, err
@@ -229,9 +246,13 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 	}
 
 	logger.Infof(ctx, "data source updated: id=%s", ds.ID)
+	changedFields := []string{"settings"}
+	if replaceCredentials {
+		changedFields = append(changedFields, "credentials")
+	}
 	recordKBActivity(ctx, s.audit, ds.TenantID, ds.KnowledgeBaseID, types.AuditActionDataSourceUpdated,
 		"data_source", ds.ID, types.AuditOutcomeSuccess,
-		map[string]any{"name": ds.Name, "type": ds.Type, "changed_fields": []string{"settings"}})
+		map[string]any{"name": ds.Name, "type": ds.Type, "changed_fields": changedFields})
 	return ds, nil
 }
 
@@ -419,6 +440,44 @@ func (s *DataSourceService) ListAvailableResources(
 		return nil, err
 	}
 
+	return resources, nil
+}
+
+// PreviewAvailableResources lists resources against a draft configuration.
+// Stored credentials are reused unless the caller explicitly supplies a
+// replacement map. The data source and its scheduler are never modified.
+func (s *DataSourceService) PreviewAvailableResources(
+	ctx context.Context,
+	dsID string,
+	settings map[string]interface{},
+	credentials map[string]interface{},
+	replaceCredentials bool,
+	parentID string,
+) ([]types.Resource, error) {
+	ds, err := s.GetDataSource(ctx, dsID)
+	if err != nil {
+		return nil, err
+	}
+	connector, err := s.connectorRegistry.Get(ds.Type)
+	if err != nil {
+		return nil, err
+	}
+	config, err := ds.ParseConfig()
+	if err != nil || config == nil {
+		return nil, datasource.ErrInvalidConfig
+	}
+
+	draft := *config
+	draft.Settings = settings
+	if replaceCredentials {
+		draft.Credentials = credentials
+	}
+	draft.StripNonSecretCredentials(ds.Type)
+	resources, err := connector.ListResources(ctx, &draft, parentID)
+	if err != nil {
+		logger.Errorf(ctx, "failed to preview resources: %v", err)
+		return nil, err
+	}
 	return resources, nil
 }
 

@@ -5,10 +5,12 @@ import { useI18n } from 'vue-i18n'
 import {
   createDataSource,
   updateDataSource,
+  updateDataSourceWithCredentials,
   triggerSync,
   validateConnection,
   validateCredentials,
   listResources,
+  previewResources,
   resolveResourceAncestors,
   deleteDataSource,
   putDataSourceCredentials,
@@ -91,6 +93,8 @@ async function confirmRemoveCredentials() {
     replaceCredentialsMode.value = false
     pendingRemoveCredentials.value = false
     form.value.config.credentials = {}
+    clearConfluencePreview()
+    testResult.value = ''
     MessagePlugin.success(t('credential.removedToast'))
   } catch (e: any) {
     MessagePlugin.error(e?.message || t('credential.removeFailed'))
@@ -104,7 +108,10 @@ function cancelReplaceCredentials() {
   pendingRemoveCredentials.value = false
   form.value.config.credentials = {}
   rssAuthHeaders.value = []
-  testResult.value = credentialsConfigured.value ? 'success' : ''
+  clearConfluencePreview()
+  const confluenceDraftChanged = form.value.type === 'confluence'
+    && normalizeConfluenceBaseURL(form.value.config.settings.base_url) !== persistedConfluenceBaseURL.value
+  testResult.value = credentialsConfigured.value && !confluenceDraftChanged ? 'success' : ''
   testErrorMsg.value = ''
 }
 
@@ -132,7 +139,26 @@ function syncRssAuthHeadersToCredentials() {
   }
 }
 
+function credentialPayload(): Record<string, any> {
+  syncRssAuthHeadersToCredentials()
+  const credentials = Object.fromEntries(
+    Object.entries(form.value.config.credentials).filter(
+      ([, value]) => typeof value === 'string' ? value !== '' : value != null,
+    ),
+  )
+  if (form.value.type === 'confluence'
+    && !String(credentials.username || '').trim()
+    && String(credentials.password || '') === '') {
+    delete credentials.username
+    delete credentials.password
+  }
+  return credentials
+}
+
 const validatedConfluenceBaseURL = ref('')
+const persistedConfluenceBaseURL = ref('')
+const confluencePreviewBaseURL = ref('')
+const confluencePreviewResources = ref<Resource[] | null>(null)
 
 function normalizeConfluenceBaseURL(value: unknown): string {
   return String(value || '').trim().replace(/#.*$/, '').replace(/\/+$/, '')
@@ -141,6 +167,16 @@ function normalizeConfluenceBaseURL(value: unknown): string {
 function confluenceBaseURLChanged(): boolean {
   if (form.value.type !== 'confluence') return false
   return normalizeConfluenceBaseURL(form.value.config.settings.base_url) !== validatedConfluenceBaseURL.value
+}
+
+function hasCurrentConfluencePreview(): boolean {
+  return confluencePreviewResources.value !== null
+    && confluencePreviewBaseURL.value === normalizeConfluenceBaseURL(form.value.config.settings.base_url)
+}
+
+function clearConfluencePreview() {
+  confluencePreviewBaseURL.value = ''
+  confluencePreviewResources.value = null
 }
 
 // Feed URLs may still live in credentials on older rows (not returned by the
@@ -168,12 +204,16 @@ function removeRssAuthHeader(idx: number) {
 
 function needsConnectionTest(): boolean {
   if (confluenceBaseURLChanged()) return true
+  if (form.value.type === 'confluence'
+    && normalizeConfluenceBaseURL(form.value.config.settings.base_url) !== persistedConfluenceBaseURL.value
+    && !hasCurrentConfluencePreview()) return true
   return !(isEdit.value && credentialsConfigured.value && !replaceCredentialsMode.value)
 }
 
 function enterReplaceCredentials() {
   pendingRemoveCredentials.value = false
   replaceCredentialsMode.value = true
+  clearConfluencePreview()
   testResult.value = ''
   testErrorMsg.value = ''
 }
@@ -682,6 +722,7 @@ watch(visible, async (v) => {
   prereqExpanded.value = false
   pendingRemoveCredentials.value = false
   resources.value = []
+  clearConfluencePreview()
   selectedResourceIds.value = []
   expandedResourceIds.value = new Set()
   loadedChildrenIds.value = new Set()
@@ -720,6 +761,7 @@ watch(visible, async (v) => {
     validatedConfluenceBaseURL.value = props.dataSource.type === 'confluence'
       ? normalizeConfluenceBaseURL(form.value.config.settings.base_url)
       : ''
+    persistedConfluenceBaseURL.value = validatedConfluenceBaseURL.value
     selectedResourceIds.value = form.value.config?.resource_ids || []
     if (isGitLabConnector(form.value.type)) {
       const savedProjects = Array.isArray(form.value.config.settings.projects) ? form.value.config.settings.projects : []
@@ -754,12 +796,14 @@ watch(visible, async (v) => {
       sync_deletions: true,
     }
     validatedConfluenceBaseURL.value = ''
+    persistedConfluenceBaseURL.value = ''
   }
 })
 
 watch(
   () => form.value.config.credentials,
   () => {
+    if (form.value.type === 'confluence') clearConfluencePreview()
     if (needsConnectionTest()) {
       testResult.value = ''
       testErrorMsg.value = ''
@@ -807,12 +851,14 @@ function selectType(def: ConnectorDef) {
   form.value.config.credentials = {}
   form.value.config.settings = {}
   validatedConfluenceBaseURL.value = ''
+  persistedConfluenceBaseURL.value = ''
+  clearConfluencePreview()
   if (isGitLabConnector(def.type)) addGitLabProject()
   rssAuthHeaders.value = []
   step.value = 1
 }
 
-// --- Test connection (stateless, no DB write) ---
+// --- Test connection ---
 async function testConnection() {
   syncRssAuthHeadersToCredentials()
   if (!validateRssFeedUrls()) return
@@ -833,24 +879,37 @@ async function testConnection() {
   testResult.value = ''
   testErrorMsg.value = ''
   try {
-    if (isEdit.value && tempDsId.value) {
+    let previewedResources: Resource[] | null = null
+    if (isEdit.value && tempDsId.value && form.value.type === 'confluence') {
+      const credentials = credentialPayload()
+      const useDraftCredentials = credentialsInputVisible.value && Object.keys(credentials).length > 0
+      const res = await previewResources(
+        tempDsId.value,
+        form.value.config.settings,
+        useDraftCredentials ? credentials : undefined,
+      )
+      previewedResources = res?.data || res || []
+    } else if (isEdit.value && tempDsId.value) {
       await updateDataSource(tempDsId.value, {
         ...form.value,
         knowledge_base_id: props.kbId,
       } as any)
       await validateConnection(tempDsId.value)
     } else {
-      const creds = { ...form.value.config.credentials }
+      const creds = credentialPayload()
       await validateCredentials(form.value.type, creds, form.value.config.settings)
     }
     testResult.value = 'success'
     if (form.value.type === 'confluence') {
       if (confluenceSourceChanged) {
-        resources.value = []
         selectedResourceIds.value = []
         form.value.config.resource_ids = []
       }
       validatedConfluenceBaseURL.value = normalizeConfluenceBaseURL(form.value.config.settings.base_url)
+      if (previewedResources !== null) {
+        confluencePreviewBaseURL.value = validatedConfluenceBaseURL.value
+        confluencePreviewResources.value = previewedResources
+      }
     }
     MessagePlugin.success(t('datasource.testSuccess'))
   } catch (e: any) {
@@ -865,23 +924,31 @@ async function testConnection() {
 async function loadResources() {
   loadingResources.value = true
   try {
-    if (!tempDsId.value) {
-      const res = await createDataSource({
-        ...form.value,
-        knowledge_base_id: props.kbId,
-        status: 'paused',
-      } as any)
-      const created = res?.data || res
-      tempDsId.value = created.id
-    } else if (!isEdit.value) {
-      await updateDataSource(tempDsId.value, {
-        ...form.value,
-        knowledge_base_id: props.kbId,
-      } as any)
-    }
+    let loadedResources: Resource[]
+    if (isEdit.value && form.value.type === 'confluence' && hasCurrentConfluencePreview()) {
+      loadedResources = confluencePreviewResources.value || []
+    } else {
+      if (!tempDsId.value) {
+        const res = await createDataSource({
+          ...form.value,
+          config: buildConfigPayload(),
+          knowledge_base_id: props.kbId,
+          status: 'paused',
+        } as any)
+        const created = res?.data || res
+        tempDsId.value = created.id
+      } else if (!isEdit.value) {
+        await updateDataSource(tempDsId.value, {
+          ...form.value,
+          config: buildConfigPayload(),
+          knowledge_base_id: props.kbId,
+        } as any)
+      }
 
-    const res = await listResources(tempDsId.value)
-    resources.value = res?.data || res || []
+      const res = await listResources(tempDsId.value)
+      loadedResources = res?.data || res || []
+    }
+    resources.value = loadedResources
     // Any parent that already arrived with children (connectors returning the
     // full tree, e.g. Notion) needs no further lazy fetch.
     const parentsWithChildren = new Set<string>()
@@ -1094,31 +1161,26 @@ function prevStep() {
 // Create mode: credentials flow inline so the initial data source row
 // already carries them.
 //
-// Edit mode: credentials NEVER flow through the main PUT — they go via the
-// /credentials subresource, committed before the main submit (see
-// commitCredentialsIfNeeded). Sending an empty map keeps the backend
-// validator happy.
-function buildConfigPayload(): Record<string, unknown> {
+// Edit mode normally keeps credentials behind the credential subresource.
+// Confluence can opt into the atomic configuration endpoint when its address
+// and credentials must be validated and saved together.
+function buildConfigPayload(includeCredentials = false): Record<string, unknown> {
   syncGitLabProjectsToSettings()
   return {
-    credentials: isEdit.value ? {} : { ...form.value.config.credentials },
+    credentials: isEdit.value && !includeCredentials ? {} : credentialPayload(),
     resource_ids: form.value.config.resource_ids,
     settings: form.value.config.settings,
   }
 }
 
-// In edit mode, when the user opted in to Replace credentials and typed at
-// least one value, commit it to /credentials before the main PUT. Aborts
-// the whole submit on failure so we don't leave the row partially saved.
+// For connectors other than Confluence, commit newly configured credentials
+// through the credential subresource before the main update.
 async function commitCredentialsIfNeeded(dsId: string): Promise<boolean> {
-  if (!isEdit.value || !replaceCredentialsMode.value) return true
-  syncRssAuthHeadersToCredentials()
-  const filled = Object.entries(form.value.config.credentials).filter(
-    ([, v]) => typeof v === 'string' ? v !== '' : v != null,
-  )
-  if (filled.length === 0) return true
+  if (!isEdit.value || (credentialsConfigured.value && !replaceCredentialsMode.value)) return true
+  const credentials = credentialPayload()
+  if (Object.keys(credentials).length === 0) return true
   try {
-    await putDataSourceCredentials(dsId, Object.fromEntries(filled))
+    await putDataSourceCredentials(dsId, credentials)
     credentialsConfigured.value = true
     replaceCredentialsMode.value = false
     form.value.config.credentials = {}
@@ -1138,20 +1200,31 @@ async function handleSubmit() {
     let dataSourceId = tempDsId.value
 
     if (tempDsId.value) {
-      // Commit credential replacement BEFORE the main PUT so a validation
-      // failure on credentials doesn't leave us with an updated row that
-      // still points at the old broken token.
-      const credsOk = await commitCredentialsIfNeeded(tempDsId.value)
-      if (!credsOk) {
-        submitting.value = false
-        return
-      }
-      await updateDataSource(tempDsId.value, {
+      const draftCredentials = credentialPayload()
+      const replaceConfluenceCredentials = isEdit.value && form.value.type === 'confluence'
+        && (!credentialsConfigured.value || replaceCredentialsMode.value)
+        && Object.keys(draftCredentials).length > 0
+      const payload = {
         ...form.value,
-        config: buildConfigPayload(),
+        config: buildConfigPayload(replaceConfluenceCredentials),
         knowledge_base_id: props.kbId,
         status: 'active',
-      } as any)
+      } as any
+      if (replaceConfluenceCredentials) {
+        await updateDataSourceWithCredentials(tempDsId.value, payload)
+        credentialsConfigured.value = true
+        replaceCredentialsMode.value = false
+        form.value.config.credentials = {}
+      } else {
+        // Other connectors retain the credential subresource flow. Confluence
+        // only uses it when settings do not need an atomic credential change.
+        const credsOk = await commitCredentialsIfNeeded(tempDsId.value)
+        if (!credsOk) {
+          submitting.value = false
+          return
+        }
+        await updateDataSource(tempDsId.value, payload)
+      }
     } else {
       const res = await createDataSource({
         ...form.value,

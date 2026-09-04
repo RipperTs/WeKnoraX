@@ -284,6 +284,7 @@ func RegisterDataSourceRoutes(
 		ds.GET("", g.Viewer(), handler.ListDataSources)
 		ds.GET("/:id", g.Viewer(), handler.GetDataSource)
 		ds.PUT("/:id", g.Admin(), handler.UpdateDataSource)
+		ds.PUT("/:id/configuration", g.Admin(), handler.UpdateDataSourceWithCredentials)
 		ds.DELETE("/:id", g.Admin(), handler.DeleteDataSource)
 
 		// Credential subresource. Single logical field "credentials" because
@@ -295,6 +296,7 @@ func RegisterDataSourceRoutes(
 		// Connection and resource management — Admin+
 		ds.POST("/:id/validate", g.Admin(), handler.ValidateConnection)
 		ds.GET("/:id/resources", g.Admin(), handler.ListAvailableResources)
+		ds.POST("/:id/resources/preview", g.Admin(), handler.PreviewAvailableResources)
 		ds.POST("/:id/resource-ancestors", g.Admin(), handler.ResolveResourceAncestors)
 
 		// Sync management — Admin+
