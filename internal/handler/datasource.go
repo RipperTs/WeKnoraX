@@ -230,6 +230,40 @@ func (h *DataSourceHandler) UpdateDataSource(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataSourceResponse(ds))
 }
 
+// UpdateDataSourceWithCredentials updates settings and replacement credentials
+// in one validated write. It is used when the two values depend on each other,
+// such as moving a Confluence data source to another instance.
+func (h *DataSourceHandler) UpdateDataSourceWithCredentials(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID := h.getTenantID(c)
+	if tenantID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	id := c.Param("id")
+	var req types.DataSource
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	existing, status, msg := h.getOwnedDataSource(ctx, tenantID, id)
+	if status != http.StatusOK {
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+	req.ID = id
+	req.TenantID = existing.TenantID
+	req.KnowledgeBaseID = existing.KnowledgeBaseID
+	ds, err := h.service.UpdateDataSourceWithCredentials(ctx, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewDataSourceResponse(ds))
+}
+
 // DeleteDataSource godoc
 // @Summary Delete a data source
 // @Description Delete a data source (soft delete)
@@ -294,7 +328,7 @@ func (h *DataSourceHandler) ValidateConnection(c *gin.Context) {
 
 // ValidateCredentials godoc
 // @Summary Test connection with raw credentials (no persistence)
-// @Description Validate connectivity to an external data source using type + credentials
+// @Description Validate connectivity to an external data source using type, credentials, and settings
 //
 //	without creating or updating any database records.
 //	Used by the frontend "Test Connection" button during data source creation.
@@ -302,7 +336,7 @@ func (h *DataSourceHandler) ValidateConnection(c *gin.Context) {
 // @Tags DataSource
 // @Accept json
 // @Produce json
-// @Param request body object true "type and credentials"
+// @Param request body object true "connector type, credentials, and settings"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
 // @Router /datasource/validate-credentials [post]
@@ -316,14 +350,15 @@ func (h *DataSourceHandler) ValidateCredentials(c *gin.Context) {
 
 	var req struct {
 		Type        string                 `json:"type" binding:"required"`
-		Credentials map[string]interface{} `json:"credentials" binding:"required"`
+		Credentials map[string]interface{} `json:"credentials"`
+		Settings    map[string]interface{} `json:"settings"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: type and credentials are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: type is required"})
 		return
 	}
 
-	if err := h.service.ValidateCredentials(ctx, req.Type, req.Credentials); err != nil {
+	if err := h.service.ValidateCredentials(ctx, req.Type, req.Credentials, req.Settings); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -362,6 +397,48 @@ func (h *DataSourceHandler) ListAvailableResources(c *gin.Context) {
 		return
 	}
 
+	if resources == nil {
+		resources = make([]types.Resource, 0)
+	}
+	c.JSON(http.StatusOK, resources)
+}
+
+// PreviewAvailableResources lists resources using draft settings and optional
+// replacement credentials without updating the stored data source.
+func (h *DataSourceHandler) PreviewAvailableResources(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID := h.getTenantID(c)
+	if tenantID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	id := c.Param("id")
+	if _, status, msg := h.getOwnedDataSource(ctx, tenantID, id); status != http.StatusOK {
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+	var req struct {
+		Settings    map[string]interface{}  `json:"settings"`
+		Credentials *map[string]interface{} `json:"credentials"`
+		ParentID    string                  `json:"parent_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	credentials := map[string]interface{}(nil)
+	replaceCredentials := req.Credentials != nil
+	if replaceCredentials {
+		credentials = *req.Credentials
+	}
+	resources, err := h.service.PreviewAvailableResources(
+		ctx, id, req.Settings, credentials, replaceCredentials, req.ParentID,
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if resources == nil {
 		resources = make([]types.Resource, 0)
 	}

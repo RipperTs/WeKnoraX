@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
+	"github.com/Tencent/WeKnora/internal/datasource"
+	"github.com/Tencent/WeKnora/internal/datasource/connector/confluence"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +18,16 @@ import (
 type recordingDSRepo struct {
 	kbDeleteDSRepo
 	updated []*types.DataSource
+}
+
+type updateTrackingDSRepo struct {
+	*kbDeleteDSRepo
+	updateCalls int
+}
+
+func (r *updateTrackingDSRepo) Update(_ context.Context, _ *types.DataSource) error {
+	r.updateCalls++
+	return nil
 }
 
 func (r *recordingDSRepo) UpdateSyncState(_ context.Context, ds *types.DataSource) error {
@@ -32,9 +45,9 @@ func makeConnectorCursor(t *testing.T, spaceNodeTimes map[string]map[string]stri
 	return types.JSON(b)
 }
 
-// A fresh full sync (ForceFull, first attempt) must ignore any recorded cursor
-// and re-fetch everything. A retry of that same task (attempt > 0) must instead
-// resume from the checkpointed cursor so it converges instead of restarting.
+// A fresh full sync (ForceFull, first attempt) must not pass the recorded cursor
+// through the normal FetchStream path. A retry of that same task (attempt > 0)
+// must instead resume from the checkpointed cursor.
 func TestStreamStartCursor_ForceFullFirstAttemptDropsCursor(t *testing.T) {
 	ds := &types.DataSource{
 		LastSyncCursor: makeConnectorCursor(t, map[string]map[string]string{"space1": {"nt1": "100"}}),
@@ -61,6 +74,41 @@ func TestStreamStartCursor_IncrementalKeepsCursor(t *testing.T) {
 	assert.NotNil(t, cur.ConnectorCursor["space_node_times"])
 }
 
+func TestUpdateDataSourceValidatesAnonymousConnectorBeforeSaving(t *testing.T) {
+	existingConfig, err := (&types.DataSourceConfig{
+		Type:     types.ConnectorTypeConfluence,
+		Settings: map[string]interface{}{"base_url": "https://confluence.example.com"},
+	}).ToJSON()
+	require.NoError(t, err)
+	existing := &types.DataSource{
+		ID:              "ds-confluence",
+		TenantID:        1,
+		KnowledgeBaseID: "kb-1",
+		Type:            types.ConnectorTypeConfluence,
+		Config:          existingConfig,
+	}
+	repo := &updateTrackingDSRepo{kbDeleteDSRepo: newKBDeleteDSRepo(existing.KnowledgeBaseID, existing)}
+	registry := datasource.NewConnectorRegistry()
+	require.NoError(t, registry.Register(confluence.NewConnector()))
+	svc := &DataSourceService{dsRepo: repo, connectorRegistry: registry}
+
+	invalidConfig, err := (&types.DataSourceConfig{
+		Type:     types.ConnectorTypeConfluence,
+		Settings: map[string]interface{}{"base_url": "not-an-absolute-url"},
+	}).ToJSON()
+	require.NoError(t, err)
+	_, err = svc.UpdateDataSource(context.Background(), &types.DataSource{
+		ID:              existing.ID,
+		TenantID:        existing.TenantID,
+		KnowledgeBaseID: existing.KnowledgeBaseID,
+		Type:            existing.Type,
+		Config:          invalidConfig,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, datasource.ErrInvalidConfig)
+	assert.Zero(t, repo.updateCalls, "invalid anonymous settings must not be persisted")
+}
+
 func newStreamHandler(svc *DataSourceService, ds *types.DataSource, result *types.SyncResult, syncLog *types.SyncLog) *streamSyncHandler {
 	return &streamSyncHandler{svc: svc, ds: ds, result: result, syncLog: syncLog}
 }
@@ -80,11 +128,15 @@ func TestStreamHandler_EmitClassifiesDeletedAndFailed(t *testing.T) {
 	knowledgeSvc := &sweepFakeKS{repo: knowledgeRepo}
 	h := newStreamHandler(&DataSourceService{knowledgeService: knowledgeSvc}, ds, result, &types.SyncLog{})
 
-	require.NoError(t, h.Emit(context.Background(), types.FetchedItem{ExternalID: "gone", IsDeleted: true}))
-	require.NoError(t, h.Emit(context.Background(), types.FetchedItem{
+	handled, err := h.Emit(context.Background(), types.FetchedItem{ExternalID: "gone", IsDeleted: true})
+	require.NoError(t, err)
+	assert.True(t, handled)
+	handled, err = h.Emit(context.Background(), types.FetchedItem{
 		ExternalID: "bad", Title: "Broken Doc",
 		Metadata: map[string]string{"error": "export failed"},
-	}))
+	})
+	require.NoError(t, err)
+	assert.False(t, handled)
 
 	assert.Equal(t, 1, result.Deleted)
 	assert.Equal(t, 1, result.Failed)
@@ -99,9 +151,70 @@ func TestStreamHandler_EmitAbortsOnCanceledContext(t *testing.T) {
 	h := newStreamHandler(&DataSourceService{}, &types.DataSource{}, &types.SyncResult{}, &types.SyncLog{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := h.Emit(ctx, types.FetchedItem{ExternalID: "x", Content: []byte("data"), FileName: "x.md"})
+	handled, err := h.Emit(ctx, types.FetchedItem{ExternalID: "x", Content: []byte("data"), FileName: "x.md"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+	assert.False(t, handled)
+}
+
+func TestStreamHandler_EmitAbortsOnDeletionFailure(t *testing.T) {
+	repo := &deletionLookupKnowledgeRepo{lookupErr: errors.New("lookup failed")}
+	h := newStreamHandler(
+		&DataSourceService{knowledgeService: &sweepFakeKS{repo: repo}},
+		&types.DataSource{
+			ID: "ds-1", TenantID: 1, KnowledgeBaseID: "kb-1", SyncDeletions: true,
+		},
+		&types.SyncResult{},
+		&types.SyncLog{},
+	)
+
+	handled, err := h.Emit(context.Background(), types.FetchedItem{ExternalID: "gone", IsDeleted: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "external_id=gone")
+	assert.False(t, handled)
+	assert.Equal(t, 1, h.result.DeletionFailed)
+}
+
+func TestStreamHandler_EmitKeepsFailedIngestPending(t *testing.T) {
+	repo := &sweepFakeRepo{}
+	h := newStreamHandler(
+		&DataSourceService{knowledgeService: &sweepFakeKS{
+			repo:      repo,
+			createErr: errors.New("create failed"),
+		}},
+		&types.DataSource{
+			ID: "ds-1", TenantID: 1, KnowledgeBaseID: "kb-1",
+		},
+		&types.SyncResult{},
+		&types.SyncLog{},
+	)
+
+	handled, err := h.Emit(context.Background(), types.FetchedItem{
+		ExternalID: "page:1",
+		Title:      "Welcome",
+		FileName:   "welcome.md",
+		Content:    []byte("hello"),
+	})
+	require.NoError(t, err)
+	assert.False(t, handled)
+	assert.Equal(t, 1, h.result.Failed)
+}
+
+func TestStreamHandler_EmitAdvancesDeletionWhenDisabled(t *testing.T) {
+	h := newStreamHandler(
+		&DataSourceService{},
+		&types.DataSource{SyncDeletions: false},
+		&types.SyncResult{},
+		&types.SyncLog{},
+	)
+
+	handled, err := h.Emit(context.Background(), types.FetchedItem{
+		ExternalID: "page:1",
+		IsDeleted:  true,
+	})
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Zero(t, h.result.Deleted)
 }
 
 // Checkpoint persists the connector cursor onto the data source so a crash

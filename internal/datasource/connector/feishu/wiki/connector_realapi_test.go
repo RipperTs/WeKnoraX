@@ -42,23 +42,23 @@ type collectHandler struct {
 	cancel      context.CancelFunc
 }
 
-func (h *collectHandler) Emit(ctx context.Context, item types.FetchedItem) error {
+func (h *collectHandler) Emit(ctx context.Context, item types.FetchedItem) (bool, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	if item.Metadata["error"] != "" {
 		h.failed = append(h.failed, item.ExternalID)
-		return nil
+		return false, nil
 	}
 	h.calls++
 	if h.cancelAfter > 0 && h.calls > h.cancelAfter {
 		if h.cancel != nil {
 			h.cancel()
 		}
-		return context.Canceled
+		return false, context.Canceled
 	}
 	h.ingested = append(h.ingested, item.ExternalID)
-	return nil
+	return true, nil
 }
 
 func (h *collectHandler) Checkpoint(_ context.Context, cursor *types.SyncCursor) error {

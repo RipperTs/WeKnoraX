@@ -37,7 +37,6 @@
       class="created-key-alert"
       theme="warning"
       :title="t('knowledgeEditor.apiAccess.createdTitle')"
-      :message="t('knowledgeEditor.apiAccess.createdDescription')"
     >
       <template #operation>
         <t-button size="small" variant="outline" @click="copyCreatedToken">
@@ -45,8 +44,28 @@
           {{ t('common.copy') }}
         </t-button>
       </template>
+      <p class="created-key-description">
+        {{ t('knowledgeEditor.apiAccess.createdDescription') }}
+      </p>
       <div class="created-key-value">
         <code>{{ createdToken }}</code>
+      </div>
+      <div class="quick-start">
+        <div class="quick-start__header">
+          <div>
+            <strong>{{ t('knowledgeEditor.apiAccess.quickStartTitle') }}</strong>
+            <p>{{ t('knowledgeEditor.apiAccess.quickStartDescription') }}</p>
+          </div>
+          <t-button size="small" variant="text" @click="copyRequestExample">
+            <template #icon><t-icon name="file-copy" /></template>
+            {{ t('knowledgeEditor.apiAccess.copyExample') }}
+          </t-button>
+        </div>
+        <pre class="quick-start__code"><code>{{ requestExample }}</code></pre>
+        <div class="quick-start__hints">
+          <p><code>source_id</code>: {{ t('knowledgeEditor.apiAccess.sourceIdHint') }}</p>
+          <p><code>external_id</code>: {{ t('knowledgeEditor.apiAccess.externalIdHint') }}</p>
+        </div>
       </div>
     </t-alert>
 
@@ -71,7 +90,7 @@
 
       <t-empty
         v-else-if="keys.length === 0"
-        class="list-state"
+        class="list-state list-state--empty"
         :description="t('knowledgeEditor.apiAccess.empty')"
       />
 
@@ -140,6 +159,19 @@ const errorMessage = ref('')
 const allKeys = ref<TenantAPIKey[]>([])
 
 const endpoint = computed(() => `/api/v1/knowledge-bases/${props.kbId}/external-documents`)
+const requestURL = computed(() => {
+  const origin = typeof window !== 'undefined' && window.location.origin !== 'null'
+    ? window.location.origin
+    : ''
+  return `${origin}${endpoint.value}`
+})
+const requestExample = computed(() => [
+  `curl --request PUT '${requestURL.value}' \\`,
+  "  --header 'X-API-Key: <API_KEY>' \\",
+  "  --form 'source_id=policy-system' \\",
+  "  --form 'external_id=article-10001' \\",
+  "  --form 'file=@/path/to/document.pdf'",
+].join('\n'))
 const tenantId = computed(() => Number(authStore.effectiveTenantId || 0))
 const keys = computed(() => allKeys.value.filter((key) => {
   const knowledgeBaseIDs = (key.knowledge_base_ids || []).map(String)
@@ -212,6 +244,10 @@ async function createKey() {
 
 async function copyCreatedToken() {
   await copyWithToast(createdToken.value, 'knowledgeEditor.apiAccess.copySuccess')
+}
+
+async function copyRequestExample() {
+  await copyWithToast(requestExample.value, 'knowledgeEditor.apiAccess.exampleCopySuccess')
 }
 
 function confirmRevoke(key: TenantAPIKey) {
@@ -332,6 +368,10 @@ function formatDate(value: string) {
   align-items: flex-start;
 }
 
+.created-key-description {
+  margin: 0;
+}
+
 .created-key-value {
   margin-top: 12px;
   overflow-x: auto;
@@ -342,6 +382,51 @@ function formatDate(value: string) {
   white-space: nowrap;
 }
 
+.quick-start {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--td-component-stroke);
+}
+
+.quick-start__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.quick-start__header strong {
+  color: var(--td-text-color-primary);
+}
+
+.quick-start__header p,
+.quick-start__hints p {
+  margin: 4px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.quick-start__code {
+  margin: 12px 0 0;
+  padding: 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.quick-start__hints {
+  margin-top: 8px;
+}
+
+.quick-start__hints code {
+  font-family: var(--font-mono, monospace);
+}
+
 .list-state {
   display: flex;
   min-height: 120px;
@@ -349,6 +434,10 @@ function formatDate(value: string) {
   justify-content: center;
   gap: 8px;
   color: var(--td-text-color-secondary);
+}
+
+.list-state--empty {
+  flex-direction: column;
 }
 
 .key-table-wrap {

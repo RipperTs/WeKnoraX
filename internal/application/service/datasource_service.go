@@ -145,6 +145,20 @@ func (s *DataSourceService) ListDataSources(ctx context.Context, kbID string) ([
 
 // UpdateDataSource updates an existing data source
 func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.DataSource) (*types.DataSource, error) {
+	return s.updateDataSource(ctx, ds, false)
+}
+
+// UpdateDataSourceWithCredentials atomically updates an existing data source
+// and replaces its credential map after validating the combined configuration.
+func (s *DataSourceService) UpdateDataSourceWithCredentials(
+	ctx context.Context, ds *types.DataSource,
+) (*types.DataSource, error) {
+	return s.updateDataSource(ctx, ds, true)
+}
+
+func (s *DataSourceService) updateDataSource(
+	ctx context.Context, ds *types.DataSource, replaceCredentials bool,
+) (*types.DataSource, error) {
 	if ds == nil || ds.ID == "" {
 		return nil, datasource.ErrDataSourceInvalid
 	}
@@ -169,26 +183,26 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 		return nil, datasource.ErrDataSourceInvalid
 	}
 
-	// Credentials NEVER flow through this endpoint — they live behind the
-	// /credentials subresource. Force-preserve the stored credentials map
-	// regardless of what the body says. Log a warning if a stale caller
-	// passes one so we can spot them and migrate later. Non-credential
-	// fields of Config (Type / ResourceIDs / Settings) flow through.
+	// The regular update path preserves stored credentials. The atomic path is
+	// reserved for forms that must validate settings and replacement credentials
+	// together before either value is persisted.
 	var mergedCfg, existingParsedCfg *types.DataSourceConfig
 	if len(ds.Config) > 0 {
 		incomingCfg, parseIncErr := ds.ParseConfig()
 		existingCfg, parseExErr := existing.ParseConfig()
 		if parseIncErr == nil && parseExErr == nil && incomingCfg != nil {
-			if incomingCfg.HasCredentials() {
+			if !replaceCredentials && incomingCfg.HasCredentials() {
 				logger.Warnf(ctx,
 					"deprecated: credentials in PUT /datasource/%s body are ignored; use PUT /credentials instead",
 					secutils.SanitizeForLog(ds.ID))
 			}
 			merged := *incomingCfg
-			if existingCfg != nil {
-				merged.Credentials = existingCfg.Credentials
-			} else {
-				merged.Credentials = nil
+			if !replaceCredentials {
+				if existingCfg != nil {
+					merged.Credentials = existingCfg.Credentials
+				} else {
+					merged.Credentials = nil
+				}
 			}
 			merged.StripNonSecretCredentials(ds.Type)
 			if blob, err := merged.ToJSON(); err == nil {
@@ -198,17 +212,24 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 			existingParsedCfg = existingCfg
 		}
 	}
+	if replaceCredentials && mergedCfg == nil {
+		return nil, datasource.ErrInvalidConfig
+	}
 
-	// Validate new configuration if non-credential fields changed. Skip
-	// when there are no stored credentials yet (validators would fail with
-	// no token to call the live API) and when the parsed config is
-	// structurally identical.
+	// Validate new configuration if non-credential fields changed. Connectors
+	// with no required authentication can validate settings immediately;
+	// credential-backed connectors wait until credentials are configured.
 	configActuallyChanged := true
 	if mergedCfg != nil && existingParsedCfg != nil {
 		configActuallyChanged = !reflect.DeepEqual(*mergedCfg, *existingParsedCfg)
 	}
 	hasCreds := mergedCfg != nil && mergedCfg.HasConfiguredCredentials(ds.Type)
-	if hasCreds && (ds.Type != existing.Type || configActuallyChanged) {
+	canValidateWithoutCredentials := false
+	if metadata, ok := datasource.ConnectorMetadataRegistry[ds.Type]; ok {
+		canValidateWithoutCredentials = metadata.AuthType == "none" || strings.HasPrefix(metadata.AuthType, "optional_")
+	}
+	if mergedCfg != nil && (replaceCredentials || hasCreds || canValidateWithoutCredentials) &&
+		(ds.Type != existing.Type || configActuallyChanged) {
 		if err := s.validateDataSourceConfig(ctx, ds); err != nil {
 			return nil, err
 		}
@@ -225,9 +246,13 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 	}
 
 	logger.Infof(ctx, "data source updated: id=%s", ds.ID)
+	changedFields := []string{"settings"}
+	if replaceCredentials {
+		changedFields = append(changedFields, "credentials")
+	}
 	recordKBActivity(ctx, s.audit, ds.TenantID, ds.KnowledgeBaseID, types.AuditActionDataSourceUpdated,
 		"data_source", ds.ID, types.AuditOutcomeSuccess,
-		map[string]any{"name": ds.Name, "type": ds.Type, "changed_fields": []string{"settings"}})
+		map[string]any{"name": ds.Name, "type": ds.Type, "changed_fields": changedFields})
 	return ds, nil
 }
 
@@ -415,6 +440,44 @@ func (s *DataSourceService) ListAvailableResources(
 		return nil, err
 	}
 
+	return resources, nil
+}
+
+// PreviewAvailableResources lists resources against a draft configuration.
+// Stored credentials are reused unless the caller explicitly supplies a
+// replacement map. The data source and its scheduler are never modified.
+func (s *DataSourceService) PreviewAvailableResources(
+	ctx context.Context,
+	dsID string,
+	settings map[string]interface{},
+	credentials map[string]interface{},
+	replaceCredentials bool,
+	parentID string,
+) ([]types.Resource, error) {
+	ds, err := s.GetDataSource(ctx, dsID)
+	if err != nil {
+		return nil, err
+	}
+	connector, err := s.connectorRegistry.Get(ds.Type)
+	if err != nil {
+		return nil, err
+	}
+	config, err := ds.ParseConfig()
+	if err != nil || config == nil {
+		return nil, datasource.ErrInvalidConfig
+	}
+
+	draft := *config
+	draft.Settings = settings
+	if replaceCredentials {
+		draft.Credentials = credentials
+	}
+	draft.StripNonSecretCredentials(ds.Type)
+	resources, err := connector.ListResources(ctx, &draft, parentID)
+	if err != nil {
+		logger.Errorf(ctx, "failed to preview resources: %v", err)
+		return nil, err
+	}
 	return resources, nil
 }
 
@@ -849,20 +912,21 @@ func fetchFailureSyncError(item *types.FetchedItem, rawMsg string) types.SyncIte
 // applyFetchedItem writes a single fetched item into the knowledge base and
 // updates result counters. It is the shared core of the batch loop and the
 // streaming handler so item classification (deleted / empty / ingest outcome)
-// stays identical across both fetch paths.
+// stays identical across both fetch paths. It returns whether a streaming
+// connector may advance the item's cursor.
 func (s *DataSourceService) applyFetchedItem(
 	ctx context.Context, ds *types.DataSource, item *types.FetchedItem,
 	tagIDs []string, result *types.SyncResult,
-) {
+) bool {
 	if item.IsDeleted {
 		if !ds.SyncDeletions {
 			// Sync deletion disabled: neither count nor delete.
-			return
+			return true
 		}
 		if item.ExternalID == "" {
 			logger.Warnf(ctx, "skipping deletion for item %q: empty external_id", item.Title)
 			result.Skipped++
-			return
+			return true
 		}
 		// Perform real KB deletion, scoped to items owned by this data source
 		// so identical external IDs from different data sources cannot collide.
@@ -880,18 +944,15 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "deletion_lookup_failed",
 				Message: "Failed to look up the item before deletion; see server logs",
 			})
-			return
+			return false
 		}
 		if existing == nil {
 			// Deletion is idempotent: the source item may already have been
 			// removed manually or by an earlier sync.
 			result.Skipped++
-			return
+			return true
 		}
 		if deleteErr := s.knowledgeService.DeleteKnowledge(ctx, existing.ID); deleteErr != nil {
-			// The cursor is already past this item, so a failed deletion normally
-			// retries only on a later full sync. Counted separately so the
-			// sync-log message can warn the operator about this gap.
 			result.Failed++
 			result.DeletionFailed++
 			logger.Errorf(ctx, "failed to delete knowledge %s for external_id=%s (ds=%s): %v",
@@ -901,7 +962,7 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "deletion_failed",
 				Message: "Deletion failed; see server logs",
 			})
-			return
+			return false
 		}
 		if herr := repo.HardDeleteKnowledge(ctx, ds.TenantID, existing.ID); herr != nil {
 			result.Failed++
@@ -913,10 +974,10 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "deletion_failed",
 				Message: "Deletion failed; see server logs",
 			})
-			return
+			return false
 		}
 		result.Deleted++
-		return
+		return true
 	}
 
 	if len(item.Content) == 0 && item.URL == "" {
@@ -925,11 +986,12 @@ func (s *DataSourceService) applyFetchedItem(
 			logger.Warnf(ctx, "item %q (external_id=%s) fetch failed: %s", item.Title, item.ExternalID, errMsg)
 			result.Failed++
 			recordSyncError(result, fetchFailureSyncError(item, errMsg))
+			return false
 		} else {
 			logger.Infof(ctx, "skipping item %q (external_id=%s): no content or URL", item.Title, item.ExternalID)
 			result.Skipped++
 		}
-		return
+		return true
 	}
 
 	isUpdate, err := s.ingestItem(ctx, ds, item, tagIDs)
@@ -958,19 +1020,21 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "ingest_failed",
 				Message: "Ingest failed; see server logs",
 			})
+			return false
 		}
 	} else if isUpdate {
 		result.Updated++
 	} else {
 		result.Created++
 	}
+	return true
 }
 
-// streamStartCursor decides which cursor a streaming fetch should resume from.
-// A user-triggered full sync on its first attempt drops the cursor so every
-// item is re-fetched; a retried full sync (attempt > 0) and every incremental
-// sync resume from the last persisted checkpoint so a timed-out run converges
-// instead of restarting from scratch.
+// streamStartCursor decides which cursor FetchStream should resume from. A
+// user-triggered full sync on its first attempt drops this cursor so every item
+// is re-fetched; FullSyncStreamingConnector receives the old deletion baseline
+// separately. A retried full sync and every incremental sync resume from the
+// last persisted checkpoint.
 func streamStartCursor(ds *types.DataSource, forceFull bool, attempt int) (*types.SyncCursor, error) {
 	if forceFull && attempt == 0 {
 		return nil, nil
@@ -990,16 +1054,19 @@ type streamSyncHandler struct {
 }
 
 // Emit ingests one streamed item. A canceled context aborts the stream so the
-// connector stops fetching; per-item ingest failures are recorded in result and
-// do NOT abort (matching the batch loop, which never fails the whole sync for
-// one bad document).
-func (h *streamSyncHandler) Emit(ctx context.Context, item types.FetchedItem) error {
+// connector stops fetching. Content failures remain partial results, while a
+// deletion failure aborts before the connector can advance past its tombstone.
+func (h *streamSyncHandler) Emit(ctx context.Context, item types.FetchedItem) (bool, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	h.result.Total++
-	h.svc.applyFetchedItem(withKBActivitySuppressed(ctx), h.ds, &item, h.tagIDs, h.result)
-	return nil
+	deletionFailures := h.result.DeletionFailed
+	handled := h.svc.applyFetchedItem(withKBActivitySuppressed(ctx), h.ds, &item, h.tagIDs, h.result)
+	if item.IsDeleted && h.result.DeletionFailed > deletionFailures {
+		return false, fmt.Errorf("failed to apply deletion for external_id=%s", item.ExternalID)
+	}
+	return handled, nil
 }
 
 // Checkpoint persists the connector cursor onto the data source and mirrors the
@@ -1066,7 +1133,24 @@ func (s *DataSourceService) processSyncStreaming(
 	result := &types.SyncResult{}
 	handler := &streamSyncHandler{svc: s, ds: ds, tagIDs: autoTagIDs, result: result, syncLog: syncLog}
 
-	nextCursor, fetchErr := sc.FetchStream(ctx, config, startCursor, handler)
+	var nextCursor *types.SyncCursor
+	var fetchErr error
+	if forceFull && attempt == 0 {
+		if fullConnector, ok := sc.(datasource.FullSyncStreamingConnector); ok {
+			baseline, baselineErr := ds.ParseSyncCursor()
+			if baselineErr != nil {
+				logger.Errorf(ctx, "failed to parse full sync baseline: %v", baselineErr)
+				s.updateSyncRunResult(ctx, ds, syncLog, result, nil,
+					types.SyncLogStatusFailed, fmt.Sprintf("Invalid cursor: %v", baselineErr), wasPaused)
+				return baselineErr
+			}
+			nextCursor, fetchErr = fullConnector.FetchFullStream(ctx, config, baseline, handler)
+		} else {
+			nextCursor, fetchErr = sc.FetchStream(ctx, config, startCursor, handler)
+		}
+	} else {
+		nextCursor, fetchErr = sc.FetchStream(ctx, config, startCursor, handler)
+	}
 	if fetchErr != nil {
 		// Progress so far is already checkpointed onto ds.LastSyncCursor; leave
 		// it in place so the Asynq retry resumes from there. Persist counts.
@@ -1095,18 +1179,14 @@ func (s *DataSourceService) processSyncStreaming(
 	// Surface per-document failures as a partial sync (not silent success), so
 	// the sync-log drawer's failure detail explains which docs didn't make it —
 	// the visibility gap behind "status normal but not everything syncs"
-	// (Tencent/WeKnora#2136). Fetch failures abort the stream before the failed
-	// page is checkpointed, so the next run retries them; deletion failures are
-	// past the cursor and only retry on a full sync in the normal case (see
-	// applyFetchedItem).
+	// (Tencent/WeKnora#2136). Content failures remain absent from the updated
+	// cursor so the next run retries them; deletion failures abort earlier and
+	// therefore cannot reach this success/partial path.
 	status := types.SyncLogStatusSuccess
 	errMsg := ""
 	if result.Failed > 0 {
 		status = types.SyncLogStatusPartial
 		errMsg = fmt.Sprintf("%d document(s) failed to sync", result.Failed)
-		if result.DeletionFailed > 0 {
-			errMsg += fmt.Sprintf("; %d deletion failure(s) will only retry on the next full sync", result.DeletionFailed)
-		}
 	}
 	s.updateSyncRunResult(ctx, ds, syncLog, result, resultJSON, status, errMsg, wasPaused)
 	logger.Infof(ctx, "streaming sync completed: ds=%s created=%d updated=%d deleted=%d skipped=%d failed=%d",
@@ -1192,8 +1272,13 @@ func allFetchedItemsFailedError(result *types.SyncResult) error {
 	return fmt.Errorf("all fetched items failed during sync (%d/%d): %s", result.Failed, result.Total, detail)
 }
 
-// ValidateCredentials tests connectivity using raw credentials without persisting anything.
-func (s *DataSourceService) ValidateCredentials(ctx context.Context, connectorType string, credentials map[string]interface{}) error {
+// ValidateCredentials tests connectivity using raw credentials and settings without persisting anything.
+func (s *DataSourceService) ValidateCredentials(
+	ctx context.Context,
+	connectorType string,
+	credentials map[string]interface{},
+	settings map[string]interface{},
+) error {
 	connector, err := s.connectorRegistry.Get(connectorType)
 	if err != nil {
 		return err
@@ -1201,6 +1286,7 @@ func (s *DataSourceService) ValidateCredentials(ctx context.Context, connectorTy
 	config := &types.DataSourceConfig{
 		Type:        connectorType,
 		Credentials: credentials,
+		Settings:    settings,
 	}
 	if err := connector.Validate(ctx, config); err != nil {
 		return err

@@ -467,6 +467,7 @@ export default {
     channelSlack: 'Slack',
     channelIm: 'IM Channel',
     channelNotion: 'Notion',
+    channelConfluence: 'Confluence',
     channelYuque: 'Yuque',
     channelGitLab: 'GitLab',
     channelIma: 'Tencent IMA',
@@ -2621,6 +2622,12 @@ export default {
       create: 'Create key',
       createdTitle: 'Access key created',
       createdDescription: 'Copy and store it securely now. The complete key will not be shown again after leaving this page.',
+      quickStartTitle: 'Quick start',
+      quickStartDescription: 'Copy the key, then use this example to upload your first document.',
+      copyExample: 'Copy example',
+      exampleCopySuccess: 'Request example copied',
+      sourceIdHint: 'A stable identifier for the source system.',
+      externalIdHint: 'A unique document identifier in that system. Uploading it again updates the document.',
       listTitle: 'Access keys for this knowledge base',
       loading: 'Loading keys…',
       empty: 'No access keys',
@@ -4389,8 +4396,7 @@ export default {
           description: 'moonshotai/kimi-k2.5, zai-org/glm-5, minimax/minimax-m2.7, qwen/qwen3-embedding-0.6b, etc.'
         }
       }
-    },
-    builtinTag: 'Platform'
+    }
   },
   language: {
     zhCN: '简体中文',
@@ -5932,6 +5938,7 @@ export default {
     noResources: 'No wiki spaces found',
     noResourcesDesc: 'The app needs wiki access via a group chat to fetch content',
     noResourcesDesc_notion: 'The app needs Notion page access permissions to fetch content',
+    noResourcesDesc_confluence: 'Make sure the account can read at least one Confluence space, or anonymous access is enabled',
     retryLoadResources: 'Retry',
     guideStep1: 'Create a group chat in Feishu, then add your app as a bot in the group settings',
     guideStep2: 'Open wiki "Settings" > "Member Settings" > "Add Member", search for the group chat and add it',
@@ -5992,6 +5999,7 @@ export default {
       feishu_drive: 'Feishu Drive',
       lark_drive: 'Lark Drive',
       notion: 'Notion',
+      confluence: 'Confluence',
       yuque: 'Yuque',
       rss: 'RSS / Atom Feed',
       ima: 'Tencent IMA',
@@ -6003,6 +6011,7 @@ export default {
       feishu_drive: 'Sync documents, spreadsheets and files from a Feishu Drive folder',
       lark_drive: 'Sync documents, spreadsheets and files from a Lark Drive folder (Feishu international)',
       notion: 'Sync pages and databases from Notion',
+      confluence: 'Sync pages and document attachments from Confluence spaces',
       yuque: 'Sync documents from Yuque knowledge bases',
       rss: 'Sync articles from RSS / Atom feeds',
       ima: 'Sync documents, notes and files from Tencent IMA knowledge bases (AI sessions and video parses are not supported)',
@@ -6028,6 +6037,11 @@ export default {
       apiToken: 'API Token',
       imaClientId: 'IMA ClientID',
       imaApiKey: 'IMA APIKey',
+      confluenceSupportedVersion: 'Currently supported version: Confluence Server 6.3.1',
+      confluenceBaseUrl: 'Confluence URL',
+      confluenceBaseUrlHint: 'Enter the Confluence site root without page fragments such as #all-updates. Add private hosts to the SSRF allowlist.',
+      confluenceUsername: 'Username (optional)',
+      confluencePassword: 'Password (optional)',
       baseUrl: 'Base URL (optional)',
       baseUrlHint: 'Leave empty to use the default public cloud address. For private/enterprise deployments or when accessing via reverse proxy, enter your custom address (e.g. https://api-proxy.example.com).',
       feedUrls: 'Feed URLs',
@@ -6102,6 +6116,7 @@ export default {
     },
     resourceType: {
       wikiSpace: 'Wiki Space',
+      confluenceSpace: 'Confluence Space',
       docCategory: 'Document Tag',
       book: 'Yuque Book'
     },

@@ -109,16 +109,20 @@ type recordingHandler struct {
 	emitted     []types.FetchedItem
 	checkpoints []core.FeishuCursor
 	emitErr     func(item types.FetchedItem) error
+	deferItem   func(item types.FetchedItem) bool
 }
 
-func (h *recordingHandler) Emit(ctx context.Context, item types.FetchedItem) error {
+func (h *recordingHandler) Emit(ctx context.Context, item types.FetchedItem) (bool, error) {
 	if h.emitErr != nil {
 		if err := h.emitErr(item); err != nil {
-			return err
+			return false, err
 		}
 	}
 	h.emitted = append(h.emitted, item)
-	return nil
+	if h.deferItem != nil && h.deferItem(item) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (h *recordingHandler) Checkpoint(ctx context.Context, cursor *types.SyncCursor) error {
@@ -207,6 +211,32 @@ func TestFetchStream_SkipsUnchangedNodesFromCursor(t *testing.T) {
 	}
 }
 
+func TestFetchStream_RetainsCursorWhenIngestIsPending(t *testing.T) {
+	nodes := []core.WikiNode{{
+		NodeToken: "nt1", ObjToken: "obj1", ObjType: "docx", Title: "Doc", ObjEditTime: "100",
+	}}
+	ts, cfg := fakeFeishu(nodes)
+	defer ts.Close()
+
+	cursor := makeStreamCursor(t, map[string]map[string]string{"space1": {"nt1": "50"}})
+	h := &recordingHandler{deferItem: func(item types.FetchedItem) bool {
+		return item.ExternalID == "nt1"
+	}}
+	next, err := NewConnector(core.RegionFeishu).FetchStream(
+		context.Background(), makeConfig(cfg, []string{"space1"}), cursor, h,
+	)
+	if err != nil {
+		t.Fatalf("FetchStream() error: %v", err)
+	}
+
+	var fc core.FeishuCursor
+	b, _ := json.Marshal(next.ConnectorCursor)
+	_ = json.Unmarshal(b, &fc)
+	if got := fc.SpaceNodeTimes["space1"]["nt1"]; got != "50" {
+		t.Fatalf("pending node cursor = %q, want prior value %q", got, "50")
+	}
+}
+
 // Checkpoints must persist progress at page boundaries so a crash mid-sync
 // resumes from the last Checkpoint. With the interval set to 1, each emitted
 // item triggers a Checkpoint, and the first Checkpoint must already contain the
@@ -235,6 +265,41 @@ func TestFetchStream_CheckpointsProgress(t *testing.T) {
 	first := h.checkpoints[0]
 	if _, ok := first.SpaceNodeTimes["space1"]["nt1"]; !ok {
 		t.Errorf("first Checkpoint missing nt1 progress: %+v", first.SpaceNodeTimes)
+	}
+}
+
+func TestFetchStream_CheckpointRetainsDeletionUntilHandled(t *testing.T) {
+	prev := core.FeishuStreamCheckpointInterval
+	core.FeishuStreamCheckpointInterval = 1
+	defer func() { core.FeishuStreamCheckpointInterval = prev }()
+
+	nodes := []core.WikiNode{{
+		NodeToken: "current", ObjToken: "obj1", ObjType: "docx", Title: "Doc", ObjEditTime: "100",
+	}}
+	ts, cfg := fakeFeishu(nodes)
+	defer ts.Close()
+
+	boom := errors.New("delete failed")
+	cursor := makeStreamCursor(t, map[string]map[string]string{
+		"space1": {"deleted": "50"},
+	})
+	h := &recordingHandler{emitErr: func(item types.FetchedItem) error {
+		if item.IsDeleted {
+			return boom
+		}
+		return nil
+	}}
+	_, err := NewConnector(core.RegionFeishu).FetchStream(
+		context.Background(), makeConfig(cfg, []string{"space1"}), cursor, h,
+	)
+	if !errors.Is(err, boom) {
+		t.Fatalf("FetchStream() error = %v, want %v", err, boom)
+	}
+	if len(h.checkpoints) == 0 {
+		t.Fatal("expected a Checkpoint before deletion detection")
+	}
+	if got := h.checkpoints[0].SpaceNodeTimes["space1"]["deleted"]; got != "50" {
+		t.Fatalf("deleted node in Checkpoint = %q, want prior value %q", got, "50")
 	}
 }
 

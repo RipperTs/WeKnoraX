@@ -21,6 +21,9 @@ type DataSourceService interface {
 	// UpdateDataSource updates an existing data source
 	UpdateDataSource(ctx context.Context, ds *types.DataSource) (*types.DataSource, error)
 
+	// UpdateDataSourceWithCredentials atomically updates a data source and replaces its credentials.
+	UpdateDataSourceWithCredentials(ctx context.Context, ds *types.DataSource) (*types.DataSource, error)
+
 	// DeleteDataSource deletes a data source (soft delete)
 	DeleteDataSource(ctx context.Context, id string) error
 
@@ -39,13 +42,28 @@ type DataSourceService interface {
 	// ValidateConnection tests the connection to an external data source
 	ValidateConnection(ctx context.Context, dsID string) error
 
-	// ValidateCredentials tests connectivity using raw credentials without persisting anything.
+	// ValidateCredentials tests connectivity using raw credentials and settings without persisting anything.
 	// This is used by the frontend "Test Connection" button before creating a data source.
-	ValidateCredentials(ctx context.Context, connectorType string, credentials map[string]interface{}) error
+	ValidateCredentials(
+		ctx context.Context,
+		connectorType string,
+		credentials map[string]interface{},
+		settings map[string]interface{},
+	) error
 
 	// ListAvailableResources lists resources available for sync in the external system.
 	// parentID enables lazy loading: "" lists the top level, a resource ExternalID lists its children.
 	ListAvailableResources(ctx context.Context, dsID string, parentID string) ([]types.Resource, error)
+
+	// PreviewAvailableResources lists resources using draft settings and optional credentials without persistence.
+	PreviewAvailableResources(
+		ctx context.Context,
+		dsID string,
+		settings map[string]interface{},
+		credentials map[string]interface{},
+		replaceCredentials bool,
+		parentID string,
+	) ([]types.Resource, error)
 
 	// ResolveResourceAncestors returns the deduplicated ExternalIDs of every
 	// ancestor that must be expanded to reveal the given (possibly deeply nested)

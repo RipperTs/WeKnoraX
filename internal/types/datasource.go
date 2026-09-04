@@ -259,6 +259,10 @@ func (d DataSourceConfig) HasConfiguredCredentials(connectorType string) bool {
 		}
 		s, ok := raw.(string)
 		return ok && strings.TrimSpace(s) != ""
+	case ConnectorTypeConfluence:
+		username, usernameOK := d.Credentials["username"].(string)
+		password, passwordOK := d.Credentials["password"].(string)
+		return usernameOK && passwordOK && strings.TrimSpace(username) != "" && password != ""
 	default:
 		return len(d.Credentials) > 0
 	}
@@ -275,6 +279,16 @@ func (d *DataSourceConfig) StripNonSecretCredentials(connectorType string) {
 		delete(d.Credentials, "feed_urls")
 		if len(d.Credentials) == 0 {
 			d.Credentials = nil
+		}
+	case ConnectorTypeConfluence:
+		username, _ := d.Credentials["username"].(string)
+		password, _ := d.Credentials["password"].(string)
+		if strings.TrimSpace(username) == "" && password == "" {
+			delete(d.Credentials, "username")
+			delete(d.Credentials, "password")
+			if len(d.Credentials) == 0 {
+				d.Credentials = nil
+			}
 		}
 	}
 }
