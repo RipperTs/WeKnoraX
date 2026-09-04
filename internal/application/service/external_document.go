@@ -10,7 +10,6 @@ import (
 	"io"
 	"mime/multipart"
 
-	"github.com/Tencent/WeKnora/internal/common/redislock"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -149,7 +148,7 @@ func (s *externalDocumentService) rollbackCreatedExternalDocument(
 	knowledgeID string,
 	cause error,
 ) error {
-	rollbackCtx, cancel := externalDocumentRollbackContext(ctx)
+	rollbackCtx, cancel := detachedOperationContext(ctx)
 	defer cancel()
 
 	if err := s.knowledgeService.DeleteKnowledge(rollbackCtx, knowledgeID); err != nil {
@@ -159,15 +158,6 @@ func (s *externalDocumentService) rollbackCreatedExternalDocument(
 		logger.Warnf(rollbackCtx, "failed to hard-delete rolled-back external document %s: %v", knowledgeID, err)
 	}
 	return cause
-}
-
-func externalDocumentRollbackContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	rollbackCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	stopOwnershipWatch := context.AfterFunc(redislock.OwnershipContext(ctx), cancel)
-	return rollbackCtx, func() {
-		stopOwnershipWatch()
-		cancel()
-	}
 }
 
 func (s *externalDocumentService) GetExternalDocument(

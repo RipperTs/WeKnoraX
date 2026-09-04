@@ -89,7 +89,10 @@ func (s *knowledgeService) DeleteKnowledge(ctx context.Context, id string) error
 		s.dequeueKnowledgeTasks(ctx, id)
 	}
 
-	return s.withKnowledgeProcessingLock(ctx, tenantID, id, func(lockCtx context.Context) error {
+	cleanupCtx, cancelCleanup := detachedOperationContext(ctx)
+	defer cancelCleanup()
+
+	return s.withKnowledgeProcessingLock(cleanupCtx, tenantID, id, func(lockCtx context.Context) error {
 		current, err := s.repo.GetKnowledgeByID(lockCtx, tenantID, id)
 		if errors.Is(err, repository.ErrKnowledgeNotFound) {
 			return nil

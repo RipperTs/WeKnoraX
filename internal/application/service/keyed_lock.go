@@ -51,6 +51,18 @@ func withServiceLock(
 	return fn(ctx)
 }
 
+// detachedOperationContext preserves values but lets a mutation finish after
+// its caller disconnects. When called inside a renewable lock, losing that
+// lock still cancels the returned context.
+func detachedOperationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	detachedCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopOwnershipWatch := context.AfterFunc(redislock.OwnershipContext(ctx), cancel)
+	return detachedCtx, func() {
+		stopOwnershipWatch()
+		cancel()
+	}
+}
+
 func (l *localKeyedLocks) lock(key string) func() {
 	l.mu.Lock()
 	entry := l.locks[key]
