@@ -173,12 +173,12 @@ func (h *KnowledgeHandler) externalDocumentContext(
 	}
 	sourceID = strings.TrimSpace(sourceID)
 	externalID = strings.TrimSpace(externalID)
-	if sourceID == "" || utf8.RuneCountInString(sourceID) > maxExternalSourceIDLength {
-		c.Error(errors.NewBadRequestError("source_id is required and must not exceed 128 characters"))
+	if sourceID == "" || !utf8.ValidString(sourceID) || utf8.RuneCountInString(sourceID) > maxExternalSourceIDLength {
+		c.Error(errors.NewBadRequestError("source_id is required, must be valid UTF-8, and must not exceed 128 characters"))
 		return nil, "", "", "", false
 	}
-	if externalID == "" || utf8.RuneCountInString(externalID) > maxExternalIDLength {
-		c.Error(errors.NewBadRequestError("external_id is required and must not exceed 512 characters"))
+	if externalID == "" || !utf8.ValidString(externalID) || utf8.RuneCountInString(externalID) > maxExternalIDLength {
+		c.Error(errors.NewBadRequestError("external_id is required, must be valid UTF-8, and must not exceed 512 characters"))
 		return nil, "", "", "", false
 	}
 

@@ -110,7 +110,9 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 
 	// Check storage quota
 	tenantInfo := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-	if tenantInfo.StorageQuota > 0 && tenantInfo.StorageUsed >= tenantInfo.StorageQuota {
+	if tenantInfo.StorageQuota > 0 &&
+		tenantInfo.StorageUsed >= tenantInfo.StorageQuota &&
+		externalDocumentProcessingLockKey(ctx) == "" {
 		logger.Error(ctx, "Storage quota exceeded")
 		return nil, types.NewStorageQuotaExceededError()
 	}
