@@ -106,23 +106,23 @@ type convergenceHandler struct {
 	cancel          context.CancelFunc
 }
 
-func (h *convergenceHandler) Emit(ctx context.Context, item types.FetchedItem) error {
+func (h *convergenceHandler) Emit(ctx context.Context, item types.FetchedItem) (bool, error) {
 	if err := ctx.Err(); err != nil { // mirror service Emit
-		return err
+		return false, err
 	}
 	h.calls++
 	if h.cancelAfterCall > 0 && h.calls >= h.cancelAfterCall {
 		if h.cancel != nil {
 			h.cancel()
 		}
-		return context.Canceled // service returns ctx err → connector aborts
+		return false, context.Canceled // service returns ctx err → connector aborts
 	}
 	if item.Metadata["error"] != "" {
 		h.failed = append(h.failed, item.ExternalID)
-		return nil
+		return false, nil
 	}
 	h.ingested = append(h.ingested, item.ExternalID)
-	return nil
+	return true, nil
 }
 
 func (h *convergenceHandler) Checkpoint(ctx context.Context, cursor *types.SyncCursor) error {

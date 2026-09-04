@@ -74,9 +74,9 @@ type CollectHandler struct {
 	items []types.FetchedItem
 }
 
-func (h *CollectHandler) Emit(_ context.Context, item types.FetchedItem) error {
+func (h *CollectHandler) Emit(_ context.Context, item types.FetchedItem) (bool, error) {
 	h.items = append(h.items, item)
-	return nil
+	return true, nil
 }
 
 func (h *CollectHandler) Checkpoint(_ context.Context, _ *types.SyncCursor) error { return nil }
@@ -109,7 +109,7 @@ func runSync[N any](
 		}
 		if partial != nil {
 			for _, item := range ops.ListFailureItems(resourceID, partial) {
-				if eerr := h.Emit(ctx, item); eerr != nil {
+				if _, eerr := h.Emit(ctx, item); eerr != nil {
 					return nil, eerr
 				}
 			}
@@ -159,7 +159,7 @@ func runSync[N any](
 				if hadPrev {
 					newTimes[resourceID][tok] = prevEdit
 				}
-				if eerr := h.Emit(ctx, types.FetchedItem{
+				if _, eerr := h.Emit(ctx, types.FetchedItem{
 					ExternalID:       tok,
 					Title:            ops.Title(node),
 					SourceResourceID: resourceID,
@@ -168,19 +168,26 @@ func runSync[N any](
 					return nil, eerr
 				}
 			} else {
-				// Fetched, or an unsupported type (nothing to fetch): record
-				// the current edit time so the node is not re-processed next run.
-				newTimes[resourceID][tok] = editTimeStr
+				handled := true
 				if len(items) > 0 {
 					tally.fetch()
 					for _, it := range items {
-						if eerr := h.Emit(ctx, *it); eerr != nil {
+						itemHandled, eerr := h.Emit(ctx, *it)
+						if eerr != nil {
 							return nil, eerr
+						}
+						if !itemHandled {
+							handled = false
 						}
 					}
 				} else {
 					// Unsupported type (mindnote/slides/…): no item.
 					tally.Skip(ops.ObjType(node))
+				}
+				if handled {
+					newTimes[resourceID][tok] = editTimeStr
+				} else if hadPrev {
+					newTimes[resourceID][tok] = prevEdit
 				}
 			}
 
@@ -202,14 +209,18 @@ func runSync[N any](
 		// detection would false-positive.
 		if partial == nil && prevTimes != nil {
 			if prev, ok := prevTimes[resourceID]; ok {
-				for tok := range prev {
+				for tok, editTime := range prev {
 					if !currentNodes[tok] {
-						if eerr := h.Emit(ctx, types.FetchedItem{
+						handled, eerr := h.Emit(ctx, types.FetchedItem{
 							ExternalID:       tok,
 							IsDeleted:        true,
 							SourceResourceID: resourceID,
-						}); eerr != nil {
+						})
+						if eerr != nil {
 							return nil, eerr
+						}
+						if !handled {
+							newTimes[resourceID][tok] = editTime
 						}
 					}
 				}

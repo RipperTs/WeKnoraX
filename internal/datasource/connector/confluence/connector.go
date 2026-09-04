@@ -70,7 +70,7 @@ func (c *Connector) ListResources(
 			Name:        item.Name,
 			Type:        confluenceResourceSpace,
 			Description: strings.TrimSpace(item.Description.Plain.Value),
-			URL:         cli.absoluteURL(item.Links.WebUI),
+			URL:         cli.spaceURL(item.Key),
 			Metadata: map[string]interface{}{
 				"space_key":  item.Key,
 				"space_type": item.Type,
@@ -216,20 +216,27 @@ func (c *Connector) fetchStream(
 			if comparison[externalID] != signature {
 				pageDetail, fetchErr := cli.getPage(ctx, pageMeta.ID)
 				if fetchErr != nil {
-					if emitErr := handler.Emit(ctx, failedItem(externalID, pageMeta.Title, spaceKey, fetchErr)); emitErr != nil {
+					if _, emitErr := handler.Emit(
+						ctx, failedItem(externalID, pageMeta.Title, spaceKey, fetchErr),
+					); emitErr != nil {
 						return nil, emitErr
 					}
 				} else {
 					item, buildErr := buildPageItem(cli, pageDetail, spaceKey)
 					if buildErr != nil {
-						if emitErr := handler.Emit(ctx, failedItem(externalID, pageMeta.Title, spaceKey, buildErr)); emitErr != nil {
+						if _, emitErr := handler.Emit(
+							ctx, failedItem(externalID, pageMeta.Title, spaceKey, buildErr),
+						); emitErr != nil {
 							return nil, emitErr
 						}
 					} else {
-						if emitErr := handler.Emit(ctx, item); emitErr != nil {
+						handled, emitErr := handler.Emit(ctx, item)
+						if emitErr != nil {
 							return nil, emitErr
 						}
-						next.Items[externalID] = signature
+						if handled {
+							next.Items[externalID] = signature
+						}
 					}
 				}
 			}
@@ -251,17 +258,22 @@ func (c *Connector) fetchStream(
 			signature := "v" + strconv.Itoa(attachmentMeta.Version.Number)
 			current[externalID] = struct{}{}
 			if comparison[externalID] != signature {
-				content, fetchErr := cli.download(ctx, attachmentMeta.Links.Download)
+				content, fetchErr := cli.download(ctx, attachmentMeta.Container.ID, attachmentMeta.Title)
 				if fetchErr != nil {
-					if emitErr := handler.Emit(ctx, failedItem(externalID, attachmentMeta.Title, spaceKey, fetchErr)); emitErr != nil {
+					if _, emitErr := handler.Emit(
+						ctx, failedItem(externalID, attachmentMeta.Title, spaceKey, fetchErr),
+					); emitErr != nil {
 						return nil, emitErr
 					}
 				} else {
 					item := buildAttachmentItem(cli, attachmentMeta, spaceKey, content)
-					if emitErr := handler.Emit(ctx, item); emitErr != nil {
+					handled, emitErr := handler.Emit(ctx, item)
+					if emitErr != nil {
 						return nil, emitErr
 					}
-					next.Items[externalID] = signature
+					if handled {
+						next.Items[externalID] = signature
+					}
 				}
 			}
 			processed++
@@ -278,14 +290,19 @@ func (c *Connector) fetchStream(
 		if _, exists := current[externalID]; exists {
 			continue
 		}
-		if err := handler.Emit(ctx, types.FetchedItem{
+		handled, err := handler.Emit(ctx, types.FetchedItem{
 			ExternalID: externalID,
 			IsDeleted:  true,
 			Metadata:   map[string]string{"channel": types.ChannelConfluence},
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
-		delete(next.Items, externalID)
+		if handled {
+			delete(next.Items, externalID)
+		} else {
+			next.Items[externalID] = deletionBaseline[externalID]
+		}
 	}
 	next.FullSync = false
 	next.FullSyncBaseline = nil
@@ -297,9 +314,9 @@ type collectHandler struct {
 	items []types.FetchedItem
 }
 
-func (h *collectHandler) Emit(_ context.Context, item types.FetchedItem) error {
+func (h *collectHandler) Emit(_ context.Context, item types.FetchedItem) (bool, error) {
 	h.items = append(h.items, item)
-	return nil
+	return true, nil
 }
 
 func (h *collectHandler) Checkpoint(context.Context, *types.SyncCursor) error { return nil }
@@ -327,7 +344,7 @@ func buildPageItem(cli *client, item *page, resourceID string) (types.FetchedIte
 			ancestorTitles = append(ancestorTitles, parent.Title)
 		}
 	}
-	pageURL := cli.absoluteURL(item.Links.WebUI)
+	pageURL := cli.pageURL(item.ID)
 	return types.FetchedItem{
 		ExternalID:       pageIDPrefix + item.ID,
 		Title:            title,
@@ -352,7 +369,7 @@ func buildPageItem(cli *client, item *page, resourceID string) (types.FetchedIte
 
 func buildAttachmentItem(cli *client, item attachment, resourceID string, content []byte) types.FetchedItem {
 	fileName := sanitizeAttachmentFileName(item.Title, item.ID)
-	sourceURL := cli.absoluteURL(item.Links.Download)
+	sourceURL := cli.attachmentURL(item.Container.ID, item.Title)
 	return types.FetchedItem{
 		ExternalID:       attachmentIDPrefix + item.ID,
 		Title:            item.Title,

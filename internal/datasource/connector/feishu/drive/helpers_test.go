@@ -42,14 +42,14 @@ type recordingHandler struct {
 	emitErr     func(item types.FetchedItem) error
 }
 
-func (h *recordingHandler) Emit(_ context.Context, item types.FetchedItem) error {
+func (h *recordingHandler) Emit(_ context.Context, item types.FetchedItem) (bool, error) {
 	if h.emitErr != nil {
 		if err := h.emitErr(item); err != nil {
-			return err
+			return false, err
 		}
 	}
 	h.emitted = append(h.emitted, item)
-	return nil
+	return true, nil
 }
 
 func (h *recordingHandler) Checkpoint(_ context.Context, cursor *types.SyncCursor) error {

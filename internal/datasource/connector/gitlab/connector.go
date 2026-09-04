@@ -264,17 +264,20 @@ func (c *Connector) FetchStream(
 		}
 
 		previous := prev.Projects[selection.ProjectID]
+		handled := true
 		switch {
 		case previous == "":
-			err = c.streamFiles(ctx, project, ref, selection.Paths, h)
+			handled, err = c.streamFiles(ctx, project, ref, selection.Paths, h)
 		case previous != head:
-			err = c.streamChanges(ctx, project, ref, previous, head, selection.Paths, h)
+			handled, err = c.streamChanges(ctx, project, ref, previous, head, selection.Paths, h)
 		}
 		if err != nil {
 			return nil, err
 		}
 
-		next.Projects[selection.ProjectID] = head
+		if handled {
+			next.Projects[selection.ProjectID] = head
+		}
 		checkpoint := gitLabCursor(next)
 		if err := h.Checkpoint(ctx, checkpoint); err != nil {
 			return nil, err
@@ -293,50 +296,69 @@ func gitLabCursor(value cursor) *types.SyncCursor {
 
 func (c *Connector) streamChanges(
 	ctx context.Context, project *project, ref, from, to string, roots []string, h datasource.StreamHandler,
-) error {
+) (bool, error) {
 	diff, err := c.client.compare(ctx, fmt.Sprint(project.ID), from, to)
 	if err != nil || diff.CompareTimeout {
 		// A compare can be unavailable after history rewrites or be truncated by
 		// GitLab. Re-enumerating the configured scope preserves file updates.
 		return c.streamFiles(ctx, project, ref, roots, h)
 	}
+	handled := true
 	for _, change := range diff.Diffs {
 		if change.DeletedFile {
 			if c.inScope(change.OldPath, roots) && isSupportedFile(change.OldPath) {
-				if err := h.Emit(ctx, c.deleted(project, ref, change.OldPath)); err != nil {
-					return err
+				itemHandled, emitErr := h.Emit(ctx, c.deleted(project, ref, change.OldPath))
+				if emitErr != nil {
+					return false, emitErr
+				}
+				if !itemHandled {
+					handled = false
 				}
 			}
 			continue
 		}
 		if change.RenamedFile && c.inScope(change.OldPath, roots) && isSupportedFile(change.OldPath) {
-			if err := h.Emit(ctx, c.deleted(project, ref, change.OldPath)); err != nil {
-				return err
+			itemHandled, emitErr := h.Emit(ctx, c.deleted(project, ref, change.OldPath))
+			if emitErr != nil {
+				return false, emitErr
+			}
+			if !itemHandled {
+				handled = false
 			}
 		}
 		if c.inScope(change.NewPath, roots) && isSupportedFile(change.NewPath) {
 			item, err := c.item(ctx, project, ref, change.NewPath)
 			if err != nil {
-				return err
+				return false, err
 			}
-			if err := h.Emit(ctx, item); err != nil {
-				return err
+			itemHandled, emitErr := h.Emit(ctx, item)
+			if emitErr != nil {
+				return false, emitErr
+			}
+			if !itemHandled {
+				handled = false
 			}
 		}
 	}
-	return nil
+	return handled, nil
 }
 
 func (c *Connector) streamFiles(
 	ctx context.Context, project *project, ref string, roots []string, h datasource.StreamHandler,
-) error {
-	return c.walkFiles(ctx, fmt.Sprint(project.ID), ref, roots, func(file string) error {
+) (bool, error) {
+	handled := true
+	err := c.walkFiles(ctx, fmt.Sprint(project.ID), ref, roots, func(file string) error {
 		item, err := c.item(ctx, project, ref, file)
 		if err != nil {
 			return err
 		}
-		return h.Emit(ctx, item)
+		itemHandled, err := h.Emit(ctx, item)
+		if !itemHandled {
+			handled = false
+		}
+		return err
 	})
+	return handled, err
 }
 
 func (c *Connector) files(ctx context.Context, id, ref string, roots []string) ([]string, error) {

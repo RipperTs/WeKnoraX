@@ -128,11 +128,15 @@ func TestStreamHandler_EmitClassifiesDeletedAndFailed(t *testing.T) {
 	knowledgeSvc := &sweepFakeKS{repo: knowledgeRepo}
 	h := newStreamHandler(&DataSourceService{knowledgeService: knowledgeSvc}, ds, result, &types.SyncLog{})
 
-	require.NoError(t, h.Emit(context.Background(), types.FetchedItem{ExternalID: "gone", IsDeleted: true}))
-	require.NoError(t, h.Emit(context.Background(), types.FetchedItem{
+	handled, err := h.Emit(context.Background(), types.FetchedItem{ExternalID: "gone", IsDeleted: true})
+	require.NoError(t, err)
+	assert.True(t, handled)
+	handled, err = h.Emit(context.Background(), types.FetchedItem{
 		ExternalID: "bad", Title: "Broken Doc",
 		Metadata: map[string]string{"error": "export failed"},
-	}))
+	})
+	require.NoError(t, err)
+	assert.False(t, handled)
 
 	assert.Equal(t, 1, result.Deleted)
 	assert.Equal(t, 1, result.Failed)
@@ -147,9 +151,10 @@ func TestStreamHandler_EmitAbortsOnCanceledContext(t *testing.T) {
 	h := newStreamHandler(&DataSourceService{}, &types.DataSource{}, &types.SyncResult{}, &types.SyncLog{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := h.Emit(ctx, types.FetchedItem{ExternalID: "x", Content: []byte("data"), FileName: "x.md"})
+	handled, err := h.Emit(ctx, types.FetchedItem{ExternalID: "x", Content: []byte("data"), FileName: "x.md"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+	assert.False(t, handled)
 }
 
 func TestStreamHandler_EmitAbortsOnDeletionFailure(t *testing.T) {
@@ -163,10 +168,53 @@ func TestStreamHandler_EmitAbortsOnDeletionFailure(t *testing.T) {
 		&types.SyncLog{},
 	)
 
-	err := h.Emit(context.Background(), types.FetchedItem{ExternalID: "gone", IsDeleted: true})
+	handled, err := h.Emit(context.Background(), types.FetchedItem{ExternalID: "gone", IsDeleted: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "external_id=gone")
+	assert.False(t, handled)
 	assert.Equal(t, 1, h.result.DeletionFailed)
+}
+
+func TestStreamHandler_EmitKeepsFailedIngestPending(t *testing.T) {
+	repo := &sweepFakeRepo{}
+	h := newStreamHandler(
+		&DataSourceService{knowledgeService: &sweepFakeKS{
+			repo:      repo,
+			createErr: errors.New("create failed"),
+		}},
+		&types.DataSource{
+			ID: "ds-1", TenantID: 1, KnowledgeBaseID: "kb-1",
+		},
+		&types.SyncResult{},
+		&types.SyncLog{},
+	)
+
+	handled, err := h.Emit(context.Background(), types.FetchedItem{
+		ExternalID: "page:1",
+		Title:      "Welcome",
+		FileName:   "welcome.md",
+		Content:    []byte("hello"),
+	})
+	require.NoError(t, err)
+	assert.False(t, handled)
+	assert.Equal(t, 1, h.result.Failed)
+}
+
+func TestStreamHandler_EmitDefersDeletionWhenDisabled(t *testing.T) {
+	h := newStreamHandler(
+		&DataSourceService{},
+		&types.DataSource{SyncDeletions: false},
+		&types.SyncResult{},
+		&types.SyncLog{},
+	)
+
+	handled, err := h.Emit(context.Background(), types.FetchedItem{
+		ExternalID: "page:1",
+		IsDeleted:  true,
+	})
+	require.NoError(t, err)
+	assert.False(t, handled)
+	assert.Zero(t, h.result.Deleted)
 }
 
 // Checkpoint persists the connector cursor onto the data source so a crash

@@ -58,10 +58,10 @@ type Connector interface {
 // resumes from the last checkpoint instead of restarting from scratch
 // (Tencent/WeKnora#2136).
 type StreamHandler interface {
-	// Emit ingests a single fetched item. Returning an error aborts the
-	// stream: the connector stops fetching and propagates the error, since a
-	// failed ingest means the sync is failing and further API calls are wasted.
-	Emit(ctx context.Context, item types.FetchedItem) error
+	// Emit ingests a single fetched item. The returned boolean tells the
+	// connector whether it may advance the item's cursor. False keeps the item
+	// eligible for a later sync; a non-nil error aborts the stream.
+	Emit(ctx context.Context, item types.FetchedItem) (bool, error)
 
 	// Checkpoint persists the cursor reached so far. The cursor is only valid
 	// for the duration of the call (the connector may keep mutating its backing

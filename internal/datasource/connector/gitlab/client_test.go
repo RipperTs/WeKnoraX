@@ -227,11 +227,12 @@ func TestFetchIncrementalSyncsMultipleProjects(t *testing.T) {
 type gitLabStreamRecorder struct {
 	items       []types.FetchedItem
 	checkpoints []*types.SyncCursor
+	deferItems  bool
 }
 
-func (h *gitLabStreamRecorder) Emit(_ context.Context, item types.FetchedItem) error {
+func (h *gitLabStreamRecorder) Emit(_ context.Context, item types.FetchedItem) (bool, error) {
 	h.items = append(h.items, item)
-	return nil
+	return !h.deferItems, nil
 }
 
 func (h *gitLabStreamRecorder) Checkpoint(_ context.Context, cursor *types.SyncCursor) error {
@@ -294,6 +295,16 @@ func TestFetchStreamFiltersUnsupportedFilesAndCheckpointsProjects(t *testing.T) 
 	projects, _ := next.ConnectorCursor["projects"].(map[string]string)
 	if projects["1"] != "commit-1" {
 		t.Fatalf("cursor projects = %#v", next.ConnectorCursor["projects"])
+	}
+
+	pendingHandler := &gitLabStreamRecorder{deferItems: true}
+	pending, err := connector.FetchStream(context.Background(), config, nil, pendingHandler)
+	if err != nil {
+		t.Fatalf("pending FetchStream() error = %v", err)
+	}
+	pendingProjects, _ := pending.ConnectorCursor["projects"].(map[string]string)
+	if _, exists := pendingProjects["1"]; exists {
+		t.Fatalf("pending project advanced cursor: %#v", pendingProjects)
 	}
 }
 

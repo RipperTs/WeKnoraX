@@ -853,20 +853,21 @@ func fetchFailureSyncError(item *types.FetchedItem, rawMsg string) types.SyncIte
 // applyFetchedItem writes a single fetched item into the knowledge base and
 // updates result counters. It is the shared core of the batch loop and the
 // streaming handler so item classification (deleted / empty / ingest outcome)
-// stays identical across both fetch paths.
+// stays identical across both fetch paths. It returns whether a streaming
+// connector may advance the item's cursor.
 func (s *DataSourceService) applyFetchedItem(
 	ctx context.Context, ds *types.DataSource, item *types.FetchedItem,
 	tagIDs []string, result *types.SyncResult,
-) {
+) bool {
 	if item.IsDeleted {
 		if !ds.SyncDeletions {
 			// Sync deletion disabled: neither count nor delete.
-			return
+			return false
 		}
 		if item.ExternalID == "" {
 			logger.Warnf(ctx, "skipping deletion for item %q: empty external_id", item.Title)
 			result.Skipped++
-			return
+			return true
 		}
 		// Perform real KB deletion, scoped to items owned by this data source
 		// so identical external IDs from different data sources cannot collide.
@@ -884,13 +885,13 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "deletion_lookup_failed",
 				Message: "Failed to look up the item before deletion; see server logs",
 			})
-			return
+			return false
 		}
 		if existing == nil {
 			// Deletion is idempotent: the source item may already have been
 			// removed manually or by an earlier sync.
 			result.Skipped++
-			return
+			return true
 		}
 		if deleteErr := s.knowledgeService.DeleteKnowledge(ctx, existing.ID); deleteErr != nil {
 			result.Failed++
@@ -902,7 +903,7 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "deletion_failed",
 				Message: "Deletion failed; see server logs",
 			})
-			return
+			return false
 		}
 		if herr := repo.HardDeleteKnowledge(ctx, ds.TenantID, existing.ID); herr != nil {
 			result.Failed++
@@ -914,10 +915,10 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "deletion_failed",
 				Message: "Deletion failed; see server logs",
 			})
-			return
+			return false
 		}
 		result.Deleted++
-		return
+		return true
 	}
 
 	if len(item.Content) == 0 && item.URL == "" {
@@ -926,11 +927,12 @@ func (s *DataSourceService) applyFetchedItem(
 			logger.Warnf(ctx, "item %q (external_id=%s) fetch failed: %s", item.Title, item.ExternalID, errMsg)
 			result.Failed++
 			recordSyncError(result, fetchFailureSyncError(item, errMsg))
+			return false
 		} else {
 			logger.Infof(ctx, "skipping item %q (external_id=%s): no content or URL", item.Title, item.ExternalID)
 			result.Skipped++
 		}
-		return
+		return true
 	}
 
 	isUpdate, err := s.ingestItem(ctx, ds, item, tagIDs)
@@ -959,12 +961,14 @@ func (s *DataSourceService) applyFetchedItem(
 				Code:    "ingest_failed",
 				Message: "Ingest failed; see server logs",
 			})
+			return false
 		}
 	} else if isUpdate {
 		result.Updated++
 	} else {
 		result.Created++
 	}
+	return true
 }
 
 // streamStartCursor decides which cursor FetchStream should resume from. A
@@ -993,17 +997,17 @@ type streamSyncHandler struct {
 // Emit ingests one streamed item. A canceled context aborts the stream so the
 // connector stops fetching. Content failures remain partial results, while a
 // deletion failure aborts before the connector can advance past its tombstone.
-func (h *streamSyncHandler) Emit(ctx context.Context, item types.FetchedItem) error {
+func (h *streamSyncHandler) Emit(ctx context.Context, item types.FetchedItem) (bool, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	h.result.Total++
 	deletionFailures := h.result.DeletionFailed
-	h.svc.applyFetchedItem(withKBActivitySuppressed(ctx), h.ds, &item, h.tagIDs, h.result)
+	handled := h.svc.applyFetchedItem(withKBActivitySuppressed(ctx), h.ds, &item, h.tagIDs, h.result)
 	if item.IsDeleted && h.result.DeletionFailed > deletionFailures {
-		return fmt.Errorf("failed to apply deletion for external_id=%s", item.ExternalID)
+		return false, fmt.Errorf("failed to apply deletion for external_id=%s", item.ExternalID)
 	}
-	return nil
+	return handled, nil
 }
 
 // Checkpoint persists the connector cursor onto the data source and mirrors the

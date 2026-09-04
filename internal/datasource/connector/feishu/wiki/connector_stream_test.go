@@ -109,16 +109,20 @@ type recordingHandler struct {
 	emitted     []types.FetchedItem
 	checkpoints []core.FeishuCursor
 	emitErr     func(item types.FetchedItem) error
+	deferItem   func(item types.FetchedItem) bool
 }
 
-func (h *recordingHandler) Emit(ctx context.Context, item types.FetchedItem) error {
+func (h *recordingHandler) Emit(ctx context.Context, item types.FetchedItem) (bool, error) {
 	if h.emitErr != nil {
 		if err := h.emitErr(item); err != nil {
-			return err
+			return false, err
 		}
 	}
 	h.emitted = append(h.emitted, item)
-	return nil
+	if h.deferItem != nil && h.deferItem(item) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (h *recordingHandler) Checkpoint(ctx context.Context, cursor *types.SyncCursor) error {
@@ -204,6 +208,32 @@ func TestFetchStream_SkipsUnchangedNodesFromCursor(t *testing.T) {
 	}
 	if h.emitted[0].ExternalID != "nt3" {
 		t.Errorf("emitted id = %q, want nt3", h.emitted[0].ExternalID)
+	}
+}
+
+func TestFetchStream_RetainsCursorWhenIngestIsPending(t *testing.T) {
+	nodes := []core.WikiNode{{
+		NodeToken: "nt1", ObjToken: "obj1", ObjType: "docx", Title: "Doc", ObjEditTime: "100",
+	}}
+	ts, cfg := fakeFeishu(nodes)
+	defer ts.Close()
+
+	cursor := makeStreamCursor(t, map[string]map[string]string{"space1": {"nt1": "50"}})
+	h := &recordingHandler{deferItem: func(item types.FetchedItem) bool {
+		return item.ExternalID == "nt1"
+	}}
+	next, err := NewConnector(core.RegionFeishu).FetchStream(
+		context.Background(), makeConfig(cfg, []string{"space1"}), cursor, h,
+	)
+	if err != nil {
+		t.Fatalf("FetchStream() error: %v", err)
+	}
+
+	var fc core.FeishuCursor
+	b, _ := json.Marshal(next.ConnectorCursor)
+	_ = json.Unmarshal(b, &fc)
+	if got := fc.SpaceNodeTimes["space1"]["nt1"]; got != "50" {
+		t.Fatalf("pending node cursor = %q, want prior value %q", got, "50")
 	}
 }
 

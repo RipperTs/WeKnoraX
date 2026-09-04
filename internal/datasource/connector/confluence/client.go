@@ -113,8 +113,8 @@ func (c *client) listAttachments(ctx context.Context, spaceKey string) ([]attach
 	}
 }
 
-func (c *client) download(ctx context.Context, link string) ([]byte, error) {
-	req, err := c.newRequest(ctx, c.absoluteURL(link))
+func (c *client) download(ctx context.Context, containerID, fileName string) ([]byte, error) {
+	req, err := c.newRequest(ctx, c.attachmentURL(containerID, fileName))
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +144,19 @@ func (c *client) download(ctx context.Context, link string) ([]byte, error) {
 		)
 	}
 	return data, nil
+}
+
+func (c *client) attachmentURL(containerID, fileName string) string {
+	return c.baseURL + "/download/attachments/" +
+		url.PathEscape(containerID) + "/" + url.PathEscape(fileName)
+}
+
+func (c *client) pageURL(pageID string) string {
+	return c.baseURL + "/pages/viewpage.action?pageId=" + url.QueryEscape(pageID)
+}
+
+func (c *client) spaceURL(spaceKey string) string {
+	return c.baseURL + "/spaces/viewspace.action?key=" + url.QueryEscape(spaceKey)
 }
 
 func (c *client) getJSON(ctx context.Context, endpoint string, query url.Values, result interface{}) error {
@@ -193,6 +206,15 @@ func (c *client) absoluteURL(link string) string {
 	base, err := url.Parse(c.baseURL + "/")
 	if err != nil {
 		return link
+	}
+	if parsed.Host != "" {
+		return base.ResolveReference(parsed).String()
+	}
+	contextPath := strings.TrimRight(base.Path, "/")
+	if strings.HasPrefix(parsed.Path, "/") && contextPath != "" &&
+		parsed.Path != contextPath && !strings.HasPrefix(parsed.Path, contextPath+"/") {
+		parsed.Path = contextPath + parsed.Path
+		parsed.RawPath = ""
 	}
 	return base.ResolveReference(parsed).String()
 }

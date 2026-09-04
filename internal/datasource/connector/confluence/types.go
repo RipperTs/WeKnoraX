@@ -60,10 +60,7 @@ func parseConfig(ds *types.DataSourceConfig) (*config, error) {
 }
 
 type apiLinks struct {
-	Base     string `json:"base"`
-	WebUI    string `json:"webui"`
-	Download string `json:"download"`
-	Next     string `json:"next"`
+	Next string `json:"next"`
 }
 
 type plainBody struct {
@@ -77,7 +74,6 @@ type space struct {
 	Description struct {
 		Plain plainBody `json:"plain"`
 	} `json:"description"`
-	Links apiLinks `json:"_links"`
 }
 
 type version struct {
@@ -99,7 +95,6 @@ type page struct {
 	Body      struct {
 		ExportView plainBody `json:"export_view"`
 	} `json:"body"`
-	Links apiLinks `json:"_links"`
 }
 
 type attachment struct {
@@ -111,7 +106,6 @@ type attachment struct {
 	Metadata  struct {
 		MediaType string `json:"mediaType"`
 	} `json:"metadata"`
-	Links apiLinks `json:"_links"`
 }
 
 type spaceList struct {

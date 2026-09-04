@@ -107,9 +107,83 @@ func TestClientDownloadRejectsOversizedAttachment(t *testing.T) {
 	defer server.Close()
 
 	cli := newClient(&config{BaseURL: server.URL})
-	_, err := cli.download(context.Background(), server.URL+"/download")
+	_, err := cli.download(context.Background(), "1", "manual.pdf")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum download size")
+}
+
+func TestClientAbsoluteURLPreservesContextPath(t *testing.T) {
+	cli := newClient(&config{BaseURL: "https://confluence.example.com/confluence"})
+
+	assert.Equal(t,
+		"https://confluence.example.com/confluence/download/attachments/1/manual.pdf",
+		cli.absoluteURL("/download/attachments/1/manual.pdf"),
+	)
+	assert.Equal(t,
+		"https://confluence.example.com/confluence/pages/viewpage.action?pageId=1",
+		cli.absoluteURL("/confluence/pages/viewpage.action?pageId=1"),
+	)
+	assert.Equal(t,
+		"https://confluence.example.com/confluence/pages/1",
+		cli.absoluteURL("pages/1"),
+	)
+	assert.Equal(t,
+		"https://confluence.example.com/confluence/download/attachments/123/manual%20final.pdf",
+		cli.attachmentURL("123", "manual final.pdf"),
+	)
+	assert.Equal(t,
+		"https://confluence.example.com/confluence/pages/viewpage.action?pageId=123",
+		cli.pageURL("123"),
+	)
+	assert.Equal(t,
+		"https://confluence.example.com/confluence/spaces/viewspace.action?key=DOC",
+		cli.spaceURL("DOC"),
+	)
+}
+
+func TestFetchStreamDownloadsServerAttachmentWithoutDownloadLink(t *testing.T) {
+	allowLocalConfluence(t)
+	downloaded := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/confluence/rest/api/content", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []interface{}{},
+			"_links":  map[string]string{},
+		})
+	})
+	mux.HandleFunc("/confluence/rest/api/content/search", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{{
+				"id":        "20",
+				"title":     "manual final.pdf",
+				"version":   map[string]interface{}{"number": 1},
+				"container": map[string]interface{}{"id": "10", "title": "Manuals"},
+				"metadata":  map[string]interface{}{"mediaType": "application/pdf"},
+			}},
+			"_links": map[string]string{},
+		})
+	})
+	mux.HandleFunc("/confluence/download/attachments/10/", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/confluence/download/attachments/10/manual final.pdf", r.URL.Path)
+		downloaded = true
+		_, _ = w.Write([]byte("pdf-content"))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	handler := &recordingHandler{}
+	next, err := NewConnector().FetchStream(
+		context.Background(), confluenceConfig(server.URL+"/confluence"), nil, handler,
+	)
+	require.NoError(t, err)
+	require.True(t, downloaded)
+	require.Len(t, handler.items, 1)
+	assert.Equal(t, []byte("pdf-content"), handler.items[0].Content)
+	assert.Equal(t,
+		server.URL+"/confluence/download/attachments/10/manual%20final.pdf",
+		handler.items[0].Metadata["source_url"],
+	)
+	assert.Equal(t, "v1", decodeCursor(next).Items["attachment:20"])
 }
 
 type recordingHandler struct {
@@ -118,14 +192,15 @@ type recordingHandler struct {
 	checkpointErr error
 	checkpointAt  int
 	deletionErr   error
+	unhandled     map[string]bool
 }
 
-func (h *recordingHandler) Emit(_ context.Context, item types.FetchedItem) error {
+func (h *recordingHandler) Emit(_ context.Context, item types.FetchedItem) (bool, error) {
 	h.items = append(h.items, item)
 	if item.IsDeleted && h.deletionErr != nil {
-		return h.deletionErr
+		return false, h.deletionErr
 	}
-	return nil
+	return !h.unhandled[item.ExternalID], nil
 }
 
 func (h *recordingHandler) Checkpoint(_ context.Context, cursor *types.SyncCursor) error {
@@ -208,6 +283,41 @@ func TestFetchStreamRetainsFailedVersionAndEmitsDeletion(t *testing.T) {
 	state := decodeCursor(next)
 	assert.Equal(t, "v1", state.Items["page:1"], "failed changed page must remain eligible for retry")
 	assert.NotContains(t, state.Items, "page:2")
+}
+
+func TestFetchStreamRetainsVersionWhenIngestIsPending(t *testing.T) {
+	allowLocalConfluence(t)
+	server, _ := newFetchServer(t, 2, http.StatusOK)
+	defer server.Close()
+
+	previous := encodeCursor(syncCursor{Items: map[string]string{"page:1": "v1"}})
+	handler := &recordingHandler{unhandled: map[string]bool{"page:1": true}}
+	next, err := NewConnector().FetchStream(
+		context.Background(), confluenceConfig(server.URL), previous, handler,
+	)
+	require.NoError(t, err)
+
+	state := decodeCursor(next)
+	assert.Equal(t, "v1", state.Items["page:1"], "pending ingest must remain eligible for retry")
+}
+
+func TestFetchFullStreamRetainsDeletionWhenHandlerDefersIt(t *testing.T) {
+	allowLocalConfluence(t)
+	server, _ := newFetchServer(t, 1, http.StatusOK)
+	defer server.Close()
+
+	previous := encodeCursor(syncCursor{Items: map[string]string{
+		"page:1": "v1",
+		"page:2": "v1",
+	}})
+	handler := &recordingHandler{unhandled: map[string]bool{"page:2": true}}
+	next, err := NewConnector().FetchFullStream(
+		context.Background(), confluenceConfig(server.URL), previous, handler,
+	)
+	require.NoError(t, err)
+
+	state := decodeCursor(next)
+	assert.Equal(t, "v1", state.Items["page:2"], "deferred deletion must remain in the cursor")
 }
 
 func TestFetchFullStreamPreservesDeletionBaselineAcrossResume(t *testing.T) {
