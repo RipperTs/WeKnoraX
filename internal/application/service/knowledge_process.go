@@ -3182,7 +3182,17 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 			return fmt.Errorf("wait for external document replacement: %w", err)
 		}
 	}
+	return s.withKnowledgeProcessingLock(
+		ctx,
+		payload.TenantID,
+		payload.KnowledgeID,
+		func(lockCtx context.Context) error {
+			return s.processDocumentLocked(lockCtx, payload)
+		},
+	)
+}
 
+func (s *knowledgeService) processDocumentLocked(ctx context.Context, payload types.DocumentProcessPayload) error {
 	// 获取任务重试信息，用于判断是否是最后一次重试
 	retryCount, _ := asynq.GetRetryCount(ctx)
 	maxRetry, _ := asynq.GetMaxRetry(ctx)

@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"sync"
-	"time"
 
 	"github.com/Tencent/WeKnora/internal/common/redislock"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -20,9 +18,7 @@ import (
 )
 
 const (
-	externalDocumentLockLease         = 30 * time.Second
-	externalDocumentLockRenewInterval = 10 * time.Second
-	externalDocumentDataSourcePrefix  = "external-api:"
+	externalDocumentDataSourcePrefix = "external-api:"
 )
 
 type externalDocumentService struct {
@@ -30,25 +26,11 @@ type externalDocumentService struct {
 	redisClient      *redis.Client
 }
 
-type externalDocumentLocalLocks struct {
-	mu    sync.Mutex
-	locks map[string]*externalDocumentLocalLock
-}
-
-type externalDocumentLocalLock struct {
-	mu   sync.Mutex
-	refs int
-}
-
 type externalDocumentUploadContextKey struct{}
 
 type externalDocumentUploadContext struct {
 	processingLockKey   string
 	replacedKnowledgeID string
-}
-
-var externalDocumentLocks = externalDocumentLocalLocks{
-	locks: make(map[string]*externalDocumentLocalLock),
 }
 
 // NewExternalDocumentService creates the external document synchronization service.
@@ -284,42 +266,7 @@ func withExternalDocumentLock(
 	key string,
 	fn func(context.Context) error,
 ) error {
-	if redisClient != nil {
-		return redislock.WithRenewableLock(
-			ctx,
-			redisClient,
-			key,
-			externalDocumentLockLease,
-			externalDocumentLockRenewInterval,
-			fn,
-		)
-	}
-
-	unlock := externalDocumentLocks.lock(key)
-	defer unlock()
-	return fn(ctx)
-}
-
-func (l *externalDocumentLocalLocks) lock(key string) func() {
-	l.mu.Lock()
-	entry := l.locks[key]
-	if entry == nil {
-		entry = &externalDocumentLocalLock{}
-		l.locks[key] = entry
-	}
-	entry.refs++
-	l.mu.Unlock()
-
-	entry.mu.Lock()
-	return func() {
-		entry.mu.Unlock()
-		l.mu.Lock()
-		entry.refs--
-		if entry.refs == 0 {
-			delete(l.locks, key)
-		}
-		l.mu.Unlock()
-	}
+	return withServiceLock(ctx, redisClient, key, fn)
 }
 
 func calculateExternalDocumentFingerprint(

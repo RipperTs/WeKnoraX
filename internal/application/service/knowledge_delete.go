@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -57,8 +58,10 @@ func deleteExtractedImages(ctx context.Context, fileSvc interfaces.FileService, 
 
 // DeleteKnowledge deletes a knowledge entry and all related resources
 func (s *knowledgeService) DeleteKnowledge(ctx context.Context, id string) error {
+	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
+
 	// Get the knowledge entry
-	knowledge, err := s.repo.GetKnowledgeByID(ctx, ctx.Value(types.TenantIDContextKey).(uint64), id)
+	knowledge, err := s.repo.GetKnowledgeByID(ctx, tenantID, id)
 	if err != nil {
 		return err
 	}
@@ -86,12 +89,36 @@ func (s *knowledgeService) DeleteKnowledge(ctx context.Context, id string) error
 		s.dequeueKnowledgeTasks(ctx, id)
 	}
 
+	return s.withKnowledgeProcessingLock(ctx, tenantID, id, func(lockCtx context.Context) error {
+		current, err := s.repo.GetKnowledgeByID(lockCtx, tenantID, id)
+		if errors.Is(err, repository.ErrKnowledgeNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		// A worker that was already past its last abort check may have overwritten
+		// the status before releasing the processing lock. Restore the deletion
+		// marker while the lock is held before cleaning up its resources.
+		current.ParseStatus = types.ParseStatusDeleting
+		current.UpdatedAt = time.Now()
+		if err := s.repo.UpdateKnowledge(lockCtx, current); err != nil {
+			return err
+		}
+		return s.deleteKnowledgeLocked(lockCtx, current)
+	})
+}
+
+func (s *knowledgeService) deleteKnowledgeLocked(ctx context.Context, knowledge *types.Knowledge) error {
+	id := knowledge.ID
+	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
+
 	// Resolve file service for this KB before spawning goroutines
 	kb, _ := s.kbService.GetKnowledgeBaseByID(ctx, knowledge.KnowledgeBaseID)
 	kbFileSvc := s.resolveFileService(ctx, kb)
 
 	// Collect image URLs before chunks are deleted (ImageInfo references are lost after deletion)
-	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
 	chunkImageInfos, err := s.chunkService.GetRepository().ListImageInfoByKnowledgeIDs(ctx, tenantID, []string{id})
 	if err != nil {
 		logger.Errorf(ctx, "Failed to collect image URLs for cleanup: %v", err)
