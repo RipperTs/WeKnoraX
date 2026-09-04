@@ -130,6 +130,7 @@ type IntegrationAuthorizationView struct {
 	SelectedTenantIDs []uint64                      `json:"selected_tenant_ids"`
 	ConnectionID      string                        `json:"connection_id,omitempty"`
 	RequiresConsent   bool                          `json:"requires_consent"`
+	grantedTenantIDs  []uint64
 }
 
 // IntegrationAuthorizationDecision records the user's approval or denial.
@@ -179,24 +180,24 @@ type IntegrationConnectionView struct {
 
 // IntegrationService manages client registration, consent, credentials and effective access.
 type IntegrationService struct {
-	repo           interfaces.IntegrationRepository
-	kbService      interfaces.KnowledgeBaseService
-	kbShareService interfaces.KBShareService
-	tenantService  interfaces.TenantService
-	memberService  interfaces.TenantMemberService
-	lastUsedTouch  sync.Map
+	repo          interfaces.IntegrationRepository
+	kbRepo        interfaces.KnowledgeBaseRepository
+	kbShareRepo   interfaces.KBShareRepository
+	tenantService interfaces.TenantService
+	memberService interfaces.TenantMemberService
+	lastUsedTouch sync.Map
 }
 
 // NewIntegrationService creates the third-party integration service.
 func NewIntegrationService(
 	repo interfaces.IntegrationRepository,
-	kbService interfaces.KnowledgeBaseService,
-	kbShareService interfaces.KBShareService,
+	kbRepo interfaces.KnowledgeBaseRepository,
+	kbShareRepo interfaces.KBShareRepository,
 	tenantService interfaces.TenantService,
 	memberService interfaces.TenantMemberService,
 ) *IntegrationService {
 	return &IntegrationService{
-		repo: repo, kbService: kbService, kbShareService: kbShareService,
+		repo: repo, kbRepo: kbRepo, kbShareRepo: kbShareRepo,
 		tenantService: tenantService, memberService: memberService,
 	}
 }
@@ -423,6 +424,7 @@ func (s *IntegrationService) GetAuthorizationView(
 	if err != nil {
 		return nil, err
 	}
+	view.grantedTenantIDs = grants
 	accessible := integrationTenantViewIDSet(tenants)
 	for _, id := range grants {
 		if accessible[id] {
@@ -513,15 +515,17 @@ func (s *IntegrationService) Authorize(
 		if view.RequiresConsent {
 			return nil, ErrIntegrationConsentRequired
 		}
-		selectedIDs = view.SelectedTenantIDs
+		selectedIDs = view.grantedTenantIDs
 	}
 	if len(selectedIDs) == 0 {
 		return nil, ErrIntegrationAccessDenied
 	}
-	allowedTenants := integrationTenantViewIDSet(view.Tenants)
-	for _, tenantID := range selectedIDs {
-		if !allowedTenants[tenantID] {
-			return nil, ErrIntegrationAccessDenied
+	if !decision.ReuseExisting {
+		allowedTenants := integrationTenantViewIDSet(view.Tenants)
+		for _, tenantID := range selectedIDs {
+			if !allowedTenants[tenantID] {
+				return nil, ErrIntegrationAccessDenied
+			}
 		}
 	}
 	codeValue, err := generateIntegrationSecret("wkac_", 32)
@@ -748,7 +752,7 @@ func (s *IntegrationService) ResolveCredentialAccess(
 			access.Scopes = intersectIntegrationScopes(access.Scopes, tenantScopes)
 		}
 		access.TenantRoles[tenantID] = role
-		knowledgeBases, listErr := s.listAccessibleKnowledgeBases(ctx, tenantID, role)
+		knowledgeBases, listErr := s.listAccessibleKnowledgeBases(ctx, tenantID)
 		if listErr != nil {
 			return nil, listErr
 		}
@@ -953,27 +957,27 @@ func (s *IntegrationService) buildIntegrationTenantViews(
 func (s *IntegrationService) listAccessibleKnowledgeBases(
 	ctx context.Context,
 	tenantID uint64,
-	role types.TenantRole,
 ) ([]*types.KnowledgeBase, error) {
-	tenantCtx := context.WithValue(ctx, types.TenantIDContextKey, tenantID)
-	tenantCtx = context.WithValue(tenantCtx, types.TenantRoleContextKey, role)
-	own, err := s.kbService.ListKnowledgeBases(tenantCtx)
+	own, err := s.kbRepo.ListKnowledgeBasesByTenantID(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	shared, err := s.kbShareService.ListSharedKnowledgeBases(tenantCtx, tenantID, role)
+	shared, err := s.kbShareRepo.ListSharedKBsForTenant(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	byID := make(map[string]*types.KnowledgeBase, len(own)+len(shared))
 	for _, kb := range own {
 		if kb != nil && !kb.IsTemporary {
+			kb.EnsureDefaults()
 			byID[kb.ID] = kb
 		}
 	}
-	for _, info := range shared {
-		if info != nil && info.KnowledgeBase != nil && !info.KnowledgeBase.IsTemporary {
-			byID[info.KnowledgeBase.ID] = info.KnowledgeBase
+	for _, share := range shared {
+		if share != nil && share.SourceTenantID != tenantID &&
+			share.KnowledgeBase != nil && !share.KnowledgeBase.IsTemporary {
+			share.KnowledgeBase.EnsureDefaults()
+			byID[share.KnowledgeBase.ID] = share.KnowledgeBase
 		}
 	}
 	result := make([]*types.KnowledgeBase, 0, len(byID))
