@@ -193,6 +193,7 @@ func (c *Connector) fetchStream(
 		}
 	}
 	current := make(map[string]struct{})
+	fullSyncHasPendingItems := false
 
 	processed := 0
 	lastCheckpoint := time.Now()
@@ -227,6 +228,9 @@ func (c *Connector) fetchStream(
 			if comparison[externalID] != signature {
 				pageDetail, fetchErr := cli.getPage(ctx, pageMeta.ID)
 				if fetchErr != nil {
+					if next.FullSync {
+						fullSyncHasPendingItems = true
+					}
 					if _, emitErr := handler.Emit(
 						ctx, failedItem(externalID, pageMeta.Title, spaceKey, fetchErr),
 					); emitErr != nil {
@@ -235,6 +239,9 @@ func (c *Connector) fetchStream(
 				} else {
 					item, buildErr := buildPageItem(cli, pageDetail, spaceKey)
 					if buildErr != nil {
+						if next.FullSync {
+							fullSyncHasPendingItems = true
+						}
 						if _, emitErr := handler.Emit(
 							ctx, failedItem(externalID, pageMeta.Title, spaceKey, buildErr),
 						); emitErr != nil {
@@ -247,6 +254,8 @@ func (c *Connector) fetchStream(
 						}
 						if handled {
 							next.Items[externalID] = signature
+						} else if next.FullSync {
+							fullSyncHasPendingItems = true
 						}
 					}
 				}
@@ -285,6 +294,8 @@ func (c *Connector) fetchStream(
 					}
 					if handled && errors.Is(fetchErr, errAttachmentTooLarge) {
 						next.Items[externalID] = signature
+					} else if next.FullSync {
+						fullSyncHasPendingItems = true
 					}
 				} else {
 					item := buildAttachmentItem(cli, attachmentMeta, spaceKey, content)
@@ -294,6 +305,8 @@ func (c *Connector) fetchStream(
 					}
 					if handled {
 						next.Items[externalID] = signature
+					} else if next.FullSync {
+						fullSyncHasPendingItems = true
 					}
 				}
 			}
@@ -321,12 +334,17 @@ func (c *Connector) fetchStream(
 		}
 		if handled {
 			delete(next.Items, externalID)
+			if next.FullSync {
+				delete(next.FullSyncBaseline, externalID)
+			}
 		} else {
 			next.Items[externalID] = deletionBaseline[externalID]
 		}
 	}
-	next.FullSync = false
-	next.FullSyncBaseline = nil
+	if !fullSyncHasPendingItems {
+		next.FullSync = false
+		next.FullSyncBaseline = nil
+	}
 
 	return encodeCursor(next), nil
 }
