@@ -111,7 +111,7 @@ type IntegrationKnowledgeBaseView struct {
 	Type           string `json:"type"`
 	Description    string `json:"description,omitempty"`
 	TenantID       uint64 `json:"tenant_id"`
-	AccessTenantID uint64 `json:"access_tenant_id"`
+	AccessTenantID uint64 `json:"access_tenant_id,omitempty"`
 }
 
 // IntegrationTenantView exposes the workspace metadata needed by consent and launch pages.
@@ -1138,12 +1138,11 @@ func BuildIntegrationKnowledgeBaseViews(knowledgeBases []*types.KnowledgeBase) [
 // BuildIntegrationKnowledgeBaseView projects one knowledge base to the public integration contract.
 func BuildIntegrationKnowledgeBaseView(kb *types.KnowledgeBase) IntegrationKnowledgeBaseView {
 	return IntegrationKnowledgeBaseView{
-		ID:             kb.ID,
-		Name:           kb.Name,
-		Type:           kb.Type,
-		Description:    kb.Description,
-		TenantID:       kb.TenantID,
-		AccessTenantID: kb.TenantID,
+		ID:          kb.ID,
+		Name:        kb.Name,
+		Type:        kb.Type,
+		Description: kb.Description,
+		TenantID:    kb.TenantID,
 	}
 }
 

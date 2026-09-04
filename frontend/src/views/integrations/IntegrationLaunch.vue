@@ -66,7 +66,7 @@ const loading = ref(true)
 const errorMessage = ref('')
 const connection = ref<IntegrationConnectionView | null>(null)
 
-function openKnowledgeBase(id: string, tenantId: number) {
+function openKnowledgeBase(id: string, tenantId?: number) {
   const tenant = connection.value?.tenants.find(item => item.id === tenantId)
   if (tenantId && tenantId !== Number(authStore.effectiveTenantId)) {
     authStore.setSelectedTenant(tenantId, tenant?.name || null)

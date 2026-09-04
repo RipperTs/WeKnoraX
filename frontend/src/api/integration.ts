@@ -33,7 +33,7 @@ export interface IntegrationKnowledgeBase {
   description?: string
   type: string
   tenant_id: number
-  access_tenant_id: number
+  access_tenant_id?: number
 }
 
 export interface IntegrationTenant {
