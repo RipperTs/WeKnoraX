@@ -27,7 +27,7 @@ func escapeLikeKeyword(keyword string) string {
 
 // omitFieldsOnUpdate defines fields to omit when updating knowledge.
 //
-// PendingSubtasksCount is deliberately omitted from every full-row Save:
+// PendingSubtasksCount is deliberately omitted from every full-row update:
 // it is an orchestration counter owned exclusively by the atomic helpers
 // SetFinalizing (seed), FinalizeSubtask (decrement+promote) and the
 // explicit UpdateKnowledgeColumns resets (cancel/reparse). A generic
@@ -38,7 +38,7 @@ func escapeLikeKeyword(keyword string) string {
 // decrements other subtasks performed in the meantime. That made the
 // counter jump back up and never reach zero (the "stuck
 // pending_subtasks_count / never promoted to completed" bug). Omitting
-// the column here means Save can never touch it.
+// the column here means UpdateKnowledge can never touch it.
 var omitFieldsOnUpdate = []string{"DeletedAt", "PendingSubtasksCount"}
 
 // knowledgeRepository implements knowledge base and knowledge repository interface
@@ -312,7 +312,11 @@ func (r *knowledgeRepository) UpdateKnowledge(ctx context.Context, knowledge *ty
 	if knowledge.CustomMetadata == nil {
 		omit = append(append([]string{}, omitFieldsOnUpdate...), "custom_metadata")
 	}
-	err := r.db.WithContext(ctx).Omit(omit...).Save(knowledge).Error
+	err := r.db.WithContext(ctx).
+		Model(knowledge).
+		Select("*").
+		Omit(omit...).
+		Updates(knowledge).Error
 	return err
 }
 
@@ -766,6 +770,7 @@ func (r *knowledgeRepository) FindByDataSourceExternalID(
 	err := r.db.WithContext(ctx).
 		Where("tenant_id = ? AND knowledge_base_id = ? AND deleted_at IS NULL", tenantID, kbID).
 		Where("metadata->>'datasource_id' = ? AND metadata->>'external_id' = ?", dataSourceID, externalID).
+		Order("created_at DESC").
 		First(&knowledge).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

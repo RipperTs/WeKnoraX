@@ -4041,6 +4041,7 @@ export default {
       multimodal: '图像处理',
       asr: '音频处理',
       datasource: '数据源',
+      apiAccess: 'API 接入',
       share: '共享管理',
       activity: '活动记录'
     },
@@ -4050,6 +4051,39 @@ export default {
       data: '存储与数据',
       integration: '发布集成',
       management: '管理与审计'
+    },
+    apiAccess: {
+      title: 'API 接入',
+      description: '为第三方系统创建只允许向当前知识库写入文档的独立密钥。',
+      endpointLabel: '文档同步接口',
+      scopeNotice: '密钥仅绑定当前知识库，并且只授予 ingest 权限。',
+      createTitle: '创建接入密钥',
+      createDescription: '建议按接入系统命名，方便后续识别和撤销。',
+      namePlaceholder: '例如：规章制度系统',
+      create: '创建密钥',
+      createdTitle: '密钥创建成功',
+      createdDescription: '请立即复制并安全保存。离开此页面后将不再显示完整密钥。',
+      listTitle: '当前知识库的接入密钥',
+      loading: '正在加载密钥…',
+      empty: '暂无接入密钥',
+      neverUsed: '从未使用',
+      revoke: '撤销',
+      revokeConfirmTitle: '撤销接入密钥',
+      revokeConfirmBody: '撤销“{name}”后，使用该密钥的第三方同步会立即失效。',
+      revokeSuccess: '密钥已撤销',
+      revokeFailed: '撤销密钥失败',
+      nameRequired: '请输入密钥名称',
+      loadFailed: '加载接入密钥失败',
+      createFailed: '创建接入密钥失败',
+      createSuccess: '接入密钥已创建',
+      copySuccess: '密钥已复制',
+      columns: {
+        name: '名称',
+        key: '密钥',
+        createdAt: '创建时间',
+        lastUsed: '最后使用',
+        actions: '操作'
+      }
     },
     activity: {
       title: '活动记录',

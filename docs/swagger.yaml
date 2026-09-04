@@ -8713,6 +8713,130 @@ paths:
       summary: 创建知识库副本
       tags:
       - 知识库
+  /knowledge-bases/{id}/external-documents:
+    delete:
+      description: 删除操作具有幂等性，文档不存在时返回 skipped
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 来源系统标识
+        in: query
+        name: source_id
+        required: true
+        type: string
+      - description: 来源系统中的文档标识
+        in: query
+        name: external_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 删除外部文档
+      tags:
+      - 外部文档
+    get:
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 来源系统标识
+        in: query
+        name: source_id
+        required: true
+        type: string
+      - description: 来源系统中的文档标识
+        in: query
+        name: external_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 查询外部文档状态
+      tags:
+      - 外部文档
+    put:
+      consumes:
+      - multipart/form-data
+      description: 由 source_id 和 external_id 唯一标识文档；服务端按内容指纹幂等处理
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 来源系统标识
+        in: formData
+        name: source_id
+        required: true
+        type: string
+      - description: 来源系统中的文档标识
+        in: formData
+        name: external_id
+        required: true
+        type: string
+      - description: 文档文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: 业务元数据JSON
+        in: formData
+        name: metadata
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文档内容未变化
+          schema:
+            additionalProperties: true
+            type: object
+        "202":
+          description: 已提交创建或更新
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 创建或更新外部文档
+      tags:
+      - 外部文档
   /knowledge-bases/{id}/faq/entries:
     delete:
       consumes:

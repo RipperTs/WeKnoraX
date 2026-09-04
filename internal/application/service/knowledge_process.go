@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	werrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/infrastructure/chunker"
@@ -3170,7 +3171,28 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 	if payload.Language != "" {
 		ctx = context.WithValue(ctx, types.LanguageContextKey, payload.Language)
 	}
+	if payload.ExternalDocumentLockKey != "" {
+		logger.Infof(ctx, "Waiting for external document replacement: knowledge_id=%s", payload.KnowledgeID)
+		if err := withExternalDocumentLock(
+			ctx,
+			s.redisClient,
+			payload.ExternalDocumentLockKey,
+			func(context.Context) error { return nil },
+		); err != nil {
+			return fmt.Errorf("wait for external document replacement: %w", err)
+		}
+	}
+	return s.withKnowledgeProcessingLock(
+		ctx,
+		payload.TenantID,
+		payload.KnowledgeID,
+		func(lockCtx context.Context) error {
+			return s.processDocumentLocked(lockCtx, payload)
+		},
+	)
+}
 
+func (s *knowledgeService) processDocumentLocked(ctx context.Context, payload types.DocumentProcessPayload) error {
 	// 获取任务重试信息，用于判断是否是最后一次重试
 	retryCount, _ := asynq.GetRetryCount(ctx)
 	maxRetry, _ := asynq.GetMaxRetry(ctx)
@@ -3185,6 +3207,9 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 
 	logger.Infof(ctx, "Processing document task: knowledge_id=%s, file_path=%s, retry=%d/%d",
 		payload.KnowledgeID, payload.FilePath, retryCount, maxRetry)
+	if err := s.cleanupReplacedExternalDocument(ctx, payload); err != nil {
+		return err
+	}
 
 	// 幂等性检查：获取knowledge记录
 	knowledge, err := s.repo.GetKnowledgeByID(ctx, payload.TenantID, payload.KnowledgeID)
@@ -3569,6 +3594,25 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 	// Step 4: Process chunks (vectorize + index + enqueue async tasks)
 	s.processChunks(ctx, kb, knowledge, chunks, processOpts)
 
+	return nil
+}
+
+func (s *knowledgeService) cleanupReplacedExternalDocument(
+	ctx context.Context,
+	payload types.DocumentProcessPayload,
+) error {
+	if payload.ReplacedKnowledgeID == "" {
+		return nil
+	}
+	if err := s.DeleteKnowledge(ctx, payload.ReplacedKnowledgeID); err != nil {
+		if errors.Is(err, repository.ErrKnowledgeNotFound) {
+			return nil
+		}
+		return fmt.Errorf("delete replaced external document %s: %w", payload.ReplacedKnowledgeID, err)
+	}
+	if err := s.repo.HardDeleteKnowledge(ctx, payload.TenantID, payload.ReplacedKnowledgeID); err != nil {
+		logger.Warnf(ctx, "failed to hard-delete replaced external document %s: %v", payload.ReplacedKnowledgeID, err)
+	}
 	return nil
 }
 

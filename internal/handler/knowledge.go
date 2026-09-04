@@ -33,6 +33,7 @@ import (
 type KnowledgeHandler struct {
 	cfg               *config.Config
 	kgService         interfaces.KnowledgeService
+	externalDocuments interfaces.ExternalDocumentService
 	kbService         interfaces.KnowledgeBaseService
 	kbShareService    interfaces.KBShareService
 	agentShareService interfaces.AgentShareService
@@ -44,6 +45,7 @@ type KnowledgeHandler struct {
 func NewKnowledgeHandler(
 	cfg *config.Config,
 	kgService interfaces.KnowledgeService,
+	externalDocuments interfaces.ExternalDocumentService,
 	kbService interfaces.KnowledgeBaseService,
 	kbShareService interfaces.KBShareService,
 	agentShareService interfaces.AgentShareService,
@@ -53,6 +55,7 @@ func NewKnowledgeHandler(
 	return &KnowledgeHandler{
 		cfg:               cfg,
 		kgService:         kgService,
+		externalDocuments: externalDocuments,
 		kbService:         kbService,
 		kbShareService:    kbShareService,
 		agentShareService: agentShareService,
