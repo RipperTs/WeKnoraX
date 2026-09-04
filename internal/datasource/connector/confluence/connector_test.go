@@ -101,7 +101,7 @@ func TestClientDownloadRejectsOversizedAttachment(t *testing.T) {
 	allowLocalConfluence(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Length", strconv.FormatInt(maxAttachmentDownloadBytes+1, 10))
+		w.Header().Set("Content-Length", strconv.FormatInt(secutils.GetMaxFileSize()+1, 10))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()

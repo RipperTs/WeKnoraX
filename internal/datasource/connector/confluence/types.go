@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	defaultPageSize            = 100
-	requestTimeout             = 30 * time.Second
-	maxAttachmentDownloadBytes = 100 * 1024 * 1024
+	defaultPageSize = 100
+	requestTimeout  = 30 * time.Second
 )
 
 // config contains the non-secret Confluence address and optional Basic Auth
@@ -40,7 +39,10 @@ func parseConfig(ds *types.DataSourceConfig) (*config, error) {
 		return nil, fmt.Errorf("%w: base_url must be an absolute HTTP or HTTPS URL", datasource.ErrInvalidConfig)
 	}
 	if parsed.User != nil || parsed.RawQuery != "" {
-		return nil, fmt.Errorf("%w: base_url must not contain user information or query parameters", datasource.ErrInvalidConfig)
+		return nil, fmt.Errorf(
+			"%w: base_url must not contain user information or query parameters",
+			datasource.ErrInvalidConfig,
+		)
 	}
 	if err := datasource.ValidateConnectorBaseURL(baseURL); err != nil {
 		return nil, fmt.Errorf("%w (for private Confluence deployments, add the host to SSRF_WHITELIST)", err)

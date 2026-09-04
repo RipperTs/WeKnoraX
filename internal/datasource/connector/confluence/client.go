@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/datasource"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
 )
 
 var errAttachmentTooLarge = errors.New("confluence attachment exceeds maximum download size")
@@ -130,15 +131,17 @@ func (c *client) download(ctx context.Context, containerID, fileName string) ([]
 	if err := confluenceStatusError(resp); err != nil {
 		return nil, err
 	}
-	if resp.ContentLength > maxAttachmentDownloadBytes {
-		return nil, fmt.Errorf("%w (%d MB)", errAttachmentTooLarge, maxAttachmentDownloadBytes/(1024*1024))
+	maxDownloadBytes := secutils.GetMaxFileSize()
+	maxDownloadMB := maxDownloadBytes / (1024 * 1024)
+	if resp.ContentLength > maxDownloadBytes {
+		return nil, fmt.Errorf("%w (%d MB)", errAttachmentTooLarge, maxDownloadMB)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentDownloadBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read Confluence attachment: %w", err)
 	}
-	if int64(len(data)) > maxAttachmentDownloadBytes {
-		return nil, fmt.Errorf("%w (%d MB)", errAttachmentTooLarge, maxAttachmentDownloadBytes/(1024*1024))
+	if int64(len(data)) > maxDownloadBytes {
+		return nil, fmt.Errorf("%w (%d MB)", errAttachmentTooLarge, maxDownloadMB)
 	}
 	return data, nil
 }

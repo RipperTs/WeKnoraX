@@ -268,6 +268,41 @@ func TestFetchStream_CheckpointsProgress(t *testing.T) {
 	}
 }
 
+func TestFetchStream_CheckpointRetainsDeletionUntilHandled(t *testing.T) {
+	prev := core.FeishuStreamCheckpointInterval
+	core.FeishuStreamCheckpointInterval = 1
+	defer func() { core.FeishuStreamCheckpointInterval = prev }()
+
+	nodes := []core.WikiNode{{
+		NodeToken: "current", ObjToken: "obj1", ObjType: "docx", Title: "Doc", ObjEditTime: "100",
+	}}
+	ts, cfg := fakeFeishu(nodes)
+	defer ts.Close()
+
+	boom := errors.New("delete failed")
+	cursor := makeStreamCursor(t, map[string]map[string]string{
+		"space1": {"deleted": "50"},
+	})
+	h := &recordingHandler{emitErr: func(item types.FetchedItem) error {
+		if item.IsDeleted {
+			return boom
+		}
+		return nil
+	}}
+	_, err := NewConnector(core.RegionFeishu).FetchStream(
+		context.Background(), makeConfig(cfg, []string{"space1"}), cursor, h,
+	)
+	if !errors.Is(err, boom) {
+		t.Fatalf("FetchStream() error = %v, want %v", err, boom)
+	}
+	if len(h.checkpoints) == 0 {
+		t.Fatal("expected a Checkpoint before deletion detection")
+	}
+	if got := h.checkpoints[0].SpaceNodeTimes["space1"]["deleted"]; got != "50" {
+		t.Fatalf("deleted node in Checkpoint = %q, want prior value %q", got, "50")
+	}
+}
+
 // Checkpoints must ALSO fire on elapsed time, not only every N nodes.
 // Otherwise a sync with fewer than the node interval of slow (rate-limited)
 // exports reaches the 2h task timeout having never checkpointed, and resumes

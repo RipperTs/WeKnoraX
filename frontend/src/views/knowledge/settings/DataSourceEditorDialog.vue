@@ -903,8 +903,11 @@ async function testConnection() {
     if (form.value.type === 'confluence') {
       if (confluenceSourceChanged) {
         selectedResourceIds.value = []
-        form.value.config.resource_ids = []
+      } else if (previewedResources !== null) {
+        const availableResourceIds = new Set(previewedResources.map(resource => resource.external_id))
+        selectedResourceIds.value = selectedResourceIds.value.filter(id => availableResourceIds.has(id))
       }
+      form.value.config.resource_ids = [...selectedResourceIds.value]
       validatedConfluenceBaseURL.value = normalizeConfluenceBaseURL(form.value.config.settings.base_url)
       if (previewedResources !== null) {
         confluencePreviewBaseURL.value = validatedConfluenceBaseURL.value

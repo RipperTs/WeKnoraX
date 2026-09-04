@@ -97,7 +97,17 @@ func runSync[N any](
 		prevTimes = ops.DecodeCursorTimes(cursor.ConnectorCursor)
 	}
 
-	newTimes := make(map[string]map[string]string)
+	// Seed every selected resource before streaming so intermediate checkpoints
+	// retain pending changes and deletions until Emit confirms they were handled.
+	newTimes := make(map[string]map[string]string, len(resourceIDs))
+	for _, resourceID := range resourceIDs {
+		newTimes[resourceID] = make(map[string]string)
+		if prev, ok := prevTimes[resourceID]; ok {
+			for tok, editTime := range prev {
+				newTimes[resourceID][tok] = editTime
+			}
+		}
+	}
 	lastSync := time.Now()
 
 	processed := 0
@@ -111,17 +121,6 @@ func runSync[N any](
 			for _, item := range ops.ListFailureItems(resourceID, partial) {
 				if _, eerr := h.Emit(ctx, item); eerr != nil {
 					return nil, eerr
-				}
-			}
-		}
-
-		newTimes[resourceID] = make(map[string]string)
-		// On a partial listing, carry prior edit times forward so a later full
-		// listing can still detect changes and deletions.
-		if partial != nil && prevTimes != nil {
-			if prev, ok := prevTimes[resourceID]; ok {
-				for tok, et := range prev {
-					newTimes[resourceID][tok] = et
 				}
 			}
 		}
@@ -219,7 +218,9 @@ func runSync[N any](
 						if eerr != nil {
 							return nil, eerr
 						}
-						if !handled {
+						if handled {
+							delete(newTimes[resourceID], tok)
+						} else {
 							newTimes[resourceID][tok] = editTime
 						}
 					}
