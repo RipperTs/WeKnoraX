@@ -30,6 +30,10 @@ When an approved behavior or permission contract changes, update the directly af
 
 Use Conventional Commits, optionally with a scope: `feat(chat): add source filter`, `fix: handle empty upload`, or `docs: clarify setup`. Keep commits focused. Pull requests must explain the change, link issues with `Fixes #123` when applicable, list validation commands, and note failures. Complete `.github/pull_request_template.md`, call out breaking changes, and include screenshots or recordings for UI changes.
 
+## Browser and Desktop Automation
+
+Do not use browser automation or desktop UI automation for access, operations, or debugging unless the user has explicitly approved it for the current task.
+
 ## Security & Configuration
 
 Copy `.env.example` for local configuration and never commit `.env`, credentials, keys, or generated data. Report vulnerabilities privately through GitHub Security Advisories rather than public issues.
