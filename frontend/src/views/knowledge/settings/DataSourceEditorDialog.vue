@@ -586,6 +586,18 @@ const connectorDefs = computed<ConnectorDef[]>(() => [
     ],
   },
   {
+    type: 'confluence',
+    available: true,
+    docUrl: '',
+    permissionDocUrl: '',
+    permissionPageUrl: '',
+    requiredPermissions: [],
+    fields: [
+      { key: 'username', labelKey: 'datasource.field.confluenceUsername', placeholder: '', optional: true },
+      { key: 'password', labelKey: 'datasource.field.confluencePassword', placeholder: '', secret: true, optional: true },
+    ],
+  },
+  {
     type: 'yuque',
     available: true,
     docUrl: 'https://www.yuque.com/yuque/developer/api',
@@ -762,11 +774,22 @@ watch(
   },
 )
 
+watch(
+  () => form.value.config.settings.base_url,
+  () => {
+    if (form.value.type === 'confluence' && needsConnectionTest()) {
+      testResult.value = ''
+      testErrorMsg.value = ''
+    }
+  },
+)
+
 function selectType(def: ConnectorDef) {
   if (!def.available) return
   form.value.type = def.type
   form.value.name = t(`datasource.connector.${def.type}`)
   form.value.config.credentials = {}
+  form.value.config.settings = {}
   if (isGitLabConnector(def.type)) addGitLabProject()
   rssAuthHeaders.value = []
   step.value = 1
@@ -776,6 +799,7 @@ function selectType(def: ConnectorDef) {
 async function testConnection() {
   syncRssAuthHeadersToCredentials()
   if (!validateRssFeedUrls()) return
+  if (!validateConfluenceBaseURL()) return
   if (!isEdit.value || !credentialsConfigured.value || replaceCredentialsMode.value) {
     const fields = currentDef.value?.fields || []
     for (const f of fields) {
@@ -799,11 +823,7 @@ async function testConnection() {
       await validateConnection(tempDsId.value)
     } else {
       const creds = { ...form.value.config.credentials }
-      if (form.value.type === 'rss') {
-        // validate-credentials is credentials-only; feed URLs live in settings.
-        creds.feed_urls = form.value.config.settings.feed_urls
-      }
-      await validateCredentials(form.value.type, creds)
+      await validateCredentials(form.value.type, creds, form.value.config.settings)
     }
     testResult.value = 'success'
     MessagePlugin.success(t('datasource.testSuccess'))
@@ -966,9 +986,19 @@ function validateRssFeedUrls(): boolean {
   return true
 }
 
+function validateConfluenceBaseURL(): boolean {
+  if (form.value.type !== 'confluence') return true
+  if (!String(form.value.config.settings.base_url || '').trim()) {
+    MessagePlugin.warning(`${t('datasource.field.confluenceBaseUrl')} ${t('datasource.isRequired')}`)
+    return false
+  }
+  return true
+}
+
 function validateStep1Fields(): boolean {
   syncRssAuthHeadersToCredentials()
   if (!validateRssFeedUrls()) return false
+  if (!validateConfluenceBaseURL()) return false
   if (isEdit.value && credentialsConfigured.value && !replaceCredentialsMode.value) {
     return true
   }
@@ -1178,6 +1208,7 @@ function collapseAllNodes() {
 
 const resourceTypeLabelMap: Record<string, string> = {
   wiki_space: 'datasource.resourceType.wikiSpace',
+  confluence_space: 'datasource.resourceType.confluenceSpace',
   doc_category: 'datasource.resourceType.docCategory',
   book: 'datasource.resourceType.book',
 }
@@ -1414,6 +1445,20 @@ const drawerConfirmText = computed(() => {
             spellcheck="false"
           />
           <p class="form-desc">{{ t('datasource.field.feedUrlsHint') }}</p>
+        </div>
+      </section>
+
+      <section v-if="form.type === 'confluence'" class="setting-drawer__section">
+        <h4 class="setting-drawer__section-title">{{ t('datasource.field.confluenceBaseUrl') }}</h4>
+        <div class="form-item">
+          <label class="form-label required">{{ t('datasource.field.confluenceBaseUrl') }}</label>
+          <t-input
+            v-model="form.config.settings.base_url"
+            placeholder="https://confluence.example.com"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="form-desc">{{ t('datasource.field.confluenceBaseUrlHint') }}</p>
         </div>
       </section>
 

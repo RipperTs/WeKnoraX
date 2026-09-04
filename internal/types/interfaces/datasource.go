@@ -39,9 +39,14 @@ type DataSourceService interface {
 	// ValidateConnection tests the connection to an external data source
 	ValidateConnection(ctx context.Context, dsID string) error
 
-	// ValidateCredentials tests connectivity using raw credentials without persisting anything.
+	// ValidateCredentials tests connectivity using raw credentials and settings without persisting anything.
 	// This is used by the frontend "Test Connection" button before creating a data source.
-	ValidateCredentials(ctx context.Context, connectorType string, credentials map[string]interface{}) error
+	ValidateCredentials(
+		ctx context.Context,
+		connectorType string,
+		credentials map[string]interface{},
+		settings map[string]interface{},
+	) error
 
 	// ListAvailableResources lists resources available for sync in the external system.
 	// parentID enables lazy loading: "" lists the top level, a resource ExternalID lists its children.

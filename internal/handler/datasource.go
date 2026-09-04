@@ -294,7 +294,7 @@ func (h *DataSourceHandler) ValidateConnection(c *gin.Context) {
 
 // ValidateCredentials godoc
 // @Summary Test connection with raw credentials (no persistence)
-// @Description Validate connectivity to an external data source using type + credentials
+// @Description Validate connectivity to an external data source using type, credentials, and settings
 //
 //	without creating or updating any database records.
 //	Used by the frontend "Test Connection" button during data source creation.
@@ -302,7 +302,7 @@ func (h *DataSourceHandler) ValidateConnection(c *gin.Context) {
 // @Tags DataSource
 // @Accept json
 // @Produce json
-// @Param request body object true "type and credentials"
+// @Param request body object true "connector type, credentials, and settings"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
 // @Router /datasource/validate-credentials [post]
@@ -316,14 +316,15 @@ func (h *DataSourceHandler) ValidateCredentials(c *gin.Context) {
 
 	var req struct {
 		Type        string                 `json:"type" binding:"required"`
-		Credentials map[string]interface{} `json:"credentials" binding:"required"`
+		Credentials map[string]interface{} `json:"credentials"`
+		Settings    map[string]interface{} `json:"settings"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: type and credentials are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: type is required"})
 		return
 	}
 
-	if err := h.service.ValidateCredentials(ctx, req.Type, req.Credentials); err != nil {
+	if err := h.service.ValidateCredentials(ctx, req.Type, req.Credentials, req.Settings); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
