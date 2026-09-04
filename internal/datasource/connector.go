@@ -93,6 +93,19 @@ type StreamingConnector interface {
 	) (*types.SyncCursor, error)
 }
 
+// FullSyncStreamingConnector is implemented by streaming connectors that need
+// the previous successful cursor as a deletion baseline while still fetching
+// every current item during a full sync. The cursor checkpoints emitted by this
+// method must retain enough state for a retry to continue through FetchStream.
+type FullSyncStreamingConnector interface {
+	StreamingConnector
+
+	FetchFullStream(
+		ctx context.Context, config *types.DataSourceConfig,
+		baseline *types.SyncCursor, h StreamHandler,
+	) (*types.SyncCursor, error)
+}
+
 // ConnectorRegistry manages the registration and lookup of available connectors
 type ConnectorRegistry struct {
 	connectors map[string]Connector

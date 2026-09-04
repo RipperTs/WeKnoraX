@@ -705,6 +705,7 @@ export default {
       apiToken: 'API Token',
       imaClientId: 'IMA ClientID',
       imaApiKey: 'IMA APIKey',
+      confluenceSupportedVersion: '현재 지원 버전: Confluence Server 6.3.1',
       confluenceBaseUrl: 'Confluence 주소',
       confluenceBaseUrlHint: '#all-updates 같은 페이지 앵커를 제외한 Confluence 사이트 루트 주소를 입력하세요. 내부 주소는 SSRF 허용 목록에 추가해야 합니다.',
       confluenceUsername: '사용자 이름 (선택)',

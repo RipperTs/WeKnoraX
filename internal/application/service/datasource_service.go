@@ -199,16 +199,20 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 		}
 	}
 
-	// Validate new configuration if non-credential fields changed. Skip
-	// when there are no stored credentials yet (validators would fail with
-	// no token to call the live API) and when the parsed config is
-	// structurally identical.
+	// Validate new configuration if non-credential fields changed. Connectors
+	// with no required authentication can validate settings immediately;
+	// credential-backed connectors wait until credentials are configured.
 	configActuallyChanged := true
 	if mergedCfg != nil && existingParsedCfg != nil {
 		configActuallyChanged = !reflect.DeepEqual(*mergedCfg, *existingParsedCfg)
 	}
 	hasCreds := mergedCfg != nil && mergedCfg.HasConfiguredCredentials(ds.Type)
-	if hasCreds && (ds.Type != existing.Type || configActuallyChanged) {
+	canValidateWithoutCredentials := false
+	if metadata, ok := datasource.ConnectorMetadataRegistry[ds.Type]; ok {
+		canValidateWithoutCredentials = metadata.AuthType == "none" || strings.HasPrefix(metadata.AuthType, "optional_")
+	}
+	if mergedCfg != nil && (hasCreds || canValidateWithoutCredentials) &&
+		(ds.Type != existing.Type || configActuallyChanged) {
 		if err := s.validateDataSourceConfig(ctx, ds); err != nil {
 			return nil, err
 		}
@@ -889,9 +893,6 @@ func (s *DataSourceService) applyFetchedItem(
 			return
 		}
 		if deleteErr := s.knowledgeService.DeleteKnowledge(ctx, existing.ID); deleteErr != nil {
-			// The cursor is already past this item, so a failed deletion normally
-			// retries only on a later full sync. Counted separately so the
-			// sync-log message can warn the operator about this gap.
 			result.Failed++
 			result.DeletionFailed++
 			logger.Errorf(ctx, "failed to delete knowledge %s for external_id=%s (ds=%s): %v",
@@ -966,11 +967,11 @@ func (s *DataSourceService) applyFetchedItem(
 	}
 }
 
-// streamStartCursor decides which cursor a streaming fetch should resume from.
-// A user-triggered full sync on its first attempt drops the cursor so every
-// item is re-fetched; a retried full sync (attempt > 0) and every incremental
-// sync resume from the last persisted checkpoint so a timed-out run converges
-// instead of restarting from scratch.
+// streamStartCursor decides which cursor FetchStream should resume from. A
+// user-triggered full sync on its first attempt drops this cursor so every item
+// is re-fetched; FullSyncStreamingConnector receives the old deletion baseline
+// separately. A retried full sync and every incremental sync resume from the
+// last persisted checkpoint.
 func streamStartCursor(ds *types.DataSource, forceFull bool, attempt int) (*types.SyncCursor, error) {
 	if forceFull && attempt == 0 {
 		return nil, nil
@@ -990,15 +991,18 @@ type streamSyncHandler struct {
 }
 
 // Emit ingests one streamed item. A canceled context aborts the stream so the
-// connector stops fetching; per-item ingest failures are recorded in result and
-// do NOT abort (matching the batch loop, which never fails the whole sync for
-// one bad document).
+// connector stops fetching. Content failures remain partial results, while a
+// deletion failure aborts before the connector can advance past its tombstone.
 func (h *streamSyncHandler) Emit(ctx context.Context, item types.FetchedItem) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	h.result.Total++
+	deletionFailures := h.result.DeletionFailed
 	h.svc.applyFetchedItem(withKBActivitySuppressed(ctx), h.ds, &item, h.tagIDs, h.result)
+	if item.IsDeleted && h.result.DeletionFailed > deletionFailures {
+		return fmt.Errorf("failed to apply deletion for external_id=%s", item.ExternalID)
+	}
 	return nil
 }
 
@@ -1066,7 +1070,24 @@ func (s *DataSourceService) processSyncStreaming(
 	result := &types.SyncResult{}
 	handler := &streamSyncHandler{svc: s, ds: ds, tagIDs: autoTagIDs, result: result, syncLog: syncLog}
 
-	nextCursor, fetchErr := sc.FetchStream(ctx, config, startCursor, handler)
+	var nextCursor *types.SyncCursor
+	var fetchErr error
+	if forceFull && attempt == 0 {
+		if fullConnector, ok := sc.(datasource.FullSyncStreamingConnector); ok {
+			baseline, baselineErr := ds.ParseSyncCursor()
+			if baselineErr != nil {
+				logger.Errorf(ctx, "failed to parse full sync baseline: %v", baselineErr)
+				s.updateSyncRunResult(ctx, ds, syncLog, result, nil,
+					types.SyncLogStatusFailed, fmt.Sprintf("Invalid cursor: %v", baselineErr), wasPaused)
+				return baselineErr
+			}
+			nextCursor, fetchErr = fullConnector.FetchFullStream(ctx, config, baseline, handler)
+		} else {
+			nextCursor, fetchErr = sc.FetchStream(ctx, config, startCursor, handler)
+		}
+	} else {
+		nextCursor, fetchErr = sc.FetchStream(ctx, config, startCursor, handler)
+	}
 	if fetchErr != nil {
 		// Progress so far is already checkpointed onto ds.LastSyncCursor; leave
 		// it in place so the Asynq retry resumes from there. Persist counts.
@@ -1095,18 +1116,14 @@ func (s *DataSourceService) processSyncStreaming(
 	// Surface per-document failures as a partial sync (not silent success), so
 	// the sync-log drawer's failure detail explains which docs didn't make it —
 	// the visibility gap behind "status normal but not everything syncs"
-	// (Tencent/WeKnora#2136). Fetch failures abort the stream before the failed
-	// page is checkpointed, so the next run retries them; deletion failures are
-	// past the cursor and only retry on a full sync in the normal case (see
-	// applyFetchedItem).
+	// (Tencent/WeKnora#2136). Content failures remain absent from the updated
+	// cursor so the next run retries them; deletion failures abort earlier and
+	// therefore cannot reach this success/partial path.
 	status := types.SyncLogStatusSuccess
 	errMsg := ""
 	if result.Failed > 0 {
 		status = types.SyncLogStatusPartial
 		errMsg = fmt.Sprintf("%d document(s) failed to sync", result.Failed)
-		if result.DeletionFailed > 0 {
-			errMsg += fmt.Sprintf("; %d deletion failure(s) will only retry on the next full sync", result.DeletionFailed)
-		}
 	}
 	s.updateSyncRunResult(ctx, ds, syncLog, result, resultJSON, status, errMsg, wasPaused)
 	logger.Infof(ctx, "streaming sync completed: ds=%s created=%d updated=%d deleted=%d skipped=%d failed=%d",

@@ -27,7 +27,7 @@ const (
 	confluenceResourceSpace = "confluence_space"
 )
 
-var _ datasource.StreamingConnector = (*Connector)(nil)
+var _ datasource.FullSyncStreamingConnector = (*Connector)(nil)
 
 // Connector synchronizes Confluence spaces, pages, and supported attachments.
 type Connector struct{}
@@ -124,6 +124,28 @@ func (c *Connector) FetchStream(
 	cursor *types.SyncCursor,
 	handler datasource.StreamHandler,
 ) (*types.SyncCursor, error) {
+	return c.fetchStream(ctx, ds, cursor, handler, false)
+}
+
+// FetchFullStream refreshes all current content while retaining the prior
+// cursor as the deletion baseline. Its checkpoints are consumed by FetchStream
+// on retry so a large full sync remains resumable.
+func (c *Connector) FetchFullStream(
+	ctx context.Context,
+	ds *types.DataSourceConfig,
+	baseline *types.SyncCursor,
+	handler datasource.StreamHandler,
+) (*types.SyncCursor, error) {
+	return c.fetchStream(ctx, ds, baseline, handler, true)
+}
+
+func (c *Connector) fetchStream(
+	ctx context.Context,
+	ds *types.DataSourceConfig,
+	cursor *types.SyncCursor,
+	handler datasource.StreamHandler,
+	forceFull bool,
+) (*types.SyncCursor, error) {
 	if ds == nil {
 		return nil, fmt.Errorf("%w: no Confluence spaces configured", datasource.ErrInvalidConfig)
 	}
@@ -137,9 +159,27 @@ func (c *Connector) FetchStream(
 	}
 	cli := newClient(cfg)
 	previous := decodeCursor(cursor)
+	comparison := previous.Items
+	deletionBaseline := previous.Items
 	next := syncCursor{Items: make(map[string]string, len(previous.Items))}
-	for id, signature := range previous.Items {
-		next.Items[id] = signature
+	if forceFull {
+		comparison = map[string]string{}
+		next.FullSync = true
+		baselineItems := previous.Items
+		if previous.FullSync {
+			baselineItems = previous.FullSyncBaseline
+		}
+		next.FullSyncBaseline = cloneSignatures(baselineItems)
+		deletionBaseline = next.FullSyncBaseline
+	} else if previous.FullSync {
+		next.FullSync = true
+		next.FullSyncBaseline = cloneSignatures(previous.FullSyncBaseline)
+		deletionBaseline = next.FullSyncBaseline
+	}
+	if !forceFull {
+		for id, signature := range previous.Items {
+			next.Items[id] = signature
+		}
 	}
 	current := make(map[string]struct{})
 
@@ -155,6 +195,14 @@ func (c *Connector) FetchStream(
 		lastCheckpoint = time.Now()
 		return nil
 	}
+	if forceFull {
+		// Persist the full-sync marker before the first remote request. If the
+		// traversal fails before its first page boundary, the service retry still
+		// knows to continue the full refresh instead of falling back to incremental.
+		if err := checkpoint(true); err != nil {
+			return nil, err
+		}
+	}
 
 	for _, spaceKey := range spaceKeys {
 		pages, err := cli.listPages(ctx, spaceKey)
@@ -165,7 +213,7 @@ func (c *Connector) FetchStream(
 			externalID := pageIDPrefix + pageMeta.ID
 			signature := "v" + strconv.Itoa(pageMeta.Version.Number)
 			current[externalID] = struct{}{}
-			if previous.Items[externalID] != signature {
+			if comparison[externalID] != signature {
 				pageDetail, fetchErr := cli.getPage(ctx, pageMeta.ID)
 				if fetchErr != nil {
 					if emitErr := handler.Emit(ctx, failedItem(externalID, pageMeta.Title, spaceKey, fetchErr)); emitErr != nil {
@@ -202,7 +250,7 @@ func (c *Connector) FetchStream(
 			externalID := attachmentIDPrefix + attachmentMeta.ID
 			signature := "v" + strconv.Itoa(attachmentMeta.Version.Number)
 			current[externalID] = struct{}{}
-			if previous.Items[externalID] != signature {
+			if comparison[externalID] != signature {
 				content, fetchErr := cli.download(ctx, attachmentMeta.Links.Download)
 				if fetchErr != nil {
 					if emitErr := handler.Emit(ctx, failedItem(externalID, attachmentMeta.Title, spaceKey, fetchErr)); emitErr != nil {
@@ -226,7 +274,7 @@ func (c *Connector) FetchStream(
 		}
 	}
 
-	for externalID := range previous.Items {
+	for externalID := range deletionBaseline {
 		if _, exists := current[externalID]; exists {
 			continue
 		}
@@ -239,6 +287,8 @@ func (c *Connector) FetchStream(
 		}
 		delete(next.Items, externalID)
 	}
+	next.FullSync = false
+	next.FullSyncBaseline = nil
 
 	return encodeCursor(next), nil
 }
@@ -384,6 +434,14 @@ func encodeCursor(cursor syncCursor) *types.SyncCursor {
 		LastSyncTime:    time.Now().UTC(),
 		ConnectorCursor: connectorCursor,
 	}
+}
+
+func cloneSignatures(items map[string]string) map[string]string {
+	result := make(map[string]string, len(items))
+	for id, signature := range items {
+		result[id] = signature
+	}
+	return result
 }
 
 func uniqueResourceIDs(resourceIDs []string) []string {

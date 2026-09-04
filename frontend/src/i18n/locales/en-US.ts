@@ -6037,6 +6037,7 @@ export default {
       apiToken: 'API Token',
       imaClientId: 'IMA ClientID',
       imaApiKey: 'IMA APIKey',
+      confluenceSupportedVersion: 'Currently supported version: Confluence Server 6.3.1',
       confluenceBaseUrl: 'Confluence URL',
       confluenceBaseUrlHint: 'Enter the Confluence site root without page fragments such as #all-updates. Add private hosts to the SSRF allowlist.',
       confluenceUsername: 'Username (optional)',

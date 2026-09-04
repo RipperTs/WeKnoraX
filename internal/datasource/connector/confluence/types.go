@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	defaultPageSize = 100
-	requestTimeout  = 30 * time.Second
+	defaultPageSize            = 100
+	requestTimeout             = 30 * time.Second
+	maxAttachmentDownloadBytes = 100 * 1024 * 1024
 )
 
 // config contains the non-secret Confluence address and optional Basic Auth
@@ -129,5 +130,7 @@ type attachmentList struct {
 }
 
 type syncCursor struct {
-	Items map[string]string `json:"items"`
+	Items            map[string]string `json:"items"`
+	FullSyncBaseline map[string]string `json:"full_sync_baseline,omitempty"`
+	FullSync         bool              `json:"full_sync,omitempty"`
 }

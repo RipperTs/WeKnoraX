@@ -1449,7 +1449,11 @@ const drawerConfirmText = computed(() => {
       </section>
 
       <section v-if="form.type === 'confluence'" class="setting-drawer__section">
-        <h4 class="setting-drawer__section-title">{{ t('datasource.field.confluenceBaseUrl') }}</h4>
+        <t-alert
+          theme="info"
+          class="confluence-version-alert"
+          :message="t('datasource.field.confluenceSupportedVersion')"
+        />
         <div class="form-item">
           <label class="form-label required">{{ t('datasource.field.confluenceBaseUrl') }}</label>
           <t-input
@@ -2244,6 +2248,10 @@ const drawerConfirmText = computed(() => {
   font-size: 12px;
   line-height: 1.5;
   color: var(--td-text-color-placeholder);
+}
+
+.confluence-version-alert :deep(.t-alert__message) {
+  font-weight: 600;
 }
 
 .status-icon {

@@ -707,6 +707,7 @@ export default {
       apiToken: 'API Token',
       imaClientId: 'IMA ClientID',
       imaApiKey: 'IMA APIKey',
+      confluenceSupportedVersion: '当前适配版本：Confluence Server 6.3.1',
       confluenceBaseUrl: 'Confluence 地址',
       confluenceBaseUrlHint: '填写 Confluence 站点根地址，不要包含 #all-updates 等页面锚点；内网地址需加入 SSRF 白名单',
       confluenceUsername: '用户名（可选）',

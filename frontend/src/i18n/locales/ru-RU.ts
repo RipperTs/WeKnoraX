@@ -705,6 +705,7 @@ export default {
       apiToken: 'API Token',
       imaClientId: 'IMA ClientID',
       imaApiKey: 'IMA APIKey',
+      confluenceSupportedVersion: 'Текущая поддерживаемая версия: Confluence Server 6.3.1',
       confluenceBaseUrl: 'Адрес Confluence',
       confluenceBaseUrlHint: 'Укажите корневой адрес сайта Confluence без якоря страницы, например #all-updates. Внутренние адреса необходимо добавить в список разрешённых SSRF.',
       confluenceUsername: 'Имя пользователя (необязательно)',

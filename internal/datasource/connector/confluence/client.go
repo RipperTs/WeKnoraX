@@ -127,9 +127,21 @@ func (c *client) download(ctx context.Context, link string) ([]byte, error) {
 	if err := confluenceStatusError(resp); err != nil {
 		return nil, err
 	}
-	data, err := io.ReadAll(resp.Body)
+	if resp.ContentLength > maxAttachmentDownloadBytes {
+		return nil, fmt.Errorf(
+			"Confluence attachment exceeds maximum download size (%d MB)",
+			maxAttachmentDownloadBytes/(1024*1024),
+		)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentDownloadBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read Confluence attachment: %w", err)
+	}
+	if int64(len(data)) > maxAttachmentDownloadBytes {
+		return nil, fmt.Errorf(
+			"Confluence attachment exceeds maximum download size (%d MB)",
+			maxAttachmentDownloadBytes/(1024*1024),
+		)
 	}
 	return data, nil
 }
