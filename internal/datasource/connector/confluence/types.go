@@ -124,6 +124,7 @@ type attachmentList struct {
 }
 
 type syncCursor struct {
+	BaseURL          string            `json:"base_url,omitempty"`
 	Items            map[string]string `json:"items"`
 	FullSyncBaseline map[string]string `json:"full_sync_baseline,omitempty"`
 	FullSync         bool              `json:"full_sync,omitempty"`

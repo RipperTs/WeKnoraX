@@ -159,10 +159,12 @@ func (c *Connector) fetchStream(
 	}
 	cli := newClient(cfg)
 	previous := decodeCursor(cursor)
+	sourceChanged := previous.BaseURL != "" && previous.BaseURL != cfg.BaseURL
+	fullRefresh := forceFull || sourceChanged
 	comparison := previous.Items
 	deletionBaseline := previous.Items
-	next := syncCursor{Items: make(map[string]string, len(previous.Items))}
-	if forceFull {
+	next := syncCursor{BaseURL: cfg.BaseURL, Items: make(map[string]string, len(previous.Items))}
+	if fullRefresh {
 		comparison = map[string]string{}
 		next.FullSync = true
 		baselineItems := previous.Items
@@ -170,13 +172,21 @@ func (c *Connector) fetchStream(
 			baselineItems = previous.FullSyncBaseline
 		}
 		next.FullSyncBaseline = cloneSignatures(baselineItems)
+		if sourceChanged && previous.FullSync {
+			// A second address change can interrupt an earlier full refresh. Items
+			// already ingested from that intermediate instance must join the original
+			// deletion baseline so they cannot remain orphaned after this refresh.
+			for id, signature := range previous.Items {
+				next.FullSyncBaseline[id] = signature
+			}
+		}
 		deletionBaseline = next.FullSyncBaseline
 	} else if previous.FullSync {
 		next.FullSync = true
 		next.FullSyncBaseline = cloneSignatures(previous.FullSyncBaseline)
 		deletionBaseline = next.FullSyncBaseline
 	}
-	if !forceFull {
+	if !fullRefresh {
 		for id, signature := range previous.Items {
 			next.Items[id] = signature
 		}
@@ -195,7 +205,7 @@ func (c *Connector) fetchStream(
 		lastCheckpoint = time.Now()
 		return nil
 	}
-	if forceFull {
+	if fullRefresh {
 		// Persist the full-sync marker before the first remote request. If the
 		// traversal fails before its first page boundary, the service retry still
 		// knows to continue the full refresh instead of falling back to incremental.

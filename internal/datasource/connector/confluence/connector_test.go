@@ -265,7 +265,7 @@ func TestFetchStreamRetainsFailedVersionAndEmitsDeletion(t *testing.T) {
 	server, _ := newFetchServer(t, 2, http.StatusInternalServerError)
 	defer server.Close()
 
-	previous := encodeCursor(syncCursor{Items: map[string]string{
+	previous := encodeCursor(syncCursor{BaseURL: server.URL, Items: map[string]string{
 		"page:1": "v1",
 		"page:2": "v1",
 	}})
@@ -290,7 +290,7 @@ func TestFetchStreamRetainsVersionWhenIngestIsPending(t *testing.T) {
 	server, _ := newFetchServer(t, 2, http.StatusOK)
 	defer server.Close()
 
-	previous := encodeCursor(syncCursor{Items: map[string]string{"page:1": "v1"}})
+	previous := encodeCursor(syncCursor{BaseURL: server.URL, Items: map[string]string{"page:1": "v1"}})
 	handler := &recordingHandler{unhandled: map[string]bool{"page:1": true}}
 	next, err := NewConnector().FetchStream(
 		context.Background(), confluenceConfig(server.URL), previous, handler,
@@ -306,7 +306,7 @@ func TestFetchFullStreamRetainsDeletionWhenHandlerDefersIt(t *testing.T) {
 	server, _ := newFetchServer(t, 1, http.StatusOK)
 	defer server.Close()
 
-	previous := encodeCursor(syncCursor{Items: map[string]string{
+	previous := encodeCursor(syncCursor{BaseURL: server.URL, Items: map[string]string{
 		"page:1": "v1",
 		"page:2": "v1",
 	}})
@@ -325,7 +325,7 @@ func TestFetchFullStreamPreservesDeletionBaselineAcrossResume(t *testing.T) {
 	server, pageCalls := newFetchServer(t, 1, http.StatusOK)
 	defer server.Close()
 
-	baseline := encodeCursor(syncCursor{Items: map[string]string{
+	baseline := encodeCursor(syncCursor{BaseURL: server.URL, Items: map[string]string{
 		"page:1": "v1",
 		"page:2": "v1",
 	}})
@@ -366,7 +366,7 @@ func TestFetchStreamKeepsDeletionInCheckpointWhenEmitFails(t *testing.T) {
 	server, _ := newFetchServer(t, 1, http.StatusOK)
 	defer server.Close()
 
-	previous := encodeCursor(syncCursor{Items: map[string]string{
+	previous := encodeCursor(syncCursor{BaseURL: server.URL, Items: map[string]string{
 		"page:1": "v1",
 		"page:2": "v1",
 	}})
@@ -379,4 +379,61 @@ func TestFetchStreamKeepsDeletionInCheckpointWhenEmitFails(t *testing.T) {
 	require.NotEmpty(t, handler.checkpoints)
 	checkpointState := decodeCursor(handler.checkpoints[len(handler.checkpoints)-1])
 	assert.Equal(t, "v1", checkpointState.Items["page:2"])
+}
+
+func TestFetchStreamRefreshesWhenBaseURLChanges(t *testing.T) {
+	allowLocalConfluence(t)
+	server, pageCalls := newFetchServer(t, 1, http.StatusOK)
+	defer server.Close()
+
+	previous := encodeCursor(syncCursor{
+		BaseURL: "https://old-confluence.example.com",
+		Items: map[string]string{
+			"page:1": "v1",
+			"page:2": "v1",
+		},
+	})
+	handler := &recordingHandler{}
+	next, err := NewConnector().FetchStream(
+		context.Background(), confluenceConfig(server.URL), previous, handler,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, *pageCalls, "same page ID and version on a new instance must still be fetched")
+	require.Len(t, handler.items, 2)
+	assert.Equal(t, "page:1", handler.items[0].ExternalID)
+	assert.Equal(t, "page:2", handler.items[1].ExternalID)
+	assert.True(t, handler.items[1].IsDeleted)
+
+	state := decodeCursor(next)
+	assert.Equal(t, server.URL, state.BaseURL)
+	assert.Equal(t, map[string]string{"page:1": "v1"}, state.Items)
+	assert.False(t, state.FullSync)
+	assert.Nil(t, state.FullSyncBaseline)
+}
+
+func TestFetchStreamKeepsIntermediateItemsInBaselineAcrossAnotherURLChange(t *testing.T) {
+	allowLocalConfluence(t)
+	server, _ := newFetchServer(t, 1, http.StatusOK)
+	defer server.Close()
+
+	previous := encodeCursor(syncCursor{
+		BaseURL:          "https://intermediate-confluence.example.com",
+		Items:            map[string]string{"page:3": "v1"},
+		FullSyncBaseline: map[string]string{"page:2": "v1"},
+		FullSync:         true,
+	})
+	handler := &recordingHandler{}
+	_, err := NewConnector().FetchStream(
+		context.Background(), confluenceConfig(server.URL), previous, handler,
+	)
+	require.NoError(t, err)
+
+	deletedIDs := make([]string, 0, 2)
+	for _, item := range handler.items {
+		if item.IsDeleted {
+			deletedIDs = append(deletedIDs, item.ExternalID)
+		}
+	}
+	assert.ElementsMatch(t, []string{"page:2", "page:3"}, deletedIDs)
 }

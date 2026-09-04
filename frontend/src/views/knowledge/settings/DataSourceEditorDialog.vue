@@ -132,6 +132,17 @@ function syncRssAuthHeadersToCredentials() {
   }
 }
 
+const validatedConfluenceBaseURL = ref('')
+
+function normalizeConfluenceBaseURL(value: unknown): string {
+  return String(value || '').trim().replace(/#.*$/, '').replace(/\/+$/, '')
+}
+
+function confluenceBaseURLChanged(): boolean {
+  if (form.value.type !== 'confluence') return false
+  return normalizeConfluenceBaseURL(form.value.config.settings.base_url) !== validatedConfluenceBaseURL.value
+}
+
 // Feed URLs may still live in credentials on older rows (not returned by the
 // API). The backend copies them into settings on read; fall back to the
 // selected feed resource IDs when settings are still empty.
@@ -156,6 +167,7 @@ function removeRssAuthHeader(idx: number) {
 }
 
 function needsConnectionTest(): boolean {
+  if (confluenceBaseURLChanged()) return true
   return !(isEdit.value && credentialsConfigured.value && !replaceCredentialsMode.value)
 }
 
@@ -705,6 +717,9 @@ watch(visible, async (v) => {
       conflict_strategy: props.dataSource.conflict_strategy,
       sync_deletions: props.dataSource.sync_deletions,
     }
+    validatedConfluenceBaseURL.value = props.dataSource.type === 'confluence'
+      ? normalizeConfluenceBaseURL(form.value.config.settings.base_url)
+      : ''
     selectedResourceIds.value = form.value.config?.resource_ids || []
     if (isGitLabConnector(form.value.type)) {
       const savedProjects = Array.isArray(form.value.config.settings.projects) ? form.value.config.settings.projects : []
@@ -738,6 +753,7 @@ watch(visible, async (v) => {
       conflict_strategy: 'overwrite',
       sync_deletions: true,
     }
+    validatedConfluenceBaseURL.value = ''
   }
 })
 
@@ -777,7 +793,7 @@ watch(
 watch(
   () => form.value.config.settings.base_url,
   () => {
-    if (form.value.type === 'confluence' && needsConnectionTest()) {
+    if (form.value.type === 'confluence' && confluenceBaseURLChanged()) {
       testResult.value = ''
       testErrorMsg.value = ''
     }
@@ -790,6 +806,7 @@ function selectType(def: ConnectorDef) {
   form.value.name = t(`datasource.connector.${def.type}`)
   form.value.config.credentials = {}
   form.value.config.settings = {}
+  validatedConfluenceBaseURL.value = ''
   if (isGitLabConnector(def.type)) addGitLabProject()
   rssAuthHeaders.value = []
   step.value = 1
@@ -800,6 +817,7 @@ async function testConnection() {
   syncRssAuthHeadersToCredentials()
   if (!validateRssFeedUrls()) return
   if (!validateConfluenceBaseURL()) return
+  const confluenceSourceChanged = confluenceBaseURLChanged()
   if (!isEdit.value || !credentialsConfigured.value || replaceCredentialsMode.value) {
     const fields = currentDef.value?.fields || []
     for (const f of fields) {
@@ -826,6 +844,14 @@ async function testConnection() {
       await validateCredentials(form.value.type, creds, form.value.config.settings)
     }
     testResult.value = 'success'
+    if (form.value.type === 'confluence') {
+      if (confluenceSourceChanged) {
+        resources.value = []
+        selectedResourceIds.value = []
+        form.value.config.resource_ids = []
+      }
+      validatedConfluenceBaseURL.value = normalizeConfluenceBaseURL(form.value.config.settings.base_url)
+    }
     MessagePlugin.success(t('datasource.testSuccess'))
   } catch (e: any) {
     testResult.value = 'error'
@@ -1037,6 +1063,10 @@ async function nextStep() {
       MessagePlugin.warning(t('datasource.gitlab.projectRequired'))
       return
     }
+  }
+  if (step.value === 2 && form.value.type === 'confluence' && selectedResourceIds.value.length === 0) {
+    MessagePlugin.warning(`${t('datasource.resourceType.confluenceSpace')} ${t('datasource.isRequired')}`)
+    return
   }
   step.value++
   if (step.value === 2) {
@@ -1759,7 +1789,7 @@ const drawerConfirmText = computed(() => {
         <t-icon name="info-circle" size="32px" style="color: var(--td-warning-color); margin-bottom: 8px;" />
         <p class="ds-empty-title">{{ t('datasource.noResources') }}</p>
         <p class="ds-empty-desc">{{ t(`datasource.noResourcesDesc_${form.type}`, t('datasource.noResourcesDesc')) }}</p>
-        <div class="ds-guide-steps">
+        <div v-if="form.type !== 'confluence'" class="ds-guide-steps">
           <div class="ds-guide-step">
             <span class="ds-guide-num">1</span>
             <span>{{ t(`datasource.guideStep1_${form.type}`, t('datasource.guideStep1')) }}</span>
