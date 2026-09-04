@@ -8,13 +8,11 @@
       </div>
       <template v-if="!uiStore.sidebarCollapsed">
         <div class="user-info">
-          <!-- 多空间 / superuser：首行空间名，次行 username · 角色。单空间：昵称 + 邮箱。 -->
           <template v-if="showTenantIdentityLine">
             <div class="user-tenant-name" :title="activeTenantName">{{ activeTenantName }}</div>
             <div class="user-tenant-meta">
-              <span v-if="userName && userName !== activeTenantName" class="user-tenant-meta-name">{{ userName }}</span>
-              <span v-if="(userName && userName !== activeTenantName) && currentRoleLabel"
-                class="user-tenant-meta-sep">·</span>
+              <span v-if="sidebarIdentityName" class="user-tenant-meta-name">{{ sidebarIdentityName }}</span>
+              <span v-if="sidebarIdentityName && currentRoleLabel" class="user-tenant-meta-sep">·</span>
               <t-icon v-if="currentRoleIcon" :name="currentRoleIcon" size="12px" class="user-tenant-meta-icon" />
               <span v-if="currentRoleLabel" class="user-tenant-meta-role">{{ currentRoleLabel }}</span>
             </div>
@@ -31,7 +29,7 @@
     <!-- 下拉菜单 -->
     <Transition name="dropdown">
       <div v-if="menuVisible" class="user-dropdown" @click.stop>
-        <!-- 弹出菜单：账号（头像+昵称）／当前空间（名称+权限）；底部侧栏样式不改。 -->
+        <!-- 弹出菜单：账号（头像+昵称）／当前空间（名称+权限）。 -->
         <div v-if="userName" class="dropdown-user-header is-clickable" role="button" tabindex="0"
           @click="handleQuickNav('userprofile')" @keydown.enter.prevent="handleQuickNav('userprofile')"
           @keydown.space.prevent="handleQuickNav('userprofile')">
@@ -210,9 +208,7 @@ const activeTenantName = computed(() => {
 const currentRoleLabel = computed(() => formatRole(authStore.currentTenantRole))
 const currentRoleIcon = computed(() => roleIcon(authStore.currentTenantRole))
 
-// 单空间用户（memberships <= 1 且非 superuser）= 永远 home + owner，第三
-// 行就是 user-email 信息的重复，没必要占视觉空间；只对多空间 / superuser
-// 渲染。Lite 模式下没有 RBAC 概念，统一隐藏。
+// 多空间用户需要在侧栏持续看到当前空间；单空间用户保持账号信息布局。
 const showTenantIdentityLine = computed(() => {
   if (authStore.isLiteMode) return false
   if (authStore.canAccessAllTenants) return true
@@ -245,6 +241,7 @@ const userRealName = computed(() => (
   authStore.user ? authStore.user.name || '' : userInfo.value.name
 ))
 const userAccountDetail = computed(() => userRealName.value.trim() || userEmail.value)
+const sidebarIdentityName = computed(() => userRealName.value.trim() || userName.value)
 const userAvatar = computed(() => userInfo.value.avatar)
 
 // 左下角默认头像与账号下方的辅助文案保持一致
