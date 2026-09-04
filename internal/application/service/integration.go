@@ -759,7 +759,7 @@ func (s *IntegrationService) ResolveCredentialAccess(
 		for _, kb := range knowledgeBases {
 			if kb != nil {
 				byID[kb.ID] = kb
-				if access.KnowledgeBaseAccessTenantIDs[kb.ID] == 0 {
+				if access.KnowledgeBaseAccessTenantIDs[kb.ID] == 0 || kb.TenantID == tenantID {
 					access.KnowledgeBaseAccessTenantIDs[kb.ID] = tenantID
 				}
 			}
