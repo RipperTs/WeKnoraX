@@ -1375,6 +1375,10 @@ export default {
       fileTypeImage: '이미지',
       fileTypeAudiovisual: '오디오',
       engines: {
+        pdf_specialized: {
+          name: 'PDF 전용 파서',
+          desc: '배포 환경에 구성된 전용 서비스를 통한 비동기 PDF 파싱'
+        },
         opendataloader: {
           name: 'OpenDataLoader',
           desc: 'OpenDataLoader PDF 파서 (레이아웃 분석, Java 11+ 및 opendataloader-pdf 필요)'

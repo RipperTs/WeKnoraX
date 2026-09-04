@@ -12,6 +12,8 @@ import (
 const (
 	// BuiltinEngineName is the DocReader (Python) parser suite.
 	BuiltinEngineName = "builtin"
+	// PDFSpecializedEngineName is the deployment-configured PDF-only service.
+	PDFSpecializedEngineName = "pdf_specialized"
 	// SimpleEngineName is Go-native handling of text formats and images.
 	SimpleEngineName = "simple"
 	// AnydocEngineName is the in-process anydoc office-document converter.
@@ -30,6 +32,7 @@ const (
 
 func init() {
 	RegisterEngine(&builtinEngine{})
+	RegisterEngine(&pdfSpecializedEngine{})
 	RegisterEngine(&simpleEngine{})
 	RegisterEngine(&anydocEngine{})
 	RegisterEngine(&weKnoraCloudEngine{})
@@ -37,6 +40,40 @@ func init() {
 	RegisterEngine(&mineruCloudEngine{})
 	RegisterEngine(&paddleOCRVLEngine{})
 	RegisterEngine(&paddleOCRVLCloudEngine{})
+}
+
+// ---------------------------------------------------------------------------
+// pdf_specialized — deployment-configured asynchronous PDF parsing service.
+// ---------------------------------------------------------------------------
+
+type pdfSpecializedEngine struct{}
+
+func (e *pdfSpecializedEngine) Name() string { return PDFSpecializedEngineName }
+
+func (e *pdfSpecializedEngine) Description() string { return "PDF 专用解析服务" }
+
+func (e *pdfSpecializedEngine) FileTypes(_ bool) []string { return []string{"pdf"} }
+
+func (e *pdfSpecializedEngine) CheckAvailable(_ bool, _ map[string]string) (bool, string) {
+	enabled, endpoint := pdfSpecializedParserConfig()
+	if !enabled {
+		return false, "PDF 专用解析服务未启用"
+	}
+	if endpoint == "" {
+		return false, "PDF 专用解析服务地址未配置"
+	}
+	return true, ""
+}
+
+func (e *pdfSpecializedEngine) NewReader(_ context.Context, _ ReaderDeps) (interfaces.DocReader, error) {
+	enabled, endpoint := pdfSpecializedParserConfig()
+	if !enabled {
+		return nil, errEngineUnavailable(PDFSpecializedEngineName, "服务未启用")
+	}
+	if endpoint == "" {
+		return nil, errEngineUnavailable(PDFSpecializedEngineName, "服务地址未配置")
+	}
+	return NewPDFSpecializedReader(endpoint), nil
 }
 
 // ---------------------------------------------------------------------------

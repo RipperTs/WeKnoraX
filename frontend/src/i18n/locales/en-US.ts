@@ -5272,6 +5272,10 @@ export default {
       fileTypeImage: 'Images',
       fileTypeAudiovisual: 'Audio',
       engines: {
+        pdf_specialized: {
+          name: 'PDF Specialized Parser',
+          desc: 'Asynchronous PDF parsing through the service configured by the deployment environment'
+        },
         builtin: {
           name: 'Built-in',
           desc: 'DocReader built-in parser engine (docx/pdf/xlsx and other complex formats)'

@@ -1375,6 +1375,10 @@ export default {
       fileTypeImage: 'Изображения',
       fileTypeAudiovisual: 'Аудио',
       engines: {
+        pdf_specialized: {
+          name: 'Специализированный PDF-парсер',
+          desc: 'Асинхронный разбор PDF через сервис, настроенный в окружении развёртывания'
+        },
         opendataloader: {
           name: 'OpenDataLoader',
           desc: 'Парсер OpenDataLoader PDF (анализ вёрстки; требуются Java 11+ и opendataloader-pdf)'

@@ -1377,6 +1377,10 @@ export default {
       fileTypeImage: '图片',
       fileTypeAudiovisual: '音频',
       engines: {
+        pdf_specialized: {
+          name: 'PDF专用解析',
+          desc: '使用部署环境配置的专用服务异步解析 PDF'
+        },
         opendataloader: {
           name: 'OpenDataLoader',
           desc: 'OpenDataLoader PDF 解析引擎（版面分析，需 Java 11+ 与 opendataloader-pdf）'

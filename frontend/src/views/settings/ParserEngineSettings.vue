@@ -456,14 +456,15 @@ const needsTestButton = computed(() => {
 /** 固定展示顺序，未列出的引擎排在末尾按名称排序 */
 const ENGINE_ORDER: Record<string, number> = {
   builtin: 0,
-  weknoracloud: 1,
-  simple: 2,
-  anydoc: 3,
-  markitdown: 4,
-  mineru: 5,
-  mineru_cloud: 6,
-  paddleocr_vl: 7,
-  paddleocr_vl_cloud: 8,
+  pdf_specialized: 1,
+  weknoracloud: 2,
+  simple: 3,
+  anydoc: 4,
+  markitdown: 5,
+  mineru: 6,
+  mineru_cloud: 7,
+  paddleocr_vl: 8,
+  paddleocr_vl_cloud: 9,
 }
 
 const sortedEngines = computed(() => {
@@ -792,6 +793,7 @@ onMounted(loadAll)
 
 // 解析引擎徽章配色 —— 内置/官方使用品牌色，外部工具按性质各取一色。
 .engine-card--builtin .engine-card__badge,
+.engine-card--pdf_specialized .engine-card__badge,
 .engine-card--weknoracloud .engine-card__badge {
   background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
   color: var(--td-brand-color);
@@ -1109,6 +1111,7 @@ onMounted(loadAll)
 -->
 <style lang="less">
 .parser-engine-drawer--builtin .setting-drawer__header-icon,
+.parser-engine-drawer--pdf_specialized .setting-drawer__header-icon,
 .parser-engine-drawer--weknoracloud .setting-drawer__header-icon {
   background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
   color: var(--td-brand-color);
