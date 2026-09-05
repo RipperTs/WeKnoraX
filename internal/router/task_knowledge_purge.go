@@ -49,7 +49,7 @@ func runtimeTaskCancelsKnowledge(taskType string) bool {
 		return true
 	}
 	switch taskType {
-	case types.TypeFAQImport, types.TypeKnowledgeListReparse, types.TypeWikiIngest, types.TypeWikiFinalize:
+	case types.TypeKnowledgeListReparse, types.TypeWikiIngest, types.TypeWikiFinalize:
 		return true
 	default:
 		return false

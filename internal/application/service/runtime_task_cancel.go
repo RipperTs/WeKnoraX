@@ -117,8 +117,19 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 				return finalizer.finishRuntimeTaskCancellation(finishCtx, taskType, payload)
 			}
 		}
-		plan.BeforeDelete = func(cancelCtx context.Context) error {
+		cancel := func(cancelCtx context.Context) error {
 			return s.cancel(context.WithValue(cancelCtx, runtimeCancelledKnowledgeKey{}, batch), taskType, payload)
+		}
+		if taskType == types.TypeFAQImport {
+			var faq types.FAQImportPayload
+			if err := json.Unmarshal(payload, &faq); err != nil {
+				return plan, err
+			}
+			// Keep the import slot while its trigger can still retry. The FAQ
+			// container is shared by imports and has no parse attempt to cancel.
+			plan.AfterDelete = cancel
+		} else {
+			plan.BeforeDelete = cancel
 		}
 		return plan, nil
 	}
@@ -266,12 +277,9 @@ func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType strin
 				return err
 			}
 		}
-		if err := s.clearRunningFAQImportInfoIfMatches(
+		return s.clearRunningFAQImportInfoIfMatches(
 			ctx, payload.KBID, payload.TaskID, payload.InstanceID, payload.EnqueuedAt,
-		); err != nil {
-			return err
-		}
-		return s.cancelRuntimeKnowledge(ctx, p.KnowledgeID)
+		)
 	case types.TypeKBClone:
 		progress, err := s.GetKBCloneProgress(ctx, p.TaskID)
 		if runtimeBusinessObjectGone(err) {
