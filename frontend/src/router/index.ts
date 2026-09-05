@@ -314,6 +314,9 @@ let liteDeepLinkRestoreDone = false
 // 路由守卫：检查认证状态和系统初始化状态
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
+  // 在会话恢复后读取管理员身份；只有系统管理员的设置页不要求空间。
+  const requiresTenant = () => to.meta.requiresTenant !== false &&
+    !(to.name === 'settings' && authStore.isSystemAdmin)
 
   // OIDC 回跳登录结果依赖 App.vue 在挂载后消费 URL hash。
   // 如果这里先按“未登录”拦截到 /login，会导致回调结果没有机会落盘。
@@ -371,7 +374,7 @@ router.beforeEach(async (to, from, next) => {
       const restored = await hydrateSessionFromToken(authStore)
       if (restored) {
         next(
-          !authStore.hasValidTenant && to.meta.requiresTenant !== false
+          !authStore.hasValidTenant && requiresTenant()
             ? '/onboarding/workspace'
             : to.fullPath,
         )
@@ -402,7 +405,7 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  if (to.meta.requiresTenant !== false && !authStore.hasValidTenant) {
+  if (requiresTenant() && !authStore.hasValidTenant) {
     next('/onboarding/workspace')
     return
   }
@@ -410,7 +413,10 @@ router.beforeEach(async (to, from, next) => {
   // 部署能力只描述“后端是否提供该功能”，不反映服务健康或是否已配置。
   // 探测失败时 Store 会 fail-open，真正的权限和可用性仍由后端接口校验。
   const deploymentCapabilities = useDeploymentCapabilitiesStore()
-  await deploymentCapabilities.ensureLoaded()
+  // 系统专用设置不依赖空间能力；能力接口本身仍要求空间上下文。
+  if (authStore.hasValidTenant) {
+    await deploymentCapabilities.ensureLoaded()
+  }
   const requiredCapability = to.meta.requiredCapability as DeploymentCapabilityKey | undefined
   if (requiredCapability && !deploymentCapabilities.isSupported(requiredCapability)) {
     MessagePlugin.warning(i18n.global.t('settings.capabilityUnavailable'))

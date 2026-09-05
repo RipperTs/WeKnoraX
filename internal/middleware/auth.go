@@ -83,9 +83,9 @@ func isNoAuthAPI(path string, method string) bool {
 }
 
 // isTenantOptionalAPI lists authenticated identity-level operations that are
-// meaningful before a user belongs to any tenant. Every other authenticated
-// route remains tenant-scoped and returns TENANT_REQUIRED when the JWT and
-// request headers do not resolve a tenant.
+// meaningful before a user belongs to any tenant. System administration is
+// handled separately; workspace routes return TENANT_REQUIRED when the JWT
+// and request headers do not resolve a tenant.
 func isTenantOptionalAPI(path, method string) bool {
 	switch {
 	case path == "/api/v1/auth/me" && (method == http.MethodGet || method == http.MethodPut):
@@ -337,9 +337,10 @@ func bearerToken(c *gin.Context) (string, bool) {
 }
 
 // authenticateJWTUser finishes authentication for a validated JWT user:
-// it resolves the target tenant (X-Tenant-ID switch / JWT claim / first
-// active membership), resolves the caller's role inside that tenant, and
-// attaches the session context. Returns true when the request may proceed;
+// system administration uses identity-only context; other routes resolve
+// the target tenant (X-Tenant-ID switch / JWT claim / first active membership),
+// resolve the caller's role inside that tenant, and attach the session context.
+// Returns true when the request may proceed;
 // on false the response has already been written and the request aborted.
 func authenticateJWTUser(
 	c *gin.Context,
@@ -350,6 +351,14 @@ func authenticateJWTUser(
 	jwtTenantID uint64,
 ) bool {
 	ctx := c.Request.Context()
+
+	// Platform administration is independent of workspace membership and
+	// selected workspace headers. The route's RequireSystemAdmin guard
+	// remains responsible for rejecting authenticated non-admin users.
+	if isSystemAdminAPI(c.Request.URL.Path) {
+		attachTenantlessUserContext(c, user)
+		return true
+	}
 
 	targetTenantID, tenant, crossTenantSwitch, ok := resolveTargetTenant(c, tenantService, memberService, cfg, user, jwtTenantID)
 	if !ok {
@@ -586,11 +595,15 @@ func authenticateAPIKeyRequest(
 	return true
 }
 
-func isPlatformTenantOptionalAPI(path, method string) bool {
-	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+func isSystemAdminAPI(path string) bool {
 	// 精确匹配 admin 控制面前缀（"/api/v1/system/admin" 本身或其子路径）。
 	// 裸 HasPrefix 会误放行诸如 "/api/v1/system/admin-foo" 的同前缀路径。
-	if path == "/api/v1/system/admin" || strings.HasPrefix(path, "/api/v1/system/admin/") {
+	return path == "/api/v1/system/admin" || strings.HasPrefix(path, "/api/v1/system/admin/")
+}
+
+func isPlatformTenantOptionalAPI(path, method string) bool {
+	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+	if isSystemAdminAPI(path) {
 		return true
 	}
 	if method == http.MethodGet && (path == "/api/v1/tenants/all" || path == "/api/v1/tenants/search") {

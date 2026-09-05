@@ -341,13 +341,21 @@ const isSectionSupported = (key: string): boolean => {
 }
 
 const canSeeSection = (key: string): boolean => {
+  if (SYSTEM_ADMIN_SECTIONS.has(key)) {
+    return authStore.isSystemAdmin
+  }
+  // 角色为空可能是成员信息尚未加载，也可能是账号没有空间。
+  // 系统专用设置不依赖成员身份，其余入口继续等待空间角色。
+  if (!authStore.hasValidTenant || (!authStore.currentTenantRole && !authStore.canAccessAllTenants)) {
+    return false
+  }
   if (isIntegrationSection(key)) {
     const min = INTEGRATION_TAB_MIN_ROLE[integrationTabFromSection(key)]
     if (!min) return true
     if (authStore.canAccessAllTenants) return true
     return authStore.hasRole(min)
   }
-  if (isSystemAdminSection(key)) {
+  if (MODEL_ADMIN_SECTIONS.has(key)) {
     return authStore.isSystemAdmin
   }
   const min = SETTINGS_SECTION_MIN_ROLE[key] ?? 'viewer'
@@ -395,12 +403,6 @@ const navItems = computed(() => {
     { key: 'third-party-applications', icon: 'link', label: t('thirdPartyIntegration.system.navLabel') },
     ...integrationItems,
   ]
-  // currentTenantRole 为空表示「membership 还没加载」—— 比起渲染整套
-  // viewer 入口然后角色一返回又消失，先卡住不渲染更稳，跟原先 members
-  // 入口的策略一致。
-  if (!authStore.currentTenantRole && !authStore.canAccessAllTenants) {
-    return [] as NavItem[]
-  }
   return all.filter((it) => canSeeSection(it.key) && isSectionSupported(it.key))
 })
 
@@ -540,6 +542,10 @@ const handleClose = () => {
   uiStore.closeSettings()
   // 如果当前路由是设置页，返回上一页
   if (route.path === '/platform/settings') {
+    if (!authStore.hasValidTenant) {
+      router.push('/onboarding/workspace')
+      return
+    }
     const sec = route.query.section
     if (typeof sec === 'string' && isSystemAdminSection(sec)) {
       router.push('/platform/knowledge-bases')
@@ -602,7 +608,7 @@ watch(navItems, (items) => {
     currentSection.value = items[0]?.key || 'general'
     currentSubSection.value = ''
   }
-})
+}, { immediate: true })
 
 // ESC 键关闭
 const handleEscape = (e: KeyboardEvent) => {

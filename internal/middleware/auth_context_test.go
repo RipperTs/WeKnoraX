@@ -72,29 +72,98 @@ func TestApplyAuthSessionSetsBothSurfaces(t *testing.T) {
 	}
 }
 
-// TestApplyAuthSessionTenantless verifies that a tenantless session attaches
-// neither tenant keys nor a role key — RequireRole's fail-closed Viewer
-// default depends on the role key being absent, and TENANT_REQUIRED
-// handling depends on the tenant key being absent.
+// TestApplyAuthSessionTenantless checks identity-only JWT authentication and
+// system-admin authorization without granting any workspace identity or role.
 func TestApplyAuthSessionTenantless(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
-
-	attachTenantlessUserContext(c, &types.User{ID: "u2"})
-
-	ctx := c.Request.Context()
-	if _, ok := types.TenantIDFromContext(ctx); ok {
-		t.Fatal("tenantless session must not carry a tenant id")
+	cases := []struct {
+		name         string
+		method       string
+		path         string
+		admin        bool
+		homeTenant   uint64
+		tenantHeader string
+		status       int
+	}{
+		{
+			name: "user profile", method: http.MethodGet, path: "/api/v1/auth/me",
+			status: http.StatusOK,
+		},
+		{
+			name: "admin profile", method: http.MethodGet, path: "/api/v1/auth/me", admin: true,
+			status: http.StatusOK,
+		},
+		{
+			name: "workspace list", method: http.MethodGet, path: "/api/v1/system/admin/tenants", admin: true,
+			status: http.StatusOK,
+		},
+		{
+			name: "quota increase", method: http.MethodPost,
+			path: "/api/v1/system/admin/tenants/42/storage-quota/increase", admin: true,
+			status: http.StatusOK,
+		},
+		{
+			name: "apply default quota", method: http.MethodPost,
+			path: "/api/v1/system/admin/tenants/apply-default-storage-quota", admin: true,
+			status: http.StatusOK,
+		},
+		{
+			name: "selected workspace does not constrain administration", method: http.MethodGet,
+			path: "/api/v1/system/admin/settings", admin: true, homeTenant: 7, tenantHeader: "42",
+			status: http.StatusOK,
+		},
+		{
+			name: "non-admin denied", method: http.MethodGet, path: "/api/v1/system/admin/tenants",
+			status: http.StatusForbidden,
+		},
+		{
+			name: "workspace API still requires tenant", method: http.MethodGet,
+			path: "/api/v1/knowledge-bases", admin: true, status: http.StatusConflict,
+		},
+		{
+			name: "similar prefix is not a system-admin API", method: http.MethodGet,
+			path: "/api/v1/system/admin-foo", admin: true, status: http.StatusConflict,
+		},
 	}
-	if _, ok := c.Get(types.TenantRoleContextKey.String()); ok {
-		t.Fatal("tenantless session must not carry a role key")
-	}
-	if got, ok := types.UserIDFromContext(ctx); !ok || got != "u2" {
-		t.Fatalf("ctx user id = %q, ok=%v", got, ok)
-	}
-	if types.IsSystemAdminFromContext(ctx) {
-		t.Fatal("non-admin user must not be flagged system admin")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(tc.method, tc.path, nil)
+			if tc.tenantHeader != "" {
+				c.Request.Header.Set("X-Tenant-ID", tc.tenantHeader)
+			}
+			user := &types.User{ID: "u2", TenantID: tc.homeTenant, IsSystemAdmin: tc.admin}
+			cfg := cfgWithRBAC(true)
+			if authenticateJWTUser(c, &fakeTenantService{}, newFakeMemberService(), cfg, user, tc.homeTenant) &&
+				isSystemAdminAPI(tc.path) {
+				RequireSystemAdmin(cfg)(c)
+			}
+			if got := c.Writer.Status(); got != tc.status {
+				t.Fatalf("status = %d, want %d", got, tc.status)
+			}
+			if tc.status != http.StatusOK {
+				if !c.IsAborted() {
+					t.Fatal("denied request must be aborted")
+				}
+				return
+			}
+			if c.IsAborted() {
+				t.Fatal("authorized request must not be aborted")
+			}
+			ctx := c.Request.Context()
+			if _, ok := types.TenantIDFromContext(ctx); ok {
+				t.Fatal("tenantless session must not carry a tenant id")
+			}
+			if _, ok := c.Get(types.TenantRoleContextKey.String()); ok {
+				t.Fatal("tenantless session must not carry a role key")
+			}
+			if got, ok := types.UserIDFromContext(ctx); !ok || got != "u2" {
+				t.Fatalf("ctx user id = %q, ok=%v", got, ok)
+			}
+			if got := types.IsSystemAdminFromContext(ctx); got != tc.admin {
+				t.Fatalf("system admin = %v, want %v", got, tc.admin)
+			}
+		})
 	}
 }
 

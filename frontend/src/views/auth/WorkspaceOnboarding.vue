@@ -57,6 +57,15 @@
       <p v-else-if="!policyLoading && !policyLoadFailed" class="workspace-help">
         {{ $t('auth.workspaceOnboarding.inviteOnlyHelp') }}
       </p>
+      <t-button
+        v-if="authStore.isSystemAdmin"
+        class="system-admin-entry"
+        variant="outline"
+        block
+        @click="router.push({ path: '/platform/settings', query: { section: 'system-global' } })"
+      >
+        {{ $t('settings.navGroups.systemAdministration') }}
+      </t-button>
       <button class="logout-link" type="button" @click="handleLogout">
         {{ $t('auth.logout') }}
       </button>
@@ -179,6 +188,10 @@ h1 {
 
 .workspace-actions--single {
   grid-template-columns: minmax(220px, 1fr);
+}
+
+.system-admin-entry {
+  margin-top: 20px;
 }
 
 .policy-loading,
