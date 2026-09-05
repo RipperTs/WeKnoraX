@@ -193,6 +193,17 @@ func (s *stubTenantServiceForModelDelete) DeleteTenant(context.Context, uint64) 
 func (s *stubTenantServiceForModelDelete) ListAllTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
+
+func (s *stubTenantServiceForModelDelete) ListSystemTenants(
+	context.Context, string, int, int,
+) ([]*types.SystemTenant, int64, error) {
+	panic("unexpected")
+}
+
+func (s *stubTenantServiceForModelDelete) IncreaseStorageQuota(context.Context, uint64, int64) (*types.Tenant, error) {
+	panic("unexpected")
+}
+
 func (s *stubTenantServiceForModelDelete) BulkSetStorageQuota(context.Context, int64) (int64, error) {
 	return 0, nil
 }

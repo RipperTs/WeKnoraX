@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -2500,13 +2501,79 @@ func (h *SystemHandler) UpdateSystemSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// ListSystemTenants lists workspaces and active owners for system administrators.
+func (h *SystemHandler) ListSystemTenants(c *gin.Context) {
+	page, pageSize, ok := parseListPagination(c)
+	if !ok {
+		return
+	}
+	tenants, total, err := h.tenantSvc.ListSystemTenants(
+		c.Request.Context(), strings.TrimSpace(c.Query("query")), (page-1)*pageSize, pageSize,
+	)
+	if err != nil {
+		_ = c.Error(apperrors.NewInternalServerError("Failed to list workspaces").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tenants": tenants, "total": total})
+}
+
+// IncreaseTenantStorageQuota adds the requested capacity and records the resulting quota.
+func (h *SystemHandler) IncreaseTenantStorageQuota(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, err := strconv.ParseUint(c.Param("tenant_id"), 10, 64)
+	if err != nil || tenantID == 0 {
+		_ = c.Error(apperrors.NewBadRequestError("Invalid workspace ID"))
+		return
+	}
+	var req struct {
+		IncreaseGB int64 `json:"increase_gb" binding:"required,min=1"`
+	}
+	const bytesPerGB int64 = 1024 * 1024 * 1024
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(apperrors.NewBadRequestError("Storage quota increase must be a positive integer in GB"))
+		return
+	}
+	if req.IncreaseGB > math.MaxInt64/bytesPerGB {
+		_ = c.Error(apperrors.NewBadRequestError("Storage quota increase exceeds the supported maximum"))
+		return
+	}
+	delta := req.IncreaseGB * bytesPerGB
+	tenant, err := h.tenantSvc.IncreaseStorageQuota(ctx, tenantID, delta)
+	if err != nil {
+		if appErr, ok := apperrors.IsAppError(err); ok {
+			_ = c.Error(appErr)
+		} else {
+			_ = c.Error(apperrors.NewInternalServerError("Failed to increase storage quota").WithDetails(err.Error()))
+		}
+		return
+	}
+	if h.auditSvc != nil {
+		actorID, _ := types.UserIDFromContext(ctx)
+		details, _ := json.Marshal(map[string]any{
+			"tenant_name":     tenant.Name,
+			"old_quota_bytes": tenant.StorageQuota - delta,
+			"quota_bytes":     tenant.StorageQuota,
+			"increase_gb":     req.IncreaseGB,
+		})
+		_ = h.auditSvc.Log(ctx, &types.AuditLog{
+			TenantID:    0,
+			ActorUserID: actorID,
+			ActorRole:   systemAuditActorRole(ctx),
+			Action:      types.AuditActionSystemSettingChanged,
+			TargetType:  "tenant_storage_quota",
+			TargetID:    strconv.FormatUint(tenantID, 10),
+			Outcome:     types.AuditOutcomeSuccess,
+			Details:     types.JSON(details),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"storage_quota": tenant.StorageQuota})
+}
+
 // ApplyDefaultStorageQuotaToAllTenants godoc
-// @Summary      Apply the default storage quota to every existing workspace
+// @Summary      Raise existing workspace quotas to the default where needed
 // @Description  Reads the current value of `tenant.default_storage_quota_gb`
-// @Description  (3-tier resolver: DB > ENV > default) and writes that many
-// @Description  GiB into storage_quota for every row in tenants. Bypasses
-// @Description  the per-workspace PUT whitelist, which forbids storage_quota
-// @Description  edits by Owners. SystemAdmin only.
+// @Description  and raises smaller finite quotas to that many GiB.
+// @Description  Larger and unlimited quotas remain unchanged. SystemAdmin only.
 // @Description  Idempotent — running twice with the same setting is a no-op.
 // @Tags         System Admin
 // @Produce      json

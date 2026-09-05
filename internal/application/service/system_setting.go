@@ -225,8 +225,8 @@ var registry = map[string]settingSpec{
 	// applied to a newly-created tenant when the caller doesn't specify
 	// one explicitly. Read at create time only — changing the value does
 	// NOT retroactively resize already-existing tenants (they keep the
-	// quota stored on their row at creation; superusers can edit
-	// individual tenants via the existing tenant-update path).
+	// quota stored on their row; system administrators can increase it
+	// through the dedicated storage-quota endpoint).
 	// 0 or negative = use the in-code default (10 GB).
 	"tenant.default_storage_quota_gb": {
 		Type:     "int",

@@ -165,6 +165,16 @@ func (f *fakeTenantService) ListAllTenants(ctx context.Context) ([]*types.Tenant
 	return nil, nil
 }
 
+func (f *fakeTenantService) ListSystemTenants(
+	context.Context, string, int, int,
+) ([]*types.SystemTenant, int64, error) {
+	panic("unexpected")
+}
+
+func (f *fakeTenantService) IncreaseStorageQuota(context.Context, uint64, int64) (*types.Tenant, error) {
+	panic("unexpected")
+}
+
 func (f *fakeTenantService) BulkSetStorageQuota(ctx context.Context, quotaBytes int64) (int64, error) {
 	return 0, nil
 }

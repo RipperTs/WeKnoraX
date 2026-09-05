@@ -164,6 +164,10 @@
                     <SystemUsers />
                   </div>
 
+                  <div v-if="currentSection === 'system-tenants'" class="section">
+                    <SystemTenants />
+                  </div>
+
                   <div v-if="currentSection === 'third-party-applications'" class="section">
                     <ThirdPartyApplications />
                   </div>
@@ -237,6 +241,7 @@ import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
 import SystemAuditLog from '@/views/system/SystemAuditLog.vue'
 import SystemUsers from '@/views/system/SystemUsers.vue'
+import SystemTenants from '@/views/system/SystemTenants.vue'
 import ThirdPartyApplications from '@/views/system/ThirdPartyApplications.vue'
 import ThirdPartyIntegrationSettings from './ThirdPartyIntegrationSettings.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
@@ -381,6 +386,7 @@ const navItems = computed(() => {
     { key: 'platform-api-keys', icon: 'secured', label: t('platformApiKeys.title') },
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
     { key: 'system-users', icon: 'usergroup', label: t('systemUsers.navLabel') },
+    { key: 'system-tenants', icon: 'folder', label: t('systemTenants.title') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
@@ -440,6 +446,7 @@ const navGroups = computed<NavGroup[]>(() => {
       label: t('settings.navGroups.systemAdministration'),
       items: pickItems([
         'system-users',
+        'system-tenants',
         'models',
         'system-global',
         'runtime-queues',

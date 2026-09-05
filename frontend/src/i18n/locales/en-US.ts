@@ -3499,6 +3499,33 @@ export default {
       lanUrlUnavailable: 'The API is listening on all interfaces, but no LAN IPv4 could be detected automatically. Find your IPv4 in network settings and build http://YOUR_IP:PORT/api/v1 manually.'
     }
   },
+  systemTenants: {
+    title: 'Workspace management',
+    description: 'View all users’ workspaces and storage usage, and increase workspace storage quotas.',
+    total: 'workspaces',
+    search: 'Search',
+    searchPlaceholder: 'Search workspace name, ID, owner username or email',
+    noOwner: 'No owner',
+    unlimited: 'Unlimited',
+    empty: 'No matching workspaces',
+    columns: {
+      workspace: 'Workspace',
+      owners: 'Owners',
+      used: 'Storage used',
+      quota: 'Storage quota',
+      actions: 'Actions'
+    },
+    increase: {
+      action: 'Increase quota',
+      current: 'Current quota',
+      amount: 'Additional capacity (GB)',
+      after: 'Quota after increase',
+      hint: 'Quotas can only increase. Enter a positive integer; 1 GB = 1024 MB. The amount is added to the latest quota when submitted.',
+      success: 'Quota increased. The total is now {quota}'
+    },
+    auditTarget: 'Workspace quota: {name} (ID: {id})',
+    auditDiff: 'Added {increase} GB: {before} GB → {after} GB'
+  },
   systemUsers: {
     navLabel: 'User Management',
     title: 'User Management',
@@ -4077,11 +4104,11 @@ export default {
         }
       },
       bulkApply: {
-        label: 'Apply to all existing workspaces',
-        tooltip: 'Saving the value only affects new workspaces by default; click here to also overwrite every existing workspace.',
+        label: 'Raise existing workspace quotas',
+        tooltip: 'Raise finite quotas below the default. Higher and unlimited quotas stay unchanged.',
         confirmBtn: 'Confirm apply',
-        confirmBody: 'Overwrite the storage quota of every existing workspace to {value} GB. Workspaces whose quota was tuned manually by operations will also be overwritten. Continue?',
-        success: 'Updated storage quota for {count} workspaces to {gb} GB',
+        confirmBody: 'Raise finite quotas below {value} GB to {value} GB. No workspace quota will decrease. Continue?',
+        success: 'Raised storage quotas for {count} workspaces to {gb} GB',
         failed: 'Failed to apply to all workspaces'
       },
       audit: {
