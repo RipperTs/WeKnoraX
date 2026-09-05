@@ -2777,7 +2777,7 @@ export default {
           'system.queue_task_deleted': '실패 작업 기록 삭제',
           'system.queue_task_run_now': '큐 작업 즉시 실행',
           'system.queue_task_cancelled': '큐 작업 취소',
-          'system.queue_archived_purged': '실패 작업 모두 지우기'
+          'system.queue_tasks_purged': '상태별 큐 작업 정리'
         },
         columns: {
           time: '시간',
@@ -3039,10 +3039,6 @@ export default {
           runNowConfirm: '재시도 횟수를 초기화하지 않고 즉시 대기 상태로 이동합니다. 계속할까요?',
           deleteRecord: '기록 지우기',
           deleteConfirm: '현재 큐에서만 기록을 제거합니다. 원래 작업은 실행되거나 완료되지 않으며 기록 로그는 유지됩니다. 지울까요?',
-          purgeArchived: '실패 작업 모두 지우기',
-          purgeArchivedConfirm: '현재 큐의 실패 기록 {count}건을 한 번에 제거합니다. 큐의 실패 작업만 정리하며 실행 중이거나 대기 중인 작업에는 영향이 없고, 이미 실패한 문서의 비즈니스 상태도 되돌리지 않습니다. 지울까요?',
-          purgeArchivedSuccess: '실패 작업 {count}건을 지웠습니다',
-          purgeArchivedError: '실패 작업을 지우지 못했습니다',
           stateFilter: '작업 상태별 필터',
           actionError: {
             cancel: '작업을 취소하지 못했습니다',
@@ -3060,7 +3056,7 @@ export default {
             scheduled: '예약 작업을 즉시 실행하거나 지원되는 문서 작업을 안전하게 취소할 수 있습니다.',
             retry: '마지막 오류, 시도 횟수 및 다음 실행 시간을 확인하세요.',
             archived: '원인을 해결한 후 다시 실행하세요. 기록 삭제는 원래 작업을 완료하지 않습니다.',
-            completed: '보존 기간이 설정된 최근 완료 작업만 표시되며 관리 작업은 없습니다.'
+            completed: '보존된 최근 완료 작업만 표시됩니다. 큐 행의 작업 메뉴에서 기록을 비울 수 있습니다.'
           },
           states: {
             active: '실행 중',
@@ -3092,6 +3088,28 @@ export default {
             wikiFinalize: 'Wiki 마무리'
           }
         },
+        purge: {
+          options: {
+            active: '실행 중 작업 중지',
+            pending: '대기 중 작업 비우기',
+            scheduled: '예약 작업 비우기',
+            retry: '재시도 작업 비우기',
+            archived: '최종 실패 작업 비우기',
+            completed: '완료된 작업 비우기',
+          },
+          confirm: '“{queue}” 큐에서 현재 “{state}” 상태인 작업을 처리합니다. 현재 표시된 수는 {count}개입니다.',
+          liveWarning: '여러 워크스페이스에 영향을 줄 수 있으며 관련 업무와 동일 문서의 다른 큐 작업도 취소됩니다. Wiki는 동일 지식 베이스의 관련 작업도 처리합니다. 이미 기록하거나 삭제한 데이터는 되돌리지 않습니다. 실행 중인 처리기가 종료되어야 하며 중지 또는 정리에 실패한 작업은 표시됩니다. 새 작업은 계속 큐에 들어올 수 있습니다.',
+          historyWarning: '큐 기록만 삭제합니다. 원래 작업을 다시 실행하거나 문서 내용 및 업무 상태를 변경하지 않습니다.',
+          confirmButton: '실행 확인',
+          success: '작업 {count}개를 정리했습니다',
+          partial: '{count}개 정리, {failed}개 미완료: {reasons}',
+          error: '큐 작업 정리에 실패했습니다',
+          failures: {
+            worker_not_stopped: '작업 {count}개의 종료가 확인되지 않음',
+            business_cancel_failed: '작업 {count}개의 업무 취소 실패',
+            queue_delete_failed: '작업 {count}개의 기록 삭제 실패',
+          },
+        },
         failedNotice: {
           title: '처리 대기 중인 실패 작업 {count}개',
           description: '아래 표의 빨간색 \'최종 실패\' 숫자를 눌러 원인을 확인한 뒤, 수정 후 수동으로 재시도하세요.'
@@ -3105,6 +3123,7 @@ export default {
           paused: '일시중지됨'
         },
         columns: {
+          actions: '작업',
           queue: '큐',
           active: '실행 중',
           pending: '대기',

@@ -43,7 +43,7 @@ export const SYSTEM_GLOBAL_AUDIT_ACTIONS = [
   'system.queue_task_deleted',
   'system.queue_task_run_now',
   'system.queue_task_cancelled',
-  'system.queue_archived_purged',
+  'system.queue_tasks_purged',
 ] as const
 
 /** Knowledge-base activity feed (KB settings → activity). */

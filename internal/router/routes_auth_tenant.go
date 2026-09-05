@@ -301,8 +301,8 @@ func RegisterSystemAdminRoutes(
 			handler.ListRuntimeTasks)
 		g.apiKeyRoute(adminRoutes, http.MethodPost, "/runtime/queues/:queue/tasks/:task_id/actions/:action",
 			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.MutateRuntimeTask)
-		g.apiKeyRoute(adminRoutes, http.MethodDelete, "/runtime/queues/:queue/archived",
-			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.PurgeArchivedRuntimeTasks)
+		g.apiKeyRoute(adminRoutes, http.MethodDelete, "/runtime/queues/:queue/states/:state",
+			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.PurgeRuntimeTasks)
 
 		g.apiKeyRoute(adminRoutes, http.MethodGet, "/tenants",
 			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsRead, types.APIKeyCapabilitySystemTenantsManage),

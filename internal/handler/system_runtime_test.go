@@ -196,14 +196,15 @@ func (r *runtimeTaskTestInspector) ForceDeleteRuntimeTask(
 	return true, r.forceDeleteErr
 }
 
-func (r *runtimeTaskTestInspector) PurgeArchivedRuntimeTasks(
-	_ context.Context, queue string,
-) (int, bool, error) {
+func (r *runtimeTaskTestInspector) PurgeRuntimeTasks(
+	_ context.Context, queue string, _ types.RuntimeTaskState,
+	_ func(context.Context, string, []byte) error,
+) (types.RuntimeQueuePurgeResult, bool, error) {
 	r.purgedQueue = queue
 	if r.purgeErr != nil {
-		return 0, true, r.purgeErr
+		return types.RuntimeQueuePurgeResult{}, true, r.purgeErr
 	}
-	return r.purgedCount, true, nil
+	return types.RuntimeQueuePurgeResult{Deleted: r.purgedCount}, true, nil
 }
 
 func TestGetRuntimeQueuesReportsIsolatedPoolCapacity(t *testing.T) {
@@ -412,17 +413,17 @@ func TestRuntimeTaskMutationsDelegateToInspector(t *testing.T) {
 	}
 }
 
-func TestPurgeArchivedRuntimeTasksDelegatesToInspector(t *testing.T) {
+func TestPurgeRuntimeTasksDelegatesToInspector(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	inspector := &runtimeTaskTestInspector{purgedCount: 7}
 	handler := &SystemHandler{taskInspector: inspector}
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "queue", Value: types.QueueChatAttachment}}
-	ctx.Request = httptest.NewRequest(http.MethodDelete, "/archived", nil)
+	ctx.Params = gin.Params{{Key: "queue", Value: types.QueueChatAttachment}, {Key: "state", Value: "archived"}}
+	ctx.Request = httptest.NewRequest(http.MethodDelete, "/states/archived", nil)
 
-	handler.PurgeArchivedRuntimeTasks(ctx)
+	handler.PurgeRuntimeTasks(ctx)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
 	}
@@ -438,15 +439,15 @@ func TestPurgeArchivedRuntimeTasksDelegatesToInspector(t *testing.T) {
 	}
 }
 
-func TestPurgeArchivedRuntimeTasksRejectsUnknownQueue(t *testing.T) {
+func TestPurgeRuntimeTasksRejectsUnknownQueue(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &SystemHandler{taskInspector: &runtimeTaskTestInspector{}}
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "queue", Value: "unknown"}}
-	ctx.Request = httptest.NewRequest(http.MethodDelete, "/archived", nil)
+	ctx.Params = gin.Params{{Key: "queue", Value: "unknown"}, {Key: "state", Value: "archived"}}
+	ctx.Request = httptest.NewRequest(http.MethodDelete, "/states/archived", nil)
 
-	handler.PurgeArchivedRuntimeTasks(ctx)
+	handler.PurgeRuntimeTasks(ctx)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
 	}

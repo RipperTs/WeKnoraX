@@ -17,7 +17,9 @@ import (
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/dig"
 )
 
@@ -48,6 +50,7 @@ type AsynqTaskParams struct {
 	MemoryService        interfaces.MemoryService
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
 	SpanTracker          service.SpanTracker
+	RedisClient          *redis.Client
 }
 
 // defaultRedisOpTimeout is the previous hard-coded read timeout. The 100ms
@@ -156,6 +159,32 @@ func backgroundTaskMiddleware() asynq.MiddlewareFunc {
 	}
 }
 
+// Track the handler itself: asynq releases its worker slot on cancellation
+// before the handler goroutine necessarily returns.
+func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
+	return func(next asynq.Handler) asynq.Handler {
+		return asynq.HandlerFunc(func(ctx context.Context, task *asynq.Task) error {
+			id, _ := asynq.GetTaskID(ctx)
+			queue, _ := asynq.GetQueueName(ctx)
+			key, execution := types.RuntimeTaskExecutionKey(queue, id), uuid.NewString()
+			if err := client.SAdd(ctx, key, execution).Err(); err != nil {
+				return err
+			}
+			defer func() {
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				if err := client.SRem(cleanupCtx, key, execution).Err(); err != nil {
+					logger.Errorf(cleanupCtx, "release runtime task execution %s: %v", id, err)
+				}
+			}()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return next.ProcessTask(ctx, task)
+		})
+	}
+}
+
 func resolveWorkerPoolConcurrency(svc interfaces.SystemSettingService) types.WorkerPoolConcurrency {
 	if svc == nil {
 		return types.DefaultWorkerPoolConcurrency()
@@ -228,6 +257,7 @@ func NewWikiAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// Create a new mux and register all handlers
 	mux := asynq.NewServeMux()
+	mux.Use(runtimeTaskExecutionMiddleware(params.RedisClient))
 
 	// Install the dead-letter middleware FIRST so it sees the raw error
 	// returned by the handler, before any other middleware that might

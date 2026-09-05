@@ -399,6 +399,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewEvaluationHandler))
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
+	must(container.Provide(service.NewRuntimeTaskCancellationService))
 	must(container.Provide(handler.NewSystemHandler))
 	must(container.Provide(handler.NewMCPServiceHandler))
 	must(container.Provide(handler.NewMCPCredentialsHandler))

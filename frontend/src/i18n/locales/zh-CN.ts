@@ -2833,7 +2833,7 @@ export default {
           'system.queue_task_deleted': '清除失败任务记录',
           'system.queue_task_run_now': '立即执行队列任务',
           'system.queue_task_cancelled': '终止队列任务',
-          'system.queue_archived_purged': '清除全部失败任务'
+          'system.queue_tasks_purged': '按状态清空队列任务'
         },
         columns: {
           time: '时间',
@@ -3095,10 +3095,6 @@ export default {
           runNowConfirm: '该任务将立即进入待执行队列，重试次数不会重置。确认继续？',
           deleteRecord: '清除记录',
           deleteConfirm: '仅从当前队列移除这条失败记录，不会执行或完成原任务，历史日志仍会保留。确认清除？',
-          purgeArchived: '清除全部失败任务',
-          purgeArchivedConfirm: '将从当前队列一次性移除全部 {count} 条失败记录，仅清理队列里的失败任务，不影响运行中或排队中的任务，也不会回滚已失败文档的业务状态。确认清除？',
-          purgeArchivedSuccess: '已清除 {count} 条失败任务',
-          purgeArchivedError: '清除失败任务失败',
           stateFilter: '按任务状态筛选',
           actionError: {
             cancel: '终止任务失败',
@@ -3116,7 +3112,7 @@ export default {
             scheduled: '定时任务可提前立即执行；支持业务取消的文档任务也可以安全终止。',
             retry: '请结合最后错误、重试次数和下次执行时间判断是否立即执行或终止。',
             archived: '请先修复失败原因再立即执行。清除记录不会完成原业务任务。',
-            completed: '这里只展示设置了结果保留时间的近期完成任务，不提供管理动作。'
+            completed: '这里只展示保留的近期完成任务，可通过队列行末的操作菜单清空记录。'
           },
           states: {
             active: '运行中',
@@ -3148,6 +3144,28 @@ export default {
             wikiFinalize: 'Wiki 收尾处理'
           }
         },
+        purge: {
+          options: {
+            active: '终止运行中任务',
+            pending: '清空排队中任务',
+            scheduled: '清空定时任务',
+            retry: '清空重试任务',
+            archived: '清空最终失败',
+            completed: '清空已完成',
+          },
+          confirm: '将处理“{queue}”队列中当前处于“{state}”状态的任务，当前显示 {count} 个。',
+          liveWarning: '此操作可能影响多个空间，并终止关联业务及同一文档的其他队列任务；Wiki 会联动处理同一知识库的关联任务。已写入或已删除的数据不会回滚。运行中的任务需等待执行程序退出，未停止或处理失败的任务会明确提示。新提交的任务仍可进入队列。',
+          historyWarning: '仅清除队列记录，不会重新执行原任务，也不会修改文档内容或业务状态。',
+          confirmButton: '确认执行',
+          success: '已清理 {count} 个任务',
+          partial: '已清理 {count} 个任务，{failed} 个未完成：{reasons}',
+          error: '清理队列任务失败',
+          failures: {
+            worker_not_stopped: '{count} 个任务未确认停止',
+            business_cancel_failed: '{count} 个任务业务取消失败',
+            queue_delete_failed: '{count} 个任务记录删除失败',
+          },
+        },
         failedNotice: {
           title: '{count} 个任务待处理',
           description: '点击下方表中红色「最终失败」数字查看原因，修复后可手动重试。'
@@ -3161,6 +3179,7 @@ export default {
           paused: '已暂停'
         },
         columns: {
+          actions: '操作',
           queue: '队列',
           active: '运行中',
           pending: '排队',

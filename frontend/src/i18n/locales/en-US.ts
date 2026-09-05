@@ -3772,6 +3772,7 @@ export default {
           archived: 'Failed (stopped)'
         },
         columns: {
+          actions: 'Actions',
           queue: 'Queue',
           active: 'Active',
           pending: 'Pending',
@@ -3789,6 +3790,28 @@ export default {
           actionRequired: 'Action needed',
           retrying: 'Retrying',
           paused: 'Paused'
+        },
+        purge: {
+          options: {
+            active: 'Stop running tasks',
+            pending: 'Clear pending tasks',
+            scheduled: 'Clear scheduled tasks',
+            retry: 'Clear retry tasks',
+            archived: 'Clear finally failed tasks',
+            completed: 'Clear completed tasks',
+          },
+          confirm: 'Process tasks currently in the {state} state in queue “{queue}”. The current displayed count is {count}.',
+          liveWarning: 'This may affect multiple workspaces and cancel related business operations and tasks for the same document. Wiki cleanup also includes related tasks for the same knowledge base. Existing writes and deletions are not rolled back. Running handlers must exit; tasks that cannot stop or be cleared will be reported. New tasks can still enter the queue.',
+          historyWarning: 'Only queue records are removed. Original tasks are not executed again, and document content and business status are unchanged.',
+          confirmButton: 'Confirm',
+          success: 'Cleared {count} tasks',
+          partial: 'Cleared {count} tasks; {failed} remain unresolved: {reasons}',
+          error: 'Failed to clear queue tasks',
+          failures: {
+            worker_not_stopped: '{count} tasks have not confirmed exit',
+            business_cancel_failed: 'Business cancellation failed for {count} tasks',
+            queue_delete_failed: 'Record deletion failed for {count} tasks',
+          },
         },
         failedNotice: {
           title: '{count} failed tasks need attention',
@@ -3834,10 +3857,6 @@ export default {
           runNowConfirm: 'This task will move to pending immediately without resetting its retry count. Continue?',
           deleteRecord: 'Clear record',
           deleteConfirm: 'This only removes the record from this queue. It will not run or complete the original task, and historical logs remain. Clear it?',
-          purgeArchived: 'Clear all failed tasks',
-          purgeArchivedConfirm: 'Remove all {count} failed records from this queue at once. This only clears failed tasks in the queue — it does not affect running or pending tasks, nor does it roll back the business status of documents that already failed. Clear them?',
-          purgeArchivedSuccess: 'Cleared {count} failed tasks',
-          purgeArchivedError: 'Failed to clear failed tasks',
           stateFilter: 'Filter by task state',
           states: {
             active: 'Active',
@@ -3853,7 +3872,7 @@ export default {
             scheduled: 'Scheduled tasks can run early; document pipeline tasks can also use safe business cancellation.',
             retry: 'Use the last error, attempt count, and next run time to decide whether to run now or cancel.',
             archived: 'Fix the root cause before running again. Clearing a record does not complete the original business task.',
-            completed: 'Only recently completed tasks with result retention are shown. No management actions are available.'
+            completed: 'Only retained recent completions are shown. Clear their records from the queue row action menu.'
           },
           actionSuccess: {
             cancel: 'Task cancelled',
@@ -4148,7 +4167,7 @@ export default {
           'system.queue_task_deleted': 'Failed task record cleared',
           'system.queue_task_run_now': 'Queue task run now',
           'system.queue_task_cancelled': 'Queue task cancelled',
-          'system.queue_archived_purged': 'All failed tasks cleared'
+          'system.queue_tasks_purged': 'Queue tasks cleared by state'
         },
         outcome: {
           success: 'Success',

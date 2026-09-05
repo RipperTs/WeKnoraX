@@ -90,6 +90,19 @@ type RuntimeTaskPage struct {
 	HasMore    bool
 }
 
+// RuntimeQueuePurgeResult includes related tasks in the same business operation.
+type RuntimeQueuePurgeResult struct {
+	Deleted        int            `json:"deleted"`
+	Failed         int            `json:"failed"`
+	FailureReasons map[string]int `json:"failure_reasons,omitempty"`
+}
+
+// RuntimeTaskExecutionKey tracks handler goroutines, which can outlive asynq's
+// active state after context cancellation. Members are individual executions.
+func RuntimeTaskExecutionKey(queue, taskID string) string {
+	return "runtime:task:executions:" + queue + ":" + taskID
+}
+
 func (t RuntimeTaskInfo) Allows(action RuntimeTaskAction) bool {
 	for _, allowed := range t.AllowedActions {
 		if allowed == action {

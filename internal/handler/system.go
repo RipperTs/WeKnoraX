@@ -66,7 +66,8 @@ type SystemHandler struct {
 	// knowledgeSvc supplies the domain-level cancellation path used by the
 	// runtime task console. It updates business state and tracing before queue
 	// records are removed, unlike a raw Redis deletion.
-	knowledgeSvc runtimeKnowledgeCanceller
+	knowledgeSvc            runtimeKnowledgeCanceller
+	runtimeTaskCancellation *service.RuntimeTaskCancellationService
 	// storageBackendRepo lets GetStorageEngineStatus report multi-instance
 	// storage backends (Settings → Storage) as "available", not just the legacy
 	// singleton tenant.StorageEngineConfig. Optional — nil in partially-wired
@@ -90,20 +91,22 @@ func NewSystemHandler(cfg *config.Config,
 	knowledgeSvc interfaces.KnowledgeService,
 	storageBackendRepo interfaces.StorageBackendRepository,
 	sandboxConfigSvc *service.TenantSandboxConfigService,
+	runtimeTaskCancellation *service.RuntimeTaskCancellationService,
 ) *SystemHandler {
 	return &SystemHandler{
-		cfg:                cfg,
-		neo4jDriver:        neo4jDriver,
-		documentReader:     documentReader,
-		tenantSvc:          tenantSvc,
-		userSvc:            userSvc,
-		systemSettingSvc:   systemSettingSvc,
-		apiKeySvc:          apiKeySvc,
-		auditSvc:           auditSvc,
-		taskInspector:      taskInspector,
-		knowledgeSvc:       knowledgeSvc,
-		storageBackendRepo: storageBackendRepo,
-		sandboxConfigSvc:   sandboxConfigSvc,
+		cfg:                     cfg,
+		neo4jDriver:             neo4jDriver,
+		documentReader:          documentReader,
+		tenantSvc:               tenantSvc,
+		userSvc:                 userSvc,
+		systemSettingSvc:        systemSettingSvc,
+		apiKeySvc:               apiKeySvc,
+		auditSvc:                auditSvc,
+		taskInspector:           taskInspector,
+		knowledgeSvc:            knowledgeSvc,
+		storageBackendRepo:      storageBackendRepo,
+		sandboxConfigSvc:        sandboxConfigSvc,
+		runtimeTaskCancellation: runtimeTaskCancellation,
 	}
 }
 
@@ -2131,6 +2134,7 @@ func (h *SystemHandler) emitQueueTaskAudit(
 	action types.AuditAction,
 	queue, taskID string,
 	extra map[string]string,
+	outcome types.AuditOutcome,
 ) {
 	if h.auditSvc == nil {
 		return
@@ -2154,7 +2158,7 @@ func (h *SystemHandler) emitQueueTaskAudit(
 		Action:      action,
 		TargetType:  targetType,
 		TargetID:    targetID,
-		Outcome:     types.AuditOutcomeSuccess,
+		Outcome:     outcome,
 		Details:     types.JSON(details),
 	})
 }
@@ -2250,7 +2254,7 @@ func (h *SystemHandler) mutateRuntimeTask(c *gin.Context, action types.RuntimeTa
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unknown task action"})
 		return
 	}
-	h.emitQueueTaskAudit(c.Request.Context(), auditAction, queue, taskID, auditDetails)
+	h.emitQueueTaskAudit(c.Request.Context(), auditAction, queue, taskID, auditDetails, types.AuditOutcomeSuccess)
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -2304,21 +2308,19 @@ func (h *SystemHandler) MutateRuntimeTask(c *gin.Context) {
 	h.mutateRuntimeTask(c, types.RuntimeTaskAction(c.Param("action")))
 }
 
-// PurgeArchivedRuntimeTasks clears every archived (finally-failed) task in one
-// queue. It only touches the archived dead-letter set — live pending/active/
-// scheduled/retry tasks are untouched — and mirrors single-record delete
-// semantics by leaving business state as-is (archived tasks already had their
-// document status flipped to "failed" on their last retry).
-// @Summary      Purge all archived tasks in a queue
+// PurgeRuntimeTasks clears one state and reports partial failures explicitly.
+// @Summary      Clear a queue task state
 // @Tags         System Admin
 // @Produce      json
 // @Param        queue path string true "Queue name"
+// @Param        state path string true "Task state" Enums(pending,active,scheduled,retry,archived,completed)
 // @Success      200 {object} map[string]interface{}
-// @Router       /system/admin/runtime/queues/{queue}/archived [delete]
-func (h *SystemHandler) PurgeArchivedRuntimeTasks(c *gin.Context) {
+// @Router       /system/admin/runtime/queues/{queue}/states/{state} [delete]
+func (h *SystemHandler) PurgeRuntimeTasks(c *gin.Context) {
 	queue := c.Param("queue")
-	if !isKnownRuntimeQueue(queue) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue"})
+	state := types.RuntimeTaskState(c.Param("state"))
+	if !isKnownRuntimeQueue(queue) || !state.Valid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue or task state"})
 		return
 	}
 	inspector, supported := h.taskInspector.(interfaces.RuntimeTaskInspector)
@@ -2326,19 +2328,46 @@ func (h *SystemHandler) PurgeArchivedRuntimeTasks(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
 		return
 	}
-	deleted, available, err := inspector.PurgeArchivedRuntimeTasks(c.Request.Context(), queue)
+	var cancelTask func(context.Context, string, []byte) error
+	if state != types.RuntimeTaskArchived && state != types.RuntimeTaskCompleted {
+		if h.runtimeTaskCancellation == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Business cancellation is unavailable"})
+			return
+		}
+		cancelTask = h.runtimeTaskCancellation.CancelBatch()
+	}
+	result, available, err := inspector.PurgeRuntimeTasks(c.Request.Context(), queue, state, cancelTask)
 	if !available {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
 		return
 	}
 	if err != nil {
-		logger.Errorf(c.Request.Context(), "purge archived queue tasks queue=%s: %v", queue, err)
-		c.JSON(http.StatusConflict, gin.H{"error": "Archived tasks could not be purged"})
+		logger.Errorf(c.Request.Context(), "purge runtime queue=%s state=%s: %v", queue, state, err)
+	}
+	outcome := types.AuditOutcomeSuccess
+	if err != nil || result.Failed > 0 {
+		outcome = types.AuditOutcomeFailed
+		if result.Deleted > 0 {
+			outcome = types.AuditOutcomePartial
+		}
+	}
+	auditCtx, cancelAudit := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+	defer cancelAudit()
+	h.emitQueueTaskAudit(auditCtx, types.AuditActionSystemQueueTasksPurged, queue, "",
+		map[string]string{
+			"state":   string(state),
+			"deleted": strconv.Itoa(result.Deleted),
+			"failed":  strconv.Itoa(result.Failed),
+		}, outcome)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "Queue tasks could not be fully cleared; refresh to check the queue",
+			"deleted": result.Deleted,
+			"failed":  result.Failed,
+		})
 		return
 	}
-	h.emitQueueTaskAudit(c.Request.Context(), types.AuditActionSystemQueueArchivedPurged, queue, "",
-		map[string]string{"deleted": strconv.Itoa(deleted)})
-	c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *SystemHandler) ListSystemSettings(c *gin.Context) {

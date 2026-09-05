@@ -247,6 +247,25 @@
                 <i />{{ queueState(row).label }}
               </span>
             </template>
+            <template #actions="{ row }">
+              <t-dropdown
+                trigger="click"
+                placement="bottom-right"
+                attach="body"
+                :options="queueActionOptions(row)"
+                @click="(option: DropdownOption) => confirmQueuePurge(row, option.value as RuntimeTaskState)"
+              >
+                <t-button
+                  variant="text"
+                  size="small"
+                  :loading="purgingQueue === row.name"
+                  :disabled="Boolean(purgingQueue) || Boolean(taskActionID)"
+                >
+                  {{ t('system.globalSettings.runtime.columns.actions') }}
+                  <t-icon name="chevron-down" />
+                </t-button>
+              </t-dropdown>
+            </template>
           </t-table>
         </div>
       </section>
@@ -340,23 +359,18 @@
             {{ t('system.globalSettings.runtime.tasks.listTitle', { state: taskStateLabel(taskState) }) }}
           </h4>
           <div class="rq-failed-section-actions">
-            <t-popconfirm
+            <t-button
               v-if="taskState === 'archived' && tasks.length > 0"
+              variant="text"
+              size="small"
               theme="danger"
-              :content="t('system.globalSettings.runtime.tasks.purgeArchivedConfirm', { count: taskStateCount(taskQueue, 'archived') })"
-              @confirm="purgeArchivedTasks"
+              :loading="purgingQueue === taskQueue?.name"
+              :disabled="Boolean(purgingQueue) || Boolean(taskActionID)"
+              @click="taskQueue && confirmQueuePurge(taskQueue, 'archived')"
             >
-              <t-button
-                variant="text"
-                size="small"
-                theme="danger"
-                :loading="purging"
-                :disabled="Boolean(taskActionID)"
-              >
-                <template #icon><t-icon name="clear" /></template>
-                {{ t('system.globalSettings.runtime.tasks.purgeArchived') }}
-              </t-button>
-            </t-popconfirm>
+              <template #icon><t-icon name="clear" /></template>
+              {{ t('system.globalSettings.runtime.purge.options.archived') }}
+            </t-button>
             <t-button
               variant="text"
               size="small"
@@ -431,7 +445,7 @@
                   :title="t('system.globalSettings.runtime.tasks.cancel')"
                   :aria-label="t('system.globalSettings.runtime.tasks.cancel')"
                   :loading="taskActionID === task.id && taskAction === 'cancel'"
-                  :disabled="Boolean(taskActionID)"
+                  :disabled="Boolean(taskActionID) || Boolean(purgingQueue)"
                 ><t-icon name="close-circle" /></t-button>
               </t-popconfirm>
               <t-popconfirm
@@ -448,7 +462,7 @@
                   :title="t('system.globalSettings.runtime.tasks.runNow')"
                   :aria-label="t('system.globalSettings.runtime.tasks.runNow')"
                   :loading="taskActionID === task.id && taskAction === 'run_now'"
-                  :disabled="Boolean(taskActionID)"
+                  :disabled="Boolean(taskActionID) || Boolean(purgingQueue)"
                 >
                   <t-icon name="refresh" />
                 </t-button>
@@ -468,7 +482,7 @@
                   :title="t('system.globalSettings.runtime.tasks.deleteRecord')"
                   :aria-label="t('system.globalSettings.runtime.tasks.deleteRecord')"
                   :loading="taskActionID === task.id && taskAction === 'delete'"
-                  :disabled="Boolean(taskActionID)"
+                  :disabled="Boolean(taskActionID) || Boolean(purgingQueue)"
                 >
                   <t-icon name="delete" />
                 </t-button>
@@ -509,14 +523,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type DropdownOption } from 'tdesign-vue-next'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
 import { mergeRuntimeTaskPage } from './runtimeTaskPagination'
 import {
   getRuntimeTasks,
   getRuntimeQueues,
   mutateRuntimeTask,
-  purgeArchivedRuntimeTasks,
+  purgeRuntimeTasks,
   type ModelRuntimeStat,
   type QueueStat,
   type RuntimeTask,
@@ -551,7 +565,7 @@ const tasksHasMore = ref(false)
 const tasksSentinelRef = ref<HTMLElement | null>(null)
 const taskActionID = ref('')
 const taskAction = ref<RuntimeTaskAction | ''>('')
-const purging = ref(false)
+const purgingQueue = ref('')
 
 const TASK_PAGE_SIZE = 20
 const taskStates: RuntimeTaskState[] = ['active', 'pending', 'scheduled', 'retry', 'archived', 'completed']
@@ -590,6 +604,7 @@ const columns = computed(() => [
   { colKey: 'completed', title: t('system.globalSettings.runtime.columns.completed'), width: 84, align: 'center' as const },
   { colKey: 'latency_ms', title: t('system.globalSettings.runtime.columns.latency'), width: 104, align: 'center' as const },
   { colKey: 'status', title: t('system.globalSettings.runtime.columns.status'), width: 96 },
+  { colKey: 'actions', title: t('system.globalSettings.runtime.columns.actions'), width: 92, fixed: 'right' as const },
 ])
 const modelColumns = computed(() => [
   { colKey: 'model_id', title: t('system.globalSettings.runtime.models.columns.model'), minWidth: 240 },
@@ -864,6 +879,7 @@ function loadMoreRuntimeTasks() {
 }
 
 async function runTaskAction(task: RuntimeTask, action: RuntimeTaskAction) {
+  if (purgingQueue.value || taskActionID.value) return
   const queue = taskQueue.value?.name
   if (!queue) return
   taskActionID.value = task.id
@@ -881,19 +897,54 @@ async function runTaskAction(task: RuntimeTask, action: RuntimeTaskAction) {
   }
 }
 
-async function purgeArchivedTasks() {
-  const queue = taskQueue.value?.name
-  if (!queue || purging.value) return
-  purging.value = true
+function queueActionOptions(row: QueueStat) {
+  return taskStates.map((state) => ({
+    value: state,
+    content: t(`system.globalSettings.runtime.purge.options.${state}`),
+    disabled: taskStateCount(row, state) === 0 || Boolean(purgingQueue.value) || Boolean(taskActionID.value),
+  }))
+}
+
+function confirmQueuePurge(row: QueueStat, state: RuntimeTaskState) {
+  if (purgingQueue.value || taskActionID.value) return
+  const live = state !== 'archived' && state !== 'completed'
+  const dialog = DialogPlugin.confirm({
+    header: t(`system.globalSettings.runtime.purge.options.${state}`),
+    body: t('system.globalSettings.runtime.purge.confirm', {
+      queue: queueLabel(row.name), state: taskStateLabel(state), count: taskStateCount(row, state),
+    }) + ' ' + t(`system.globalSettings.runtime.purge.${live ? 'liveWarning' : 'historyWarning'}`),
+    confirmBtn: { content: t('system.globalSettings.runtime.purge.confirmButton'), theme: 'danger' },
+    cancelBtn: t('common.cancel'),
+    onConfirm: () => {
+      dialog.destroy()
+      void purgeQueueTasks(row.name, state)
+    },
+    onCancel: () => dialog.destroy(),
+    onClose: () => dialog.destroy(),
+  })
+}
+
+async function purgeQueueTasks(queue: string, state: RuntimeTaskState) {
+  if (purgingQueue.value || taskActionID.value) return
+  purgingQueue.value = queue
   try {
-    const { deleted } = await purgeArchivedRuntimeTasks(queue)
-    MessagePlugin.success(t('system.globalSettings.runtime.tasks.purgeArchivedSuccess', { count: deleted }))
-    await Promise.all([reloadRuntimeTasks(), load(false)])
-    taskQueue.value = queues.value.find((item) => item.name === queue) ?? taskQueue.value
+    const result = await purgeRuntimeTasks(queue, state)
+    if (result.failed > 0) {
+      const reasons = Object.entries(result.failure_reasons || {}).map(([reason, count]) =>
+        t(`system.globalSettings.runtime.purge.failures.${reason}`, { count }),
+      ).join('；')
+      MessagePlugin.warning(t('system.globalSettings.runtime.purge.partial', {
+        count: result.deleted, failed: result.failed, reasons,
+      }))
+    } else {
+      MessagePlugin.success(t('system.globalSettings.runtime.purge.success', { count: result.deleted }))
+    }
   } catch (err: any) {
-    MessagePlugin.error(err?.message || t('system.globalSettings.runtime.tasks.purgeArchivedError'))
+    MessagePlugin.error(err?.message || t('system.globalSettings.runtime.purge.error'))
   } finally {
-    purging.value = false
+    await load(false)
+    if (taskDrawerVisible.value) await reloadRuntimeTasks()
+    purgingQueue.value = ''
   }
 }
 
