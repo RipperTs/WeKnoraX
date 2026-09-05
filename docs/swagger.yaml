@@ -301,6 +301,7 @@ definitions:
     - system.queue_task_run_now
     - system.queue_task_cancelled
     - system.queue_archived_purged
+    - system.queue_pending_purged
     - kb.created
     - kb.updated
     - kb.deleted
@@ -364,6 +365,7 @@ definitions:
     - AuditActionSystemQueueTaskRunNow
     - AuditActionSystemQueueTaskCancelled
     - AuditActionSystemQueueArchivedPurged
+    - AuditActionSystemQueuePendingPurged
     - AuditActionKBCreated
     - AuditActionKBUpdated
     - AuditActionKBDeleted
@@ -14462,6 +14464,25 @@ paths:
             additionalProperties: true
             type: object
       summary: Purge all archived tasks in a queue
+      tags:
+      - System Admin
+  /system/admin/runtime/queues/{queue}/pending:
+    delete:
+      parameters:
+      - description: Queue name
+        in: path
+        name: queue
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Purge all pending tasks in a queue
       tags:
       - System Admin
   /system/admin/runtime/queues/{queue}/tasks:

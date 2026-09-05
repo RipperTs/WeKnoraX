@@ -12951,6 +12951,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/system/admin/runtime/queues/{queue}/pending": {
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System Admin"
+                ],
+                "summary": "Purge all pending tasks in a queue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue name",
+                        "name": "queue",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/system/admin/runtime/queues/{queue}/tasks": {
             "get": {
                 "produces": [
@@ -16169,6 +16198,7 @@ const docTemplate = `{
                 "system.queue_task_run_now",
                 "system.queue_task_cancelled",
                 "system.queue_archived_purged",
+                "system.queue_pending_purged",
                 "kb.created",
                 "kb.updated",
                 "kb.deleted",
@@ -16232,6 +16262,7 @@ const docTemplate = `{
                 "AuditActionSystemQueueTaskRunNow",
                 "AuditActionSystemQueueTaskCancelled",
                 "AuditActionSystemQueueArchivedPurged",
+                "AuditActionSystemQueuePendingPurged",
                 "AuditActionKBCreated",
                 "AuditActionKBUpdated",
                 "AuditActionKBDeleted",
