@@ -88,10 +88,15 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 		knowledges: make(map[string]error), wikiOps: make(map[string][]*types.TaskPendingOp),
 	}
 	return func(ctx context.Context, taskType string, payload []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+		var plan interfaces.RuntimeTaskCancellationPlan
+		// Business deletion has already happened. These tasks must retain their
+		// cleanup snapshots and finish, including when their handlers are active.
+		if taskType == types.TypeKBDelete || taskType == types.TypeIndexDelete {
+			return plan, types.ErrRuntimeTaskCleanupRequired
+		}
 		if taskType == types.TypeMemoryExtract {
 			return s.memory.PrepareRuntimeTaskCancellation(ctx, payload)
 		}
-		var plan interfaces.RuntimeTaskCancellationPlan
 		ctx = context.WithValue(ctx, runtimeCancelledKnowledgeKey{}, batch)
 		if taskType == types.TypeWikiIngest || taskType == types.TypeWikiFinalize {
 			var p WikiIngestPayload
@@ -214,11 +219,10 @@ func (s *knowledgeService) cancelRuntimeKnowledge(ctx context.Context, id string
 
 func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType string, data []byte) error {
 	var p struct {
-		TenantID        uint64   `json:"tenant_id"`
-		KnowledgeID     string   `json:"knowledge_id"`
-		KnowledgeBaseID string   `json:"knowledge_base_id"`
-		KnowledgeIDs    []string `json:"knowledge_ids"`
-		TaskID          string   `json:"task_id"`
+		TenantID     uint64   `json:"tenant_id"`
+		KnowledgeID  string   `json:"knowledge_id"`
+		KnowledgeIDs []string `json:"knowledge_ids"`
+		TaskID       string   `json:"task_id"`
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		return err
@@ -303,15 +307,6 @@ func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType strin
 			}
 		}
 		return nil
-	case types.TypeKBDelete:
-		knowledges, err := s.repo.ListKnowledgeByKnowledgeBaseID(ctx, p.TenantID, p.KnowledgeBaseID)
-		if err != nil {
-			return err
-		}
-		for _, knowledge := range knowledges {
-			p.KnowledgeIDs = append(p.KnowledgeIDs, knowledge.ID)
-		}
-		fallthrough
 	case types.TypeKnowledgeListDelete:
 		for _, id := range p.KnowledgeIDs {
 			knowledge, err := s.repo.GetKnowledgeByID(ctx, p.TenantID, id)
@@ -329,10 +324,6 @@ func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType strin
 				}
 			}
 		}
-		return nil
-	case types.TypeIndexDelete:
-		// Index deletion has no separate processing status. Partial deletion
-		// is retained, just like partial writes in the other cancelled tasks.
 		return nil
 	default:
 		return fmt.Errorf("unsupported runtime task type %q", taskType)

@@ -16,6 +16,8 @@ var (
 	// ErrRuntimeTaskNotStopped prevents deleting records whose handler exit
 	// has not been confirmed, including related tasks in other queues.
 	ErrRuntimeTaskNotStopped = errors.New("runtime task handler has not stopped")
+	// ErrRuntimeTaskCleanupRequired preserves durable cleanup after business deletion.
+	ErrRuntimeTaskCleanupRequired = errors.New("runtime task must finish resource cleanup")
 )
 
 // RuntimeTaskState is the stable operator-facing task lifecycle. It mirrors

@@ -110,6 +110,7 @@ type RuntimeTaskInspector interface {
 
 // RuntimeTaskCancellationPreparer snapshots domain work without changing it.
 // The returned cancellation runs only after the queue handlers have exited.
+// Returning types.ErrRuntimeTaskCleanupRequired preserves a task without signalling its handler.
 type RuntimeTaskCancellationPreparer func(context.Context, string, []byte) (RuntimeTaskCancellationPlan, error)
 
 // RuntimeTaskCancellationPlan orders domain changes around queue deletion.

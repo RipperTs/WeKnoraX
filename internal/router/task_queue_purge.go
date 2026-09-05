@@ -127,11 +127,19 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 	cancellations := make(map[string]interfaces.RuntimeTaskCancellationPlan, len(tasks))
 	finalizers := make(map[string]*runtimePurgeFinalizer)
 	taskFinalizers := make(map[string]*runtimePurgeFinalizer)
+	cancellableTasks := make([]*asynq.TaskInfo, 0, len(tasks))
+	result.FailureReasons = make(map[string]int)
 	for _, task := range tasks {
 		cancel, prepareErr := prepare(ctx, task.Type, task.Payload)
+		if errors.Is(prepareErr, types.ErrRuntimeTaskCleanupRequired) {
+			result.Failed++
+			result.FailureReasons["cleanup_required"]++
+			continue
+		}
 		if prepareErr != nil {
 			return result, prepareErr
 		}
+		cancellableTasks = append(cancellableTasks, task)
 		cancellations[task.ID] = cancel
 		if cancel.AfterDelete != nil {
 			key := cancel.AfterDeleteKey
@@ -147,6 +155,9 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 			taskFinalizers[task.ID] = group
 		}
 	}
+	// Required resource cleanup is excluded before any cancellation signal,
+	// stop wait, domain update, or queue deletion can affect it.
+	tasks = cancellableTasks
 	stopErrors := make(map[string]error)
 	for _, task := range tasks {
 		if task.State == asynq.TaskStateActive {
@@ -172,7 +183,6 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 			}
 		}
 	}
-	result.FailureReasons = make(map[string]int)
 	wikiCancellationErrors := make(map[string]error)
 	for _, task := range tasks {
 		reason := "worker_not_stopped"
