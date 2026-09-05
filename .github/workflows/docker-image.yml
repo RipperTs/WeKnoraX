@@ -18,7 +18,196 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      base_tag: ${{ steps.baseline.outputs.tag }}
+      ui: ${{ steps.changes.outputs.ui }}
+      docreader: ${{ steps.changes.outputs.docreader }}
+      sandbox: ${{ steps.changes.outputs.sandbox }}
+      mcp: ${{ steps.changes.outputs.mcp }}
+      odl-hybrid: ${{ steps.changes.outputs.odl-hybrid }}
+      app: ${{ steps.changes.outputs.app }}
+      reuse: ${{ steps.changes.outputs.reuse }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Find previous successful release
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/docker-image.yml/runs?event=push&status=success&per_page=100" \
+            > "$RUNNER_TEMP/successful-releases.json"
+          baseline=$(jq -r --arg tag "$GITHUB_REF_NAME" --argjson run_number "$GITHUB_RUN_NUMBER" '
+            [.[].workflow_runs[]
+              | select(.run_number < $run_number and .head_branch != $tag)
+              | select(.head_branch | startswith("v"))]
+            | sort_by(.run_number) | last
+            | if . == null then empty else [.head_branch, .head_sha] | @tsv end
+          ' "$RUNNER_TEMP/successful-releases.json")
+
+          if [ -z "$baseline" ]; then
+            echo "No previous successful release; building all images." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          IFS=$'\t' read -r base_tag base_sha <<< "$baseline"
+          # Do not reuse a published tag whose Git reference has since moved.
+          tag_sha=$(git rev-parse --verify "refs/tags/$base_tag^{commit}")
+          if [ "$tag_sha" != "$base_sha" ]; then
+            echo "::error::Published tag $base_tag no longer points to $base_sha"
+            exit 1
+          fi
+          # Match docker/metadata-action's Docker tag normalization.
+          image_tag=$(printf '%s' "$base_tag" | sed -E 's/[^a-zA-Z0-9_.-]+/-/g')
+          echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "Release baseline: $base_tag ($base_sha)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Detect image changes
+        id: changes
+        env:
+          BASE_SHA: ${{ steps.baseline.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          reuse='[]'
+          shared_paths=(.github/workflows/docker-image.yml .gitattributes)
+          # These paths are not inputs to the images published by this workflow.
+          # Keep the list explicit: new, unclassified paths must stop the release.
+          classified_paths=(
+            "${shared_paths[@]}"
+            .air.toml .codex/environments/environment.toml .env.example .env.lite.example
+            .gitignore .golangci.yml AGENTS.md CHANGELOG.md LICENSE ':(glob)README*.md' SECURITY.md
+            .github/dependabot.yml .github/pull_request_template.md
+            .github/workflows/anydoc.yml .github/workflows/app.yml .github/workflows/cli.yml
+            .github/workflows/docreader.yml .github/workflows/frontend.yml
+            .github/workflows/go-lint.yml .github/workflows/mcp-server.yml
+            Formula cli client cmd/desktop deploy helm miniprogram website-docs examples
+            docker-compose.dev.yml docker-compose.yml
+            docker/config/supervisord.conf docker/searxng/settings.yml misc/dex-config.yaml
+            dataset/README dataset/README_zh.md dataset/qa_dataset.py
+            ':(glob)docs/**/*.md' docs/images docs/poc docs/swagger.json docs/swagger.yaml
+            testdata tests/miniprogram package-lock.json rerank_server_demo.py test_agent_config.sh
+          )
+          check_image() {
+            local image="$1" changed=true diff_status
+            shift
+            # Use the same image paths for change detection and classification.
+            classified_paths+=("$@")
+            if [ -n "$BASE_SHA" ]; then
+              # Shared build and checkout rules invalidate every image.
+              if git diff --quiet --no-renames "$BASE_SHA" "$GITHUB_SHA" -- "${shared_paths[@]}" "$@"; then
+                changed=false
+              else
+                diff_status=$?
+                if [ "$diff_status" -ne 1 ]; then
+                  return "$diff_status"
+                fi
+              fi
+            fi
+            echo "$image=$changed" >> "$GITHUB_OUTPUT"
+            if [ "$changed" = true ]; then
+              echo "| $image | Build |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| $image | Reuse |" >> "$GITHUB_STEP_SUMMARY"
+              reuse=$(jq -c --arg image "$image" '. + [{image: $image, suffix: ""}]' <<< "$reuse")
+              if [ "$image" = sandbox ]; then
+                reuse=$(jq -c '. + [{image: "sandbox", suffix: "-cube"}]' <<< "$reuse")
+              fi
+            fi
+          }
+
+          printf '\n| Image | Action |\n| --- | --- |\n' >> "$GITHUB_STEP_SUMMARY"
+          check_image ui frontend scripts/build_frontend_dist.sh scripts/get_version.sh
+          check_image docreader docreader packages docker/Dockerfile.docreader .dockerignore
+          check_image sandbox docker/Dockerfile.sandbox .dockerignore
+          check_image mcp mcp-server
+          check_image odl-hybrid docker/Dockerfile.odl-hybrid .dockerignore
+          # Include compiled Go dependencies and files copied into the runtime image.
+          check_image app cmd/server cmd/download internal ':(glob)docs/*.go' \
+            docreader/client ':(glob)docreader/proto/*.go' third_party/anydoc-go \
+            go.mod go.sum Makefile VERSION scripts config migrations dataset/samples \
+            skills/preloaded docker/Dockerfile.app .dockerignore
+
+          if [ -n "$BASE_SHA" ]; then
+            # Disable rename detection so both the old and new paths are classified.
+            # Git quotes filenames containing line breaks, keeping one path per line.
+            git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA" > "$RUNNER_TEMP/all-changes.txt"
+            git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA" -- "${classified_paths[@]}" \
+              > "$RUNNER_TEMP/classified-changes.txt"
+            LC_ALL=C sort -u "$RUNNER_TEMP/all-changes.txt" -o "$RUNNER_TEMP/all-changes.txt"
+            LC_ALL=C sort -u "$RUNNER_TEMP/classified-changes.txt" -o "$RUNNER_TEMP/classified-changes.txt"
+            LC_ALL=C comm -23 "$RUNNER_TEMP/all-changes.txt" "$RUNNER_TEMP/classified-changes.txt" \
+              > "$RUNNER_TEMP/unclassified-changes.txt"
+            if [ -s "$RUNNER_TEMP/unclassified-changes.txt" ]; then
+              echo "::error::Unclassified changed files. Add them to an image's paths or the explicit non-image paths."
+              cat "$RUNNER_TEMP/unclassified-changes.txt"
+              {
+                printf '\nUnclassified changed files; release stopped:\n\n```text\n'
+                cat "$RUNNER_TEMP/unclassified-changes.txt"
+                printf '```\n'
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+          echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
+
+  reuse-images:
+    needs: changes
+    if: needs.changes.outputs.reuse != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.reuse) }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Aliyun Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/weknora-${{ matrix.image }}
+          flavor: latest=false
+          tags: |
+            type=ref,event=tag,suffix=${{ matrix.suffix }}
+            type=raw,value=latest${{ matrix.suffix }}
+
+      - name: Publish existing image with release tags
+        env:
+          SOURCE_IMAGE: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/weknora-${{ matrix.image }}:${{ needs.changes.outputs.base_tag }}${{ matrix.suffix }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=()
+          while IFS= read -r tag; do
+            tags+=(--tag "$tag")
+          done <<< "$IMAGE_TAGS"
+          # Preserve both multi-platform indexes and the single-platform Cube manifest.
+          docker buildx imagetools create --prefer-index=false "${tags[@]}" "$SOURCE_IMAGE"
+
   build-ui:
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -78,6 +267,8 @@ jobs:
           cache-to: type=gha,scope=build-ui,mode=max
 
   build-docreader:
+    needs: changes
+    if: needs.changes.outputs.docreader == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Free Disk Space
@@ -133,6 +324,8 @@ jobs:
           cache-to: type=gha,scope=build-docreader,mode=max
 
   build-sandbox:
+    needs: changes
+    if: needs.changes.outputs.sandbox == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -201,6 +394,8 @@ jobs:
           cache-to: type=gha,scope=build-sandbox-cube,mode=max
 
   build-mcp:
+    needs: changes
+    if: needs.changes.outputs.mcp == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -239,6 +434,8 @@ jobs:
           cache-to: type=gha,scope=build-mcp,mode=max
 
   build-odl-hybrid:
+    needs: changes
+    if: needs.changes.outputs.odl-hybrid == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Free Disk Space
@@ -289,6 +486,8 @@ jobs:
           cache-to: type=gha,scope=build-odl-hybrid,mode=max
 
   build-app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     strategy:
       matrix:
         include:
