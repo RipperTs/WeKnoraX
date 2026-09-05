@@ -77,6 +77,13 @@ export interface FushunSSOConfigResponse {
   message?: string
 }
 
+export interface JianlongSSOConfigResponse {
+  success: boolean
+  enabled: boolean
+  auth_url?: string
+  message?: string
+}
+
 // 用户注册接口
 export interface RegisterRequest {
   username: string
@@ -277,6 +284,31 @@ export async function getFushunSSOConfig(): Promise<FushunSSOConfigResponse> {
 export async function loginWithFushunSSO(token: string): Promise<LoginResponse> {
   try {
     const response = await post('/api/v1/auth/fushun-sso/login', { token })
+    return response as LoginResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || t('error.auth.loginFailed')
+    }
+  }
+}
+
+export async function getJianlongSSOConfig(): Promise<JianlongSSOConfigResponse> {
+  try {
+    const response = await get('/api/v1/auth/jianlong-sso/config')
+    return response as JianlongSSOConfigResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      enabled: false,
+      message: error.message || t('error.auth.loginFailed')
+    }
+  }
+}
+
+export async function loginWithJianlongSSO(code: string): Promise<LoginResponse> {
+  try {
+    const response = await post('/api/v1/auth/jianlong-sso/login', { code })
     return response as LoginResponse
   } catch (error: any) {
     return {

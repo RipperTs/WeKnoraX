@@ -8,6 +8,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -313,6 +314,55 @@ func (h *AuthHandler) LoginWithFushunSSO(c *gin.Context) {
 	if err != nil {
 		logger.Errorf(c.Request.Context(), "Failed to login through Fushun SSO: %v", err)
 		c.Error(errors.NewUnauthorizedError("SSO login failed"))
+		return
+	}
+	if !response.Success {
+		c.JSON(http.StatusUnauthorized, dto.NewAuthLoginResponse(response))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(response))
+}
+
+// GetJianlongSSOConfig returns the browser login URL without exposing the app secret.
+func (h *AuthHandler) GetJianlongSSOConfig(c *gin.Context) {
+	enabled := false
+	authURL := ""
+	if h.configInfo != nil && h.configInfo.JianlongSSO != nil {
+		cfg := h.configInfo.JianlongSSO
+		if strings.TrimSpace(cfg.BaseURL) != "" && strings.TrimSpace(cfg.AppID) != "" &&
+			strings.TrimSpace(cfg.AppSecret) != "" {
+			loginURL, err := url.Parse(strings.TrimRight(cfg.BaseURL, "/") + "/login")
+			if err == nil && loginURL.IsAbs() && (loginURL.Scheme == "http" || loginURL.Scheme == "https") {
+				query := loginURL.Query()
+				query.Set("appId", strings.TrimSpace(cfg.AppID))
+				loginURL.RawQuery = query.Encode()
+				enabled = true
+				authURL = loginURL.String()
+			}
+		}
+	}
+	c.JSON(http.StatusOK, &types.JianlongSSOConfigResponse{
+		Success: true,
+		Enabled: enabled,
+		AuthURL: authURL,
+	})
+}
+
+// LoginWithJianlongSSO exchanges a Jianlong authorization code server-side
+// and returns the same local JWT response shape as password login.
+func (h *AuthHandler) LoginWithJianlongSSO(c *gin.Context) {
+	var req types.JianlongSSOLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(errors.NewValidationError("Invalid SSO login parameters").WithDetails(err.Error()))
+		return
+	}
+
+	response, err := h.userService.LoginWithJianlongSSO(
+		c.Request.Context(), req.Code, h.resolveDefaultTenantMode(c.Request.Context()),
+	)
+	if err != nil {
+		logger.Errorf(c.Request.Context(), "Failed to login through Jianlong SSO: %v", err)
+		_ = c.Error(errors.NewUnauthorizedError("SSO login failed"))
 		return
 	}
 	if !response.Success {

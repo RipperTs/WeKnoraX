@@ -168,6 +168,18 @@ type FushunSSOLoginRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
+// JianlongSSOConfigResponse exposes the enabled state and browser login URL without credentials.
+type JianlongSSOConfigResponse struct {
+	Success bool   `json:"success"`
+	Enabled bool   `json:"enabled"`
+	AuthURL string `json:"auth_url,omitempty"`
+}
+
+// JianlongSSOLoginRequest contains the authorization code returned by Jianlong SSO.
+type JianlongSSOLoginRequest struct {
+	Code string `json:"code" binding:"required"`
+}
+
 type OIDCCallbackResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`

@@ -85,6 +85,7 @@ const PUBLIC_AUTH_PATHS = [
   '/auth/register',
   '/auth/oidc/',
   '/auth/fushun-sso/',
+  '/auth/jianlong-sso/',
   '/auth/invitations/lookup',
   '/api/v1/embed/'
 ];

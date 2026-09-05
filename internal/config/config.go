@@ -25,6 +25,7 @@ type Config struct {
 	Audit           *AuditConfig           `yaml:"audit"            json:"audit"`
 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
 	FushunSSO       *FushunSSOConfig       `yaml:"fushun_sso"       json:"fushun_sso"`
+	JianlongSSO     *JianlongSSOConfig     `yaml:"jianlong_sso"     json:"jianlong_sso"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
 	DocReader       *DocReaderConfig       `yaml:"docreader"        json:"docreader"`
@@ -329,6 +330,14 @@ type FushunSSOConfig struct {
 	EmailSuffix    string `yaml:"email_suffix"      json:"email_suffix"`
 }
 
+// JianlongSSOConfig configures the Jianlong Group authorization-code SSO integration.
+type JianlongSSOConfig struct {
+	BaseURL     string `yaml:"base_url"     json:"base_url"`
+	AppID       string `yaml:"app_id"       json:"app_id"`
+	AppSecret   string `yaml:"app_secret"   json:"-"`
+	EmailSuffix string `yaml:"email_suffix" json:"email_suffix"`
+}
+
 // PromptTemplateI18n holds localized name and description for a prompt template.
 type PromptTemplateI18n struct {
 	Name        string `yaml:"name"        json:"name"`
@@ -588,6 +597,7 @@ func LoadConfig() (*Config, error) {
 	// Validate configuration values
 	applyOIDCEnvOverrides(&cfg)
 	applyFushunSSOEnvOverrides(&cfg)
+	applyJianlongSSOEnvOverrides(&cfg)
 	applyAgentEnvOverrides(&cfg)
 	applyKnowledgeBaseEnvOverrides(&cfg)
 	applyAuthAndTenantDefaults(&cfg)
@@ -642,6 +652,16 @@ func ValidateConfig(cfg *Config) error {
 			strings.TrimSpace(cfg.FushunSSO.DoLoginURL) == "" ||
 			strings.TrimSpace(cfg.FushunSSO.GetUserInfoURL) == "" {
 			errs = append(errs, "fushun_sso.auth_url, fushun_sso.do_login_url and fushun_sso.get_user_info_url are required together")
+		}
+	}
+	if cfg.JianlongSSO != nil && (strings.TrimSpace(cfg.JianlongSSO.BaseURL) != "" ||
+		strings.TrimSpace(cfg.JianlongSSO.AppID) != "" ||
+		strings.TrimSpace(cfg.JianlongSSO.AppSecret) != "") {
+		if strings.TrimSpace(cfg.JianlongSSO.BaseURL) == "" ||
+			strings.TrimSpace(cfg.JianlongSSO.AppID) == "" ||
+			strings.TrimSpace(cfg.JianlongSSO.AppSecret) == "" {
+			errs = append(errs,
+				"jianlong_sso.base_url, jianlong_sso.app_id and jianlong_sso.app_secret are required together")
 		}
 	}
 
@@ -779,6 +799,24 @@ func applyFushunSSOEnvOverrides(cfg *Config) {
 	}
 	if value := strings.TrimSpace(os.Getenv("SSO_EMAIL_SUFFIX")); value != "" {
 		cfg.FushunSSO.EmailSuffix = value
+	}
+}
+
+func applyJianlongSSOEnvOverrides(cfg *Config) {
+	if cfg.JianlongSSO == nil {
+		cfg.JianlongSSO = &JianlongSSOConfig{}
+	}
+	if value := strings.TrimSpace(os.Getenv("JIANLONG_SSO_BASE_URL")); value != "" {
+		cfg.JianlongSSO.BaseURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("JIANLONG_SSO_APP_ID")); value != "" {
+		cfg.JianlongSSO.AppID = value
+	}
+	if value := strings.TrimSpace(os.Getenv("JIANLONG_SSO_APP_SECRET")); value != "" {
+		cfg.JianlongSSO.AppSecret = value
+	}
+	if value := strings.TrimSpace(os.Getenv("JIANLONG_SSO_EMAIL_SUFFIX")); value != "" {
+		cfg.JianlongSSO.EmailSuffix = value
 	}
 }
 

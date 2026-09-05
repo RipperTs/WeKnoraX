@@ -338,8 +338,22 @@ type fushunSSOUserInfoResponse struct {
 	} `json:"data"`
 }
 
+type jianlongSSOTokenResponse struct {
+	Code json.RawMessage `json:"code"`
+	Data struct {
+		AccessToken string `json:"access_token"`
+	} `json:"data"`
+}
+
+type jianlongSSOUserInfoResponse struct {
+	Code json.RawMessage `json:"code"`
+	Data struct {
+		EmployeeNo string `json:"empNo"`
+	} `json:"data"`
+}
+
 const (
-	defaultFushunSSOEmailSuffix   = "example.com"
+	defaultSSOEmailSuffix         = "example.com"
 	ssoAutoRegisterDisabledPrompt = "SSO 新用户自动注册已关闭，请联系管理员开通账号"
 )
 
@@ -361,8 +375,46 @@ func (s *userService) LoginWithFushunSSO(
 	if err != nil {
 		return nil, err
 	}
+	return s.loginWithEmployeeSSO(ctx, info.Data.EmployeeNo, info.Data.Name, cfg.EmailSuffix, provisioning)
+}
 
-	user, err := s.userRepo.GetUserByUsername(ctx, info.Data.EmployeeNo)
+// LoginWithJianlongSSO exchanges the authorization code, resolves the employee
+// number through /uinfo, and issues a local session.
+func (s *userService) LoginWithJianlongSSO(
+	ctx context.Context,
+	code string,
+	provisioning types.TenantProvisioningMode,
+) (*types.LoginResponse, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, errors.New("SSO authorization code is required")
+	}
+
+	cfg, err := s.getJianlongSSOConfig()
+	if err != nil {
+		return nil, err
+	}
+	accessToken, err := exchangeJianlongSSOCode(ctx, cfg, code)
+	if err != nil {
+		return nil, err
+	}
+	info, err := fetchJianlongSSOUserInfo(ctx, cfg, accessToken)
+	if err != nil {
+		return nil, err
+	}
+	return s.loginWithEmployeeSSO(
+		ctx, info.Data.EmployeeNo, info.Data.EmployeeNo, cfg.EmailSuffix, provisioning,
+	)
+}
+
+func (s *userService) loginWithEmployeeSSO(
+	ctx context.Context,
+	employeeNo string,
+	name string,
+	emailSuffix string,
+	provisioning types.TenantProvisioningMode,
+) (*types.LoginResponse, error) {
+	user, err := s.userRepo.GetUserByUsername(ctx, employeeNo)
 	if err != nil && !isUserLookupNotFound(err) {
 		return nil, fmt.Errorf("failed to find SSO user: %w", err)
 	}
@@ -378,9 +430,9 @@ func (s *userService) LoginWithFushunSSO(
 			return nil, fmt.Errorf("failed to generate SSO user password: %w", passwordErr)
 		}
 		user, err = s.Register(ctx, &types.RegisterRequest{
-			Username:           info.Data.EmployeeNo,
-			Name:               info.Data.Name,
-			Email:              fushunSSOEmail(info.Data.EmployeeNo, cfg.EmailSuffix),
+			Username:           employeeNo,
+			Name:               name,
+			Email:              employeeSSOEmail(employeeNo, emailSuffix),
 			Password:           randomPassword,
 			TenantProvisioning: provisioning,
 		})
@@ -431,7 +483,7 @@ func (s *userService) getFushunSSOConfig() (*config.FushunSSOConfig, error) {
 	}
 	cfg.EmailSuffix = strings.TrimSpace(cfg.EmailSuffix)
 	if cfg.EmailSuffix == "" {
-		cfg.EmailSuffix = defaultFushunSSOEmailSuffix
+		cfg.EmailSuffix = defaultSSOEmailSuffix
 	}
 	if err := secutils.ValidateURLForSSRF(cfg.GetUserInfoURL); err != nil {
 		return nil, fmt.Errorf("Fushun SSO userinfo URL failed SSRF validation: %w", err)
@@ -475,8 +527,133 @@ func fetchFushunSSOUserInfo(ctx context.Context, endpoint, remoteToken string) (
 	return &result, nil
 }
 
-func fushunSSOEmail(employeeNo, emailSuffix string) string {
+func employeeSSOEmail(employeeNo, emailSuffix string) string {
 	return employeeNo + "@" + emailSuffix
+}
+
+func (s *userService) getJianlongSSOConfig() (*config.JianlongSSOConfig, error) {
+	if s.config == nil || s.config.JianlongSSO == nil {
+		return nil, errors.New("login through Jianlong SSO is disabled")
+	}
+	cfg := *s.config.JianlongSSO
+	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	cfg.AppID = strings.TrimSpace(cfg.AppID)
+	cfg.AppSecret = strings.TrimSpace(cfg.AppSecret)
+	cfg.EmailSuffix = strings.TrimSpace(cfg.EmailSuffix)
+	if cfg.BaseURL == "" || cfg.AppID == "" || cfg.AppSecret == "" {
+		return nil, errors.New("login through Jianlong SSO is disabled")
+	}
+	if cfg.EmailSuffix == "" {
+		cfg.EmailSuffix = defaultSSOEmailSuffix
+	}
+	for label, endpoint := range map[string]string{
+		"token":    cfg.BaseURL + "/oauth2/access_token",
+		"userinfo": cfg.BaseURL + "/uinfo",
+	} {
+		if err := secutils.ValidateURLForSSRF(endpoint); err != nil {
+			return nil, fmt.Errorf("failed SSRF validation for Jianlong SSO %s URL: %w", label, err)
+		}
+	}
+	return &cfg, nil
+}
+
+func exchangeJianlongSSOCode(
+	ctx context.Context,
+	cfg *config.JianlongSSOConfig,
+	code string,
+) (string, error) {
+	endpoint, err := url.Parse(cfg.BaseURL + "/oauth2/access_token")
+	if err != nil {
+		return "", errors.New("failed to build Jianlong SSO token request")
+	}
+	query := endpoint.Query()
+	query.Set("grantType", "code")
+	query.Set("appId", cfg.AppID)
+	query.Set("appSecret", cfg.AppSecret)
+	query.Set("code", code)
+	endpoint.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return "", errors.New("failed to create Jianlong SSO token request")
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "WeKnora")
+	client := newOIDCHTTPClient()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", errors.New("failed to exchange Jianlong SSO code")
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Warnf(ctx, "Failed to close Jianlong SSO token response body: %v", err)
+		}
+	}()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("request to Jianlong SSO token endpoint failed: status=%d", resp.StatusCode)
+	}
+
+	var result jianlongSSOTokenResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode Jianlong SSO token response: %w", err)
+	}
+	result.Data.AccessToken = strings.TrimSpace(result.Data.AccessToken)
+	if !isJianlongSSOSuccess(result.Code) || result.Data.AccessToken == "" {
+		return "", errors.New("invalid Jianlong SSO token response")
+	}
+	return result.Data.AccessToken, nil
+}
+
+func fetchJianlongSSOUserInfo(
+	ctx context.Context,
+	cfg *config.JianlongSSOConfig,
+	accessToken string,
+) (*jianlongSSOUserInfoResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.BaseURL+"/uinfo", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Jianlong SSO userinfo request: %w", err)
+	}
+	req.Header.Set("Authorization", accessToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "WeKnora")
+
+	resp, err := newOIDCHTTPClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Jianlong SSO user info: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Warnf(ctx, "Failed to close Jianlong SSO userinfo response body: %v", err)
+		}
+	}()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("request to Jianlong SSO userinfo endpoint failed: status=%d", resp.StatusCode)
+	}
+
+	var result jianlongSSOUserInfoResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode Jianlong SSO userinfo response: %w", err)
+	}
+	result.Data.EmployeeNo = strings.TrimSpace(result.Data.EmployeeNo)
+	if !isJianlongSSOSuccess(result.Code) || result.Data.EmployeeNo == "" {
+		return nil, errors.New("no valid employee number in Jianlong SSO userinfo response")
+	}
+	if utf8.RuneCountInString(result.Data.EmployeeNo) > 100 {
+		return nil, errors.New("employee number from Jianlong SSO is too long")
+	}
+	return &result, nil
+}
+
+func isJianlongSSOSuccess(raw json.RawMessage) bool {
+	var number int
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return number == http.StatusOK
+	}
+	var text string
+	return json.Unmarshal(raw, &text) == nil && strings.TrimSpace(text) == "200"
 }
 
 // buildMembershipsForUser returns the user's tenant memberships projected
