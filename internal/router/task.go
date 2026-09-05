@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -173,6 +174,17 @@ redis.call('PERSIST', KEYS[1])
 return 1
 `)
 
+var startRuntimeExecution = redis.NewScript(`
+if redis.call('EXISTS', KEYS[2]) ~= 0 then
+	return 0
+end
+local clock = redis.call('TIME')
+local now = clock[1] * 1000 + math.floor(clock[2] / 1000)
+redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]), ARGV[1])
+redis.call('PERSIST', KEYS[1])
+return 1
+`)
+
 // Track and renew until the handler itself exits, even after asynq cancels it.
 func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 	return func(next asynq.Handler) asynq.Handler {
@@ -180,9 +192,13 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 			id, _ := asynq.GetTaskID(ctx)
 			queue, _ := asynq.GetQueueName(ctx)
 			key, execution := types.RuntimeTaskExecutionKey(queue, id), uuid.NewString()
-			if err := renewRuntimeExecution.Run(ctx, client, []string{key},
-				execution, runtimeTaskLease.Milliseconds()).Err(); err != nil {
+			started, err := startRuntimeExecution.Run(ctx, client,
+				[]string{key, runtimePurgeRecoveryKey(queue, id)}, execution, runtimeTaskLease.Milliseconds()).Int64()
+			if err != nil {
 				return err
+			}
+			if started == 0 {
+				return fmt.Errorf("runtime task %s is awaiting purge cleanup: %w", id, asynq.SkipRetry)
 			}
 			workerCtx, cancelWorker := context.WithCancelCause(ctx)
 			defer cancelWorker(nil)

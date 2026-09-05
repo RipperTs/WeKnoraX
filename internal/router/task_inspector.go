@@ -601,11 +601,11 @@ func (a *asynqTaskInspector) ListRuntimeTasks(
 			if info.State != state {
 				continue
 			}
-			phase, phaseErr := a.runtimePurgePhase(ctx, queue, task.ID)
-			if phaseErr != nil {
-				return types.RuntimeTaskPage{}, true, phaseErr
+			recovery, recoveryErr := a.runtimePurgeRecovery(ctx, queue, task.ID)
+			if recoveryErr != nil {
+				return types.RuntimeTaskPage{}, true, recoveryErr
 			}
-			if phase != "" {
+			if recovery != nil {
 				info.AllowedActions = nil
 			}
 			result = append(result, info)
@@ -649,11 +649,11 @@ func (a *asynqTaskInspector) GetRuntimeTask(
 	if err != nil {
 		return nil, true, err
 	}
-	phase, err := a.runtimePurgePhase(ctx, queue, taskID)
+	recovery, err := a.runtimePurgeRecovery(ctx, queue, taskID)
 	if err != nil {
 		return nil, true, err
 	}
-	if phase != "" {
+	if recovery != nil {
 		info.AllowedActions = nil
 	}
 	return &info, true, nil
@@ -693,11 +693,11 @@ func (a *asynqTaskInspector) ForceDeleteRuntimeTask(ctx context.Context, queue, 
 	if a == nil || a.inspector == nil {
 		return false, nil
 	}
-	phase, err := a.runtimePurgePhase(ctx, queue, taskID)
+	recovery, err := a.runtimePurgeRecovery(ctx, queue, taskID)
 	if err != nil {
 		return true, err
 	}
-	if phase != "" {
+	if recovery != nil {
 		return true, fmt.Errorf("task %s in queue %s is awaiting purge cleanup", taskID, queue)
 	}
 	return true, a.inspector.DeleteTask(queue, taskID)

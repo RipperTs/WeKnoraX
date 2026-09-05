@@ -67,9 +67,18 @@ func TestRuntimePurgeQuarantinesBeforeCancellation(t *testing.T) {
 	require.Equal(t, map[string]int{"shared": 1, "independent": 1}, finished)
 	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, "failed")
 	require.NoError(t, err)
-	phase, err := inspector.runtimePurgePhase(ctx, types.QueueDefault, "failed")
+	recovery, err := inspector.runtimePurgeRecovery(ctx, types.QueueDefault, "failed")
 	require.NoError(t, err)
-	require.Equal(t, runtimePurgeDelete, phase)
+	require.Equal(t, runtimePurgeDelete, recovery.Phase)
+	ttl, err := inspector.redis.TTL(ctx, runtimePurgeRecoveryKey(types.QueueDefault, "failed")).Result()
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(-1), ttl)
+	result, err = inspector.purgeArchivedRuntimeTasks(ctx, types.QueueDefault, prepare)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Failed)
+	recovery, err = inspector.runtimePurgeRecovery(ctx, types.QueueDefault, "failed")
+	require.NoError(t, err)
+	require.NotNil(t, recovery)
 	require.NoError(t, inspector.redis.HSet(ctx, "asynq:{default}:t:failed", "state", "archived").Err())
 	task, supported, err := inspector.GetRuntimeTask(ctx, types.QueueDefault, "failed")
 	require.NoError(t, err)
@@ -111,9 +120,12 @@ func TestRuntimePurgeRecoversFinalizerFromArchivedTask(t *testing.T) {
 	archived, err := inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
 	require.NoError(t, err)
 	require.Equal(t, asynq.TaskStateArchived, archived.State)
-	phase, err := inspector.runtimePurgePhase(ctx, types.QueueDefault, info.ID)
+	recovery, err := inspector.runtimePurgeRecovery(ctx, types.QueueDefault, info.ID)
 	require.NoError(t, err)
-	require.Equal(t, runtimePurgeFinalize, phase)
+	require.Equal(t, runtimePurgeFinalize, recovery.Phase)
+	// Recovery must not depend on Asynq retaining the ID in its capped archive.
+	archivedKey, _ := runtimeTaskStateKey(types.QueueDefault, types.RuntimeTaskArchived)
+	require.NoError(t, inspector.redis.ZRem(ctx, archivedKey, info.ID).Err())
 
 	result, err = inspector.purgeArchivedRuntimeTasks(ctx, types.QueueDefault, prepare)
 	require.NoError(t, err)
@@ -122,6 +134,113 @@ func TestRuntimePurgeRecoversFinalizerFromArchivedTask(t *testing.T) {
 	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
 	require.ErrorIs(t, err, asynq.ErrTaskNotFound)
 	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, ordinary.ID)
+	require.ErrorIs(t, err, asynq.ErrTaskNotFound)
+}
+
+func TestRuntimePurgeRecoversCancellationFromDurableRecord(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	info, err := client.Enqueue(asynq.NewTask(
+		types.TypeKnowledgeListReparse, []byte(`{"tenant_id":1,"knowledge_ids":["knowledge-1"]}`),
+	))
+	require.NoError(t, err)
+	calls := 0
+	prepare := func(context.Context, string, []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+		return interfaces.RuntimeTaskCancellationPlan{
+			Cancel: func(cancelCtx context.Context) error {
+				require.NotNil(t, cancelCtx.Value(runtimeKnowledgeTasksKey{}))
+				calls++
+				if calls <= 3 {
+					return errors.New("temporary cancellation failure")
+				}
+				return nil
+			},
+		}, nil
+	}
+
+	result, supported, err := inspector.PurgeRuntimeTasks(
+		ctx, types.QueueDefault, types.RuntimeTaskPending, prepare,
+	)
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Zero(t, result.Deleted)
+	require.Equal(t, 1, result.Failed)
+	recovery, err := inspector.runtimePurgeRecovery(ctx, types.QueueDefault, info.ID)
+	require.NoError(t, err)
+	require.Equal(t, runtimePurgeCancel, recovery.Phase)
+
+	result, supported, err = inspector.PurgeRuntimeTasks(
+		ctx, types.QueueDefault, types.RuntimeTaskArchived, prepare,
+	)
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Equal(t, 1, result.Deleted)
+	require.Zero(t, result.Failed)
+	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
+	require.ErrorIs(t, err, asynq.ErrTaskNotFound)
+	recovery, err = inspector.runtimePurgeRecovery(ctx, types.QueueDefault, info.ID)
+	require.NoError(t, err)
+	require.Nil(t, recovery)
+}
+
+func TestRuntimePurgeRecoveryPreventsTaskExecution(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	info, err := client.Enqueue(asynq.NewTask("purge:test", nil), asynq.TaskID("quarantined-pending"))
+	require.NoError(t, err)
+	require.NoError(t, inspector.saveRuntimePurgeRecovery(ctx, types.QueueDefault, &runtimePurgeRecovery{
+		TaskID: info.ID, TaskType: "purge:test", Phase: runtimePurgeCancel,
+	}))
+
+	worker := asynq.NewServerFromRedisClient(inspector.redis, asynq.Config{
+		Concurrency: 1, Queues: map[string]int{types.QueueDefault: 1},
+		TaskCheckInterval: 10 * time.Millisecond, ShutdownTimeout: time.Second, LogLevel: asynq.FatalLevel,
+	})
+	called := make(chan struct{}, 1)
+	mux := asynq.NewServeMux()
+	mux.Use(runtimeTaskExecutionMiddleware(inspector.redis.(*redis.Client)))
+	mux.HandleFunc("purge:test", func(context.Context, *asynq.Task) error {
+		called <- struct{}{}
+		return nil
+	})
+	require.NoError(t, worker.Start(mux))
+	t.Cleanup(worker.Shutdown)
+	require.Eventually(t, func() bool {
+		task, getErr := inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
+		return getErr == nil && task.State == asynq.TaskStateArchived
+	}, 2*time.Second, 10*time.Millisecond)
+	select {
+	case <-called:
+		t.Fatal("quarantined task reached its business handler")
+	default:
+	}
+}
+
+func TestRuntimePurgeRecoversTaskBeforeQuarantineCompleted(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	info, err := client.Enqueue(asynq.NewTask("purge:test", []byte("payload")), asynq.TaskID("unarchived"))
+	require.NoError(t, err)
+	require.NoError(t, inspector.saveRuntimePurgeRecovery(ctx, types.QueueDefault, &runtimePurgeRecovery{
+		TaskID: info.ID, TaskType: "purge:test", Payload: []byte("payload"), Phase: runtimePurgeCancel,
+	}))
+	cancelled := 0
+	prepare := func(_ context.Context, _ string, payload []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+		require.Equal(t, []byte("payload"), payload)
+		return interfaces.RuntimeTaskCancellationPlan{
+			Cancel: func(context.Context) error {
+				cancelled++
+				return nil
+			},
+		}, nil
+	}
+
+	result, err := inspector.purgeArchivedRuntimeTasks(ctx, types.QueueDefault, prepare)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Deleted)
+	require.Zero(t, result.Failed)
+	require.Equal(t, 1, cancelled)
+	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
 	require.ErrorIs(t, err, asynq.ErrTaskNotFound)
 }
 
