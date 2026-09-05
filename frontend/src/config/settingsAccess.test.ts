@@ -19,6 +19,7 @@ test('system administration settings stay explicitly system-admin-only', () => {
     [...SYSTEM_ADMIN_SETTINGS_SECTIONS],
     [
       'system-users',
+      'system-tenants',
       'system-global',
       'runtime-queues',
       'platform-api-keys',

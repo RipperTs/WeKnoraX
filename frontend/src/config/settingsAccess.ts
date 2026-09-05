@@ -39,6 +39,7 @@ export const SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE = {
 
 export const SYSTEM_ADMIN_SETTINGS_SECTIONS = new Set([
   'system-users',
+  'system-tenants',
   'system-global',
   'runtime-queues',
   'platform-api-keys',

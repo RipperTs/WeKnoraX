@@ -25,12 +25,12 @@ type TenantService interface {
 	DeleteTenant(ctx context.Context, id uint64) error
 	// ListAllTenants lists all tenants (for users with cross-tenant access permission)
 	ListAllTenants(ctx context.Context) ([]*types.Tenant, error)
-	// BulkSetStorageQuota overwrites every tenant's storage_quota with
-	// quotaBytes. Returns how many rows were affected. Used by the
-	// SystemAdmin "apply default to all tenants" action; bypasses the
-	// per-tenant whitelist on PUT /tenants/:id (which intentionally
-	// forbids storage_quota edits for Owners). quotaBytes must be > 0;
-	// callers are responsible for resolving GB→bytes.
+	// ListSystemTenants searches workspaces and their active owners for system administration.
+	ListSystemTenants(ctx context.Context, query string, offset, limit int) ([]*types.SystemTenant, int64, error)
+	// IncreaseStorageQuota atomically adds a positive byte count to a workspace's finite quota.
+	IncreaseStorageQuota(ctx context.Context, tenantID uint64, delta int64) (*types.Tenant, error)
+	// BulkSetStorageQuota raises finite quotas below quotaBytes and returns the affected count.
+	// quotaBytes must be positive. Larger and unlimited quotas remain unchanged.
 	BulkSetStorageQuota(ctx context.Context, quotaBytes int64) (int64, error)
 	// SearchTenants searches tenants with pagination and filters
 	SearchTenants(ctx context.Context, keyword string, tenantID uint64, page, pageSize int) ([]*types.Tenant, int64, error)
@@ -58,6 +58,10 @@ type TenantRepository interface {
 	DeleteTenant(ctx context.Context, id uint64) error
 	// AdjustStorageUsed adjusts the storage used for a tenant
 	AdjustStorageUsed(ctx context.Context, tenantID uint64, delta int64) error
+	// ListSystemTenants — see TenantService.ListSystemTenants.
+	ListSystemTenants(ctx context.Context, query string, offset, limit int) ([]*types.SystemTenant, int64, error)
+	// IncreaseStorageQuota — see TenantService.IncreaseStorageQuota.
+	IncreaseStorageQuota(ctx context.Context, tenantID uint64, delta int64) (*types.Tenant, error)
 	// BulkSetStorageQuota — see TenantService.BulkSetStorageQuota.
 	BulkSetStorageQuota(ctx context.Context, quotaBytes int64) (int64, error)
 }

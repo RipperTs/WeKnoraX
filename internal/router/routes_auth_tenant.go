@@ -304,9 +304,13 @@ func RegisterSystemAdminRoutes(
 		g.apiKeyRoute(adminRoutes, http.MethodDelete, "/runtime/queues/:queue/archived",
 			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.PurgeArchivedRuntimeTasks)
 
-		// Bulk action — write the current default-quota setting onto
-		// every existing tenant. Lives under /tenants instead of
-		// /settings because it changes tenants, not the setting row.
+		g.apiKeyRoute(adminRoutes, http.MethodGet, "/tenants",
+			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsRead, types.APIKeyCapabilitySystemTenantsManage),
+			handler.ListSystemTenants)
+		g.apiKeyRoute(adminRoutes, http.MethodPost, "/tenants/:tenant_id/storage-quota/increase",
+			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsManage), handler.IncreaseTenantStorageQuota)
+
+		// Raise smaller workspace quotas to the saved default.
 		g.apiKeyRoute(adminRoutes, http.MethodPost, "/tenants/apply-default-storage-quota",
 			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsManage),
 			handler.ApplyDefaultStorageQuotaToAllTenants)

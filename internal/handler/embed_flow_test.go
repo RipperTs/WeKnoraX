@@ -107,6 +107,17 @@ func (f *flowTenantSvc) ListTenants(context.Context) ([]*types.Tenant, error) {
 func (f *flowTenantSvc) ListAllTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
+
+func (f *flowTenantSvc) ListSystemTenants(
+	context.Context, string, int, int,
+) ([]*types.SystemTenant, int64, error) {
+	panic("unexpected")
+}
+
+func (f *flowTenantSvc) IncreaseStorageQuota(context.Context, uint64, int64) (*types.Tenant, error) {
+	panic("unexpected")
+}
+
 func (f *flowTenantSvc) BulkSetStorageQuota(context.Context, int64) (int64, error) {
 	return 0, nil
 }

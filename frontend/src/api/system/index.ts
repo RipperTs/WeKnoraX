@@ -546,11 +546,40 @@ export async function resetSystemSetting(key: string): Promise<void> {
   await del(`/api/v1/system/admin/settings/${encodeURIComponent(key)}`)
 }
 
-/**
- * Result of POST /system/admin/tenants/apply-default-storage-quota.
- * `affected` is the count of tenant rows whose storage_quota was
- * overwritten; `quota_bytes` is the value written.
- */
+export interface SystemTenant {
+  id: number
+  name: string
+  storage_quota: number
+  storage_used: number
+  owners: { user_id: string; username: string; email: string }[]
+}
+
+export async function listSystemTenants(params: {
+  query: string
+  page: number
+  page_size: number
+}): Promise<{ tenants: SystemTenant[]; total: number }> {
+  const qs = new URLSearchParams({
+    query: params.query,
+    page: String(params.page),
+    page_size: String(params.page_size),
+  })
+  return await get(`/api/v1/system/admin/tenants?${qs}`) as unknown as {
+    tenants: SystemTenant[]
+    total: number
+  }
+}
+
+export async function increaseTenantStorageQuota(
+  tenantId: number,
+  increaseGB: number,
+): Promise<{ storage_quota: number }> {
+  return await post(`/api/v1/system/admin/tenants/${tenantId}/storage-quota/increase`, {
+    increase_gb: increaseGB,
+  }) as unknown as { storage_quota: number }
+}
+
+/** `affected` counts workspaces whose finite quota was raised to `quota_bytes`. */
 export interface ApplyDefaultStorageQuotaResult {
   affected: number
   quota_bytes: number
@@ -558,9 +587,7 @@ export interface ApplyDefaultStorageQuotaResult {
 }
 
 /**
- * Apply the current `tenant.default_storage_quota_gb` setting to every
- * existing tenant. Reads the resolved setting server-side (DB > ENV >
- * default), then writes that quota to every row. SystemAdmin only.
+ * Raise smaller finite quotas to the saved default. SystemAdmin only.
  *
  * Idempotent: running twice with the same setting has the same effect.
  */

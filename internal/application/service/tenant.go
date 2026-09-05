@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	werrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -215,6 +216,30 @@ func (s *tenantService) ListAllTenants(ctx context.Context) ([]*types.Tenant, er
 	return tenants, nil
 }
 
+// ListSystemTenants lists workspaces and their owners for system administration.
+func (s *tenantService) ListSystemTenants(
+	ctx context.Context, query string, offset, limit int,
+) ([]*types.SystemTenant, int64, error) {
+	return s.repo.ListSystemTenants(ctx, query, offset, limit)
+}
+
+// IncreaseStorageQuota only accepts positive additions to an existing finite quota.
+func (s *tenantService) IncreaseStorageQuota(
+	ctx context.Context, tenantID uint64, delta int64,
+) (*types.Tenant, error) {
+	if delta <= 0 {
+		return nil, werrors.NewBadRequestError("Storage quota increase must be positive")
+	}
+	tenant, err := s.repo.IncreaseStorageQuota(ctx, tenantID, delta)
+	if errors.Is(err, repository.ErrTenantNotFound) {
+		return nil, werrors.NewNotFoundError("Workspace not found")
+	}
+	if errors.Is(err, repository.ErrStorageQuotaNotIncreasable) {
+		return nil, werrors.NewConflictError(err.Error())
+	}
+	return tenant, err
+}
+
 // BulkSetStorageQuota delegates to the repository. Validation is
 // minimal — quotaBytes <= 0 is rejected because the storage-quota
 // enforcement in knowledge_create.go treats <=0 as "unlimited", which
@@ -228,7 +253,7 @@ func (s *tenantService) BulkSetStorageQuota(ctx context.Context, quotaBytes int6
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{"quota_bytes": quotaBytes})
 		return 0, err
 	}
-	logger.Infof(ctx, "Bulk set storage_quota=%d on %d tenants", quotaBytes, affected)
+	logger.Infof(ctx, "Raised storage_quota to %d on %d tenants", quotaBytes, affected)
 	return affected, nil
 }
 

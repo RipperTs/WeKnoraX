@@ -2586,6 +2586,33 @@ export default {
       approvalSaveFailed: '保存审核设置失败'
     }
   },
+  systemTenants: {
+    title: '空间管理',
+    description: '查看所有用户的空间和存储用量，为空间增加存储配额。',
+    total: '个空间',
+    search: '搜索',
+    searchPlaceholder: '搜索空间名称、ID、所有者用户名或邮箱',
+    noOwner: '暂无所有者',
+    unlimited: '不限容量',
+    empty: '没有找到符合条件的空间',
+    columns: {
+      workspace: '空间',
+      owners: '所有者',
+      used: '已用容量',
+      quota: '总配额',
+      actions: '操作'
+    },
+    increase: {
+      action: '增加配额',
+      current: '当前配额',
+      amount: '增加容量（GB）',
+      after: '增加后的配额',
+      hint: '只能增加配额，不能减少。请输入正整数，1 GB = 1024 MB；提交时将在最新配额上累加。',
+      success: '配额已增加，当前总配额为 {quota}'
+    },
+    auditTarget: '空间配额：{name}（ID: {id}）',
+    auditDiff: '增加 {increase} GB：{before} GB → {after} GB'
+  },
   systemUsers: {
     navLabel: '用户管理',
     title: '用户管理',
@@ -2824,11 +2851,11 @@ export default {
         }
       },
       bulkApply: {
-        label: '应用到所有现有空间',
-        tooltip: '保存的值默认只对之后新建的空间生效；点击此按钮将当前值同步写入所有现有空间。',
+        label: '提升现有空间配额',
+        tooltip: '将低于默认值的有限配额提升至默认值，较高配额和不限容量的空间保持不变。',
         confirmBtn: '确认应用',
-        confirmBody: '将把所有现有空间的存储配额覆盖为 {value} GB。如有空间被运维单独调整过的配额，也会一并被覆盖。是否继续？',
-        success: '已将 {count} 个空间的存储配额更新为 {gb} GB',
+        confirmBody: '将低于 {value} GB 的有限配额提升至 {value} GB；不会减少任何空间的配额。是否继续？',
+        success: '已将 {count} 个空间的存储配额提升至 {gb} GB',
         failed: '应用到所有空间失败'
       },
       passwordReset: {

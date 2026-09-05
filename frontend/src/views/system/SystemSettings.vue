@@ -303,15 +303,8 @@
             class="setting-control-actions"
           >
             <!--
-              Per-key bulk action. Currently only one key
-              (tenant.default_storage_quota_gb) carries one — clicking
-              writes the current setting value onto every existing
-              tenant. We do this as a separate explicit action rather
-              than auto-cascade on save so a SystemAdmin who tweaks the
-              default while triaging a single new-tenant question
-              doesn't accidentally rewrite production quotas. Hidden
-              when the row is dirty because applying a not-yet-saved
-              value would confuse "what just happened".
+              Apply the saved default to smaller finite workspace quotas.
+              Hidden while editing so the action always uses the saved value.
             -->
             <t-popconfirm
               v-if="hasBulkAction(item)"
@@ -976,8 +969,7 @@ function highRiskConfirmBody(item: SystemSettingItem, value: unknown): string {
 // hasBulkAction tells the template whether the current row carries an
 // extra "apply to existing data" action beyond plain save/reset.
 // Currently only `tenant.default_storage_quota_gb` does — saving the
-// setting only affects future tenants, so the bulk button is the
-// escape hatch for "rewrite all current tenants too".
+// setting only affects future tenants; the bulk button raises existing smaller quotas.
 function hasBulkAction(item: SystemSettingItem): boolean {
   return item.key === 'tenant.default_storage_quota_gb'
 }

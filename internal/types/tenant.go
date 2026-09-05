@@ -128,6 +128,22 @@ type Tenant struct {
 	DeletedAt gorm.DeletedAt `yaml:"deleted_at"          json:"deleted_at"          gorm:"index"`
 }
 
+// SystemTenant is the storage-management projection of a workspace.
+type SystemTenant struct {
+	ID           uint64              `json:"id" format:"int64"`
+	Name         string              `json:"name"`
+	StorageQuota int64               `json:"storage_quota" format:"int64"`
+	StorageUsed  int64               `json:"storage_used" format:"int64"`
+	Owners       []SystemTenantOwner `json:"owners" gorm:"-"`
+}
+
+// SystemTenantOwner identifies an active workspace owner.
+type SystemTenantOwner struct {
+	UserID   string `json:"user_id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
+
 // RetrieverEngines represents the retriever engines for a tenant
 type RetrieverEngines struct {
 	Engines []RetrieverEngineParams `yaml:"engines" json:"engines" gorm:"type:json"`

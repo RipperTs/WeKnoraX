@@ -2584,6 +2584,33 @@ export default {
       approvalSaveFailed: '승인 설정 저장 실패'
     }
   },
+  systemTenants: {
+    title: '워크스페이스 관리',
+    description: '모든 사용자의 워크스페이스와 저장 사용량을 확인하고 저장 할당량을 늘립니다.',
+    total: '개 워크스페이스',
+    search: '검색',
+    searchPlaceholder: '공간 이름, ID, 소유자 이름 또는 이메일 검색',
+    noOwner: '소유자 없음',
+    unlimited: '무제한',
+    empty: '일치하는 워크스페이스가 없습니다',
+    columns: {
+      workspace: '워크스페이스',
+      owners: '소유자',
+      used: '사용 용량',
+      quota: '저장 할당량',
+      actions: '작업'
+    },
+    increase: {
+      action: '할당량 늘리기',
+      current: '현재 할당량',
+      amount: '추가 용량 (GB)',
+      after: '변경 후 할당량',
+      hint: '할당량은 늘릴 수만 있습니다. 양의 정수를 입력하세요. 1 GB = 1024 MB이며 제출 시 최신 할당량에 더해집니다.',
+      success: '할당량이 늘어났습니다. 현재 총 할당량은 {quota}입니다'
+    },
+    auditTarget: '공간 할당량: {name} (ID: {id})',
+    auditDiff: '{increase} GB 추가: {before} GB → {after} GB'
+  },
   systemUsers: {
     navLabel: '사용자 관리',
     title: '사용자 관리',
@@ -2768,11 +2795,11 @@ export default {
         }
       },
       bulkApply: {
-        label: '모든 기존 워크스페이스에 적용',
-        tooltip: '저장한 값은 기본적으로 새로 생성되는 워크스페이스에만 적용됩니다. 이 버튼을 누르면 현재 값을 모든 기존 워크스페이스에도 덮어씁니다.',
+        label: '기존 공간 할당량 늘리기',
+        tooltip: '기본값보다 작은 유한 할당량만 늘립니다. 더 큰 할당량과 무제한 공간은 유지됩니다.',
         confirmBtn: '적용 확인',
-        confirmBody: '모든 기존 워크스페이스의 저장 용량을 {value} GB로 덮어씁니다. 운영팀이 개별로 조정한 워크스페이스의 용량도 함께 덮어쓰여집니다. 계속하시겠습니까?',
-        success: '{count}개 워크스페이스의 저장 용량을 {gb} GB로 갱신했습니다',
+        confirmBody: '{value} GB보다 작은 유한 할당량을 {value} GB로 늘립니다. 어떤 공간의 할당량도 줄어들지 않습니다. 계속하시겠습니까?',
+        success: '{count}개 공간의 할당량을 {gb} GB로 늘렸습니다',
         failed: '모든 워크스페이스에 적용 실패'
       },
       passwordReset: {

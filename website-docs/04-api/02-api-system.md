@@ -225,9 +225,11 @@ curl -X DELETE $BASE/api/v1/system/admin/runtime/queues/default/archived -H "Aut
 
 ### POST /api/v1/system/admin/tenants/apply-default-storage-quota
 
-用途：把当前默认存储配额批量写到全部空间（平台 key 需 `system_tenants_manage`）。无请求体。
+用途：仅将现有配额大于 0 且低于当前默认值的空间提升到默认配额；等于或高于默认值的配额、无限配额均保持不变（平台 key 需 `system_tenants_manage`）。无请求体。
 
 响应：200 `{"affected":N,"quota_bytes":N,"quota_gb":N}`
+
+`affected` 为实际提升配额的空间数量，没有空间需要提升时为 0。
 
 ```bash
 curl -X POST $BASE/api/v1/system/admin/tenants/apply-default-storage-quota -H "Authorization: Bearer $TOKEN"

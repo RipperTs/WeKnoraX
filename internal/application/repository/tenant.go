@@ -3,6 +3,9 @@ package repository
 import (
 	"context"
 	"errors"
+	"math"
+	"strconv"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -15,6 +18,9 @@ var (
 	ErrTenantNotFound         = errors.New("tenant not found")
 	ErrTenantHasKnowledgeBase = errors.New("tenant has associated knowledge bases")
 )
+
+// ErrStorageQuotaNotIncreasable rejects unlimited quotas and additions exceeding int64 capacity.
+var ErrStorageQuotaNotIncreasable = errors.New("storage quota is unlimited or would exceed the supported maximum")
 
 // tenantRepository implements tenant repository interface
 type tenantRepository struct {
@@ -113,9 +119,95 @@ func (r *tenantRepository) SearchTenants(ctx context.Context, keyword string, te
 	return tenants, total, nil
 }
 
+// ListSystemTenants returns a stable page with active owners, without workspace credentials.
+func (r *tenantRepository) ListSystemTenants(
+	ctx context.Context, query string, offset, limit int,
+) ([]*types.SystemTenant, int64, error) {
+	base := r.db.WithContext(ctx).Model(&types.Tenant{})
+	if query = strings.TrimSpace(query); query != "" {
+		like := "%" + escapeLikePattern(query) + "%"
+		owners := r.db.WithContext(ctx).Model(&types.TenantMember{}).
+			Select("tenant_members.tenant_id").
+			Joins("JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL").
+			Where("tenant_members.role = ? AND tenant_members.status = ?",
+				types.TenantRoleOwner, types.TenantMemberStatusActive).
+			Where("(LOWER(users.username) LIKE LOWER(?) ESCAPE ? OR LOWER(users.email) LIKE LOWER(?) ESCAPE ?)",
+				like, `\`, like, `\`)
+		filter := r.db.Where("LOWER(tenants.name) LIKE LOWER(?) ESCAPE ? OR tenants.id IN (?)", like, `\`, owners)
+		if id, err := strconv.ParseUint(query, 10, 64); err == nil {
+			filter = filter.Or("tenants.id = ?", id)
+		}
+		base = base.Where(filter)
+	}
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	tenants := make([]*types.SystemTenant, 0)
+	if err := base.Select("tenants.id, tenants.name, tenants.storage_quota, tenants.storage_used").
+		Order("tenants.created_at DESC, tenants.id ASC").Offset(offset).Limit(limit).Find(&tenants).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(tenants) == 0 {
+		return tenants, total, nil
+	}
+	ids := make([]uint64, 0, len(tenants))
+	byID := make(map[uint64]*types.SystemTenant, len(tenants))
+	for _, tenant := range tenants {
+		tenant.Owners = make([]types.SystemTenantOwner, 0)
+		ids = append(ids, tenant.ID)
+		byID[tenant.ID] = tenant
+	}
+	var owners []struct {
+		TenantID                uint64
+		types.SystemTenantOwner `gorm:"embedded"`
+	}
+	if err := r.db.WithContext(ctx).Model(&types.TenantMember{}).
+		Select("tenant_members.tenant_id, tenant_members.user_id, users.username, users.email").
+		Joins("JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL").
+		Where("tenant_members.tenant_id IN ? AND tenant_members.role = ? AND tenant_members.status = ?",
+			ids, types.TenantRoleOwner, types.TenantMemberStatusActive).
+		Order("tenant_members.joined_at ASC, tenant_members.id ASC").Find(&owners).Error; err != nil {
+		return nil, 0, err
+	}
+	for _, owner := range owners {
+		tenant := byID[owner.TenantID]
+		tenant.Owners = append(tenant.Owners, owner.SystemTenantOwner)
+	}
+	return tenants, total, nil
+}
+
+// IncreaseStorageQuota updates the quota in SQL so concurrent additions cannot overwrite each other.
+func (r *tenantRepository) IncreaseStorageQuota(
+	ctx context.Context, tenantID uint64, delta int64,
+) (*types.Tenant, error) {
+	var tenant types.Tenant
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&types.Tenant{}).
+			Where("id = ? AND storage_quota > 0 AND storage_quota <= ?", tenantID, math.MaxInt64-delta).
+			Update("storage_quota", gorm.Expr("storage_quota + ?", delta))
+		if result.Error != nil {
+			return result.Error
+		}
+		if err := tx.Select("id", "name", "storage_quota").First(&tenant, tenantID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTenantNotFound
+			}
+			return err
+		}
+		if result.RowsAffected == 0 {
+			return ErrStorageQuotaNotIncreasable
+		}
+		return nil
+	})
+	return &tenant, err
+}
+
 // UpdateTenant updates tenant.
 func (r *tenantRepository) UpdateTenant(ctx context.Context, tenant *types.Tenant) error {
-	return r.db.WithContext(ctx).Model(&types.Tenant{}).Where("id = ?", tenant.ID).Updates(tenant).Error
+	// Configuration updates must not restore a stale quota after an administrator increases it.
+	return r.db.WithContext(ctx).Model(&types.Tenant{}).Where("id = ?", tenant.ID).
+		Omit("storage_quota").Updates(tenant).Error
 }
 
 // DeleteTenant soft-deletes the tenant and every active membership row
@@ -146,24 +238,15 @@ func (r *tenantRepository) AdjustStorageUsed(ctx context.Context, tenantID uint6
 			tenant.StorageUsed = 0
 		}
 
-		return tx.Save(&tenant).Error
+		return tx.Model(&tenant).Update("storage_used", tenant.StorageUsed).Error
 	})
 }
 
-// BulkSetStorageQuota writes quotaBytes to storage_quota for every
-// tenant in one statement. We don't WHERE-filter (the action is
-// "apply globally"), so the affected count equals the row count of
-// the tenants table.
-//
-// No transaction here: the operation is a single statement and we
-// don't want to hold a long lock just to update a single column. If
-// a concurrent CreateTenant lands in the middle, the new row gets
-// the new default via the system-setting resolver in the handler —
-// no risk of the new tenant being skipped.
+// BulkSetStorageQuota only raises finite quotas below the requested value.
 func (r *tenantRepository) BulkSetStorageQuota(ctx context.Context, quotaBytes int64) (int64, error) {
 	res := r.db.WithContext(ctx).
 		Model(&types.Tenant{}).
-		Where("1 = 1"). // GORM refuses unconditional UPDATEs without an explicit WHERE
+		Where("storage_quota > 0 AND storage_quota < ?", quotaBytes).
 		Update("storage_quota", quotaBytes)
 	if res.Error != nil {
 		return 0, res.Error

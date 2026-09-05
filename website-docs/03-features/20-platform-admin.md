@@ -48,7 +48,7 @@ WeKnora 的权限分两层：**空间内**的四级角色（见[租户、用户�
 另外两个不在上表、但同属系统管理员的能力：
 
 - **重置用户密码**（`POST /system/admin/users/reset-password`）：替换目标用户的本地密码并吊销其全部会话。**不能给自己重置**——自助改密码仍要求提供旧密码；
-- **批量套用默认存储配额**（`POST /system/admin/tenants/apply-default-storage-quota`）：把当前的默认配额写到所有已存在的空间上。之所以挂在 `/tenants` 而不是 `/settings` 下，是因为它改的是空间数据而不是设置行。
+- **批量套用默认存储配额**（`POST /system/admin/tenants/apply-default-storage-quota`）：仅将现有配额大于 0 且低于当前默认值的空间提升到默认配额；等于或高于默认值的配额、无限配额均保持不变。响应中的 `affected` 为实际提升配额的空间数量。之所以挂在 `/tenants` 而不是 `/settings` 下，是因为它改的是空间数据而不是设置行。
 
 ## 3. 运行时可改的系统设置
 

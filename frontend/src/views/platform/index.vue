@@ -1,6 +1,6 @@
 <template>
     <div class="main" ref="dropzone">
-        <Menu></Menu>
+        <Menu v-if="authStore.hasValidTenant" />
         <div v-if="isRouterAlive" class="platform-route-outlet">
             <RouterView />
         </div>
@@ -10,12 +10,12 @@
         <!-- 全局设置模态框，供所有 platform 子路由使用 -->
         <Settings />
         <!-- 全局命令面板 (⌘K)，随 platform 路由存活 -->
-        <GlobalCommandPalette />
+        <GlobalCommandPalette v-if="authStore.hasValidTenant" />
         <!-- 全局右上角"待处理邀请"铃铛。固定定位，z-index 低于抽屉，业务页面
              右侧抽屉弹出时会自然覆盖；仅在有待处理邀请时渲染。 -->
         <GlobalInvitationBell />
         <!-- 带遮罩层的新手引导：首次进入自动开启，可从用户菜单顶部昵称旁帮助按钮重新打开 -->
-        <NewUserGuide />
+        <NewUserGuide v-if="authStore.hasValidTenant" />
     </div>
 </template>
 <script setup lang="ts">
@@ -29,6 +29,7 @@ import GlobalInvitationBell from '@/components/GlobalInvitationBell.vue'
 import NewUserGuide from '@/components/NewUserGuide.vue'
 import { useCommandPaletteStore } from '@/stores/commandPalette'
 import { useChatResourcesStore } from '@/stores/chatResources'
+import { useAuthStore } from '@/stores/auth'
 import { getKnowledgeBaseById } from '@/api/knowledge-base/index'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -37,6 +38,7 @@ import { collectDroppedFiles } from './collectDroppedFiles'
 const route = useRoute();
 const router = useRouter();
 const commandPaletteStore = useCommandPaletteStore();
+const authStore = useAuthStore();
 let ismask = ref(false)
 const { t } = useI18n();
 
@@ -194,7 +196,9 @@ onMounted(() => {
     // /platform/knowledge-search?q=foo 重定向后携带 ?cmdk=foo
     maybeOpenCmdkFromRoute()
     // 后台预取对话输入栏资源，进入 creatChat / chat 时复用缓存
-    void useChatResourcesStore().prefetchChatInput()
+    if (authStore.hasValidTenant) {
+        void useChatResourcesStore().prefetchChatInput()
+    }
 });
 
 // 监听路由变化，兼容 SPA 内部跳转时的 ?cmdk= 参数
