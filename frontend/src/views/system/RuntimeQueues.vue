@@ -341,7 +341,12 @@
           </h4>
           <div class="rq-failed-section-actions">
             <t-popconfirm
-              v-if="taskState === 'pending' && taskQueue?.name !== 'wiki' && taskStateCount(taskQueue, 'pending') > 0"
+              v-if="
+                taskState === 'pending' &&
+                taskQueue?.name !== 'wiki' &&
+                taskQueue?.name !== 'sync' &&
+                taskStateCount(taskQueue, 'pending') > 0
+              "
               theme="danger"
               :content="t('system.globalSettings.runtime.tasks.purgePendingConfirm', { count: taskStateCount(taskQueue, 'pending') })"
               @confirm="purgePendingTasks"
