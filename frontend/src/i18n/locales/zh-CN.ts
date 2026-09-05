@@ -2818,7 +2818,9 @@ export default {
         },
         outcome: {
           success: '成功',
-          denied: '拒绝'
+          denied: '拒绝',
+          failed: '失败',
+          partial: '部分成功'
         },
         action: {
           'system.setting_changed': '系统设置变更',

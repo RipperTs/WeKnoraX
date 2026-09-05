@@ -2762,7 +2762,9 @@ export default {
         },
         outcome: {
           success: '성공',
-          denied: '거부'
+          denied: '거부',
+          failed: '실패',
+          partial: '부분 성공'
         },
         action: {
           'system.setting_changed': '시스템 설정 변경',

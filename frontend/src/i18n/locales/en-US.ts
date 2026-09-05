@@ -4171,7 +4171,9 @@ export default {
         },
         outcome: {
           success: 'Success',
-          denied: 'Denied'
+          denied: 'Denied',
+          failed: 'Failed',
+          partial: 'Partially successful'
         },
         target: {
           bulkQuota: 'Bulk sync: default storage quota',

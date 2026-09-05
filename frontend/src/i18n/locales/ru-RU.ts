@@ -2763,7 +2763,9 @@ export default {
         },
         outcome: {
           success: 'Успешно',
-          denied: 'Отказано'
+          denied: 'Отказано',
+          failed: 'Ошибка',
+          partial: 'Частично успешно'
         },
         action: {
           'system.setting_changed': 'Изменена системная настройка',
