@@ -63,26 +63,35 @@ func (a *asynqTaskInspector) purgeRuntimeState(
 	return result, err
 }
 
-// Asynq checks the existence of this key. A token-owned lease preserves a
-// pre-existing manual pause and expires if this cleanup process disappears.
+type runtimePausedQueueKey string
+
+// Nested cancellation may reuse a pause owned by its context. A foreign
+// temporary pause must expire before this request acquires its own lease.
 func (a *asynqTaskInspector) withRuntimeQueuePaused(
 	ctx context.Context, queue string, fn func(context.Context) error,
 ) error {
+	if ctx.Value(runtimePausedQueueKey(queue)) != nil {
+		return fn(ctx)
+	}
 	key := "asynq:{" + queue + "}:paused"
-	paused, err := a.redis.Exists(ctx, key).Result()
+	ttl, err := a.redis.PTTL(ctx, key).Result()
 	if err != nil {
 		return err
 	}
-	if paused != 0 {
+	if ttl == -1 { // An existing manual pause has no expiry.
 		return fn(ctx)
 	}
-	return redislock.WithRenewableLock(ctx, a.redis, key, runtimeTaskLease, runtimeTaskLeaseRenew, fn)
+	return redislock.WithRenewableLock(ctx, a.redis, key, runtimeTaskLease, runtimeTaskLeaseRenew,
+		func(pauseCtx context.Context) error {
+			return fn(context.WithValue(pauseCtx, runtimePausedQueueKey(queue), true))
+		})
 }
 
 func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 	ctx context.Context, queue string, state types.RuntimeTaskState,
 	prepare interfaces.RuntimeTaskCancellationPreparer,
 ) (result types.RuntimeQueuePurgeResult, err error) {
+	ctx = context.WithValue(ctx, runtimeKnowledgeTasksKey{}, newRuntimeKnowledgeTasks())
 	selected, err := a.snapshotRuntimeState(ctx, queue, state)
 	if err != nil {
 		return result, err
@@ -93,6 +102,23 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 	if err != nil {
 		return result, err
 	}
+	for _, task := range tasks {
+		if runtimeTaskCancelsKnowledge(task.Type) {
+			err = a.withRuntimeKnowledgeQueuesPaused(ctx, func(batchCtx context.Context) error {
+				var purgeErr error
+				result, purgeErr = a.purgeRuntimeTaskSnapshot(batchCtx, queue, tasks, prepare)
+				return purgeErr
+			})
+			return result, err
+		}
+	}
+	return a.purgeRuntimeTaskSnapshot(ctx, queue, tasks, prepare)
+}
+
+func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
+	ctx context.Context, queue string, tasks []*asynq.TaskInfo,
+	prepare interfaces.RuntimeTaskCancellationPreparer,
+) (result types.RuntimeQueuePurgeResult, err error) {
 	cancellations := make(map[string]interfaces.RuntimeTaskCancellationPlan, len(tasks))
 	for _, task := range tasks {
 		cancel, prepareErr := prepare(ctx, task.Type, task.Payload)
@@ -128,7 +154,7 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 	}
 	result.FailureReasons = make(map[string]int)
 	wikiCancellationErrors := make(map[string]error)
-	wikiAfterDelete := make(map[string]interfaces.RuntimeTaskCancellation)
+	afterDelete := make(map[string]interfaces.RuntimeTaskCancellation)
 	for _, task := range tasks {
 		reason := "worker_not_stopped"
 		taskErr := stopErrors[task.ID]
@@ -149,9 +175,13 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 				taskErr = cancellations[task.ID].Cancel(ctx)
 				if kbID != "" {
 					wikiCancellationErrors[kbID] = taskErr
-					if taskErr == nil {
-						wikiAfterDelete[kbID] = cancellations[task.ID].AfterDelete
+				}
+				if taskErr == nil && cancellations[task.ID].AfterDelete != nil {
+					key := task.ID
+					if kbID != "" {
+						key = "wiki:" + kbID
 					}
+					afterDelete[key] = cancellations[task.ID].AfterDelete
 				}
 			}
 			if errors.Is(taskErr, types.ErrRuntimeTaskNotStopped) {
@@ -173,7 +203,7 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 			result.Deleted++
 		}
 	}
-	for _, finish := range wikiAfterDelete {
+	for _, finish := range afterDelete {
 		// Even a disconnected caller must not strand work that shared one of
 		// the deleted triggers. No further deletion occurs in this phase.
 		finishCtx, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -186,21 +216,14 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 var countRuntimeExecutions = redis.NewScript(`
 local clock = redis.call('TIME')
 local now = clock[1] * 1000 + math.floor(clock[2] / 1000)
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+if redis.call('ZCOUNT', KEYS[1], '-inf', now) > 0 then return -1 end
 return redis.call('ZCARD', KEYS[1])
 `)
 
 func (a *asynqTaskInspector) snapshotRuntimeState(
 	ctx context.Context, queue string, state types.RuntimeTaskState,
 ) ([]*asynq.TaskInfo, error) {
-	key, order := runtimeTaskStateKey(queue, state)
-	var ids []string
-	var err error
-	if order == runtimeTaskListNewestFirst {
-		ids, err = a.redis.LRange(ctx, key, 0, -1).Result()
-	} else {
-		ids, err = a.redis.ZRange(ctx, key, 0, -1).Result()
-	}
+	ids, err := a.runtimeStateTaskIDs(ctx, queue, state)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +248,16 @@ func (a *asynqTaskInspector) snapshotRuntimeState(
 		}
 	}
 	return tasks, nil
+}
+
+func (a *asynqTaskInspector) runtimeStateTaskIDs(
+	ctx context.Context, queue string, state types.RuntimeTaskState,
+) ([]string, error) {
+	key, order := runtimeTaskStateKey(queue, state)
+	if order == runtimeTaskListNewestFirst {
+		return a.redis.LRange(ctx, key, 0, -1).Result()
+	}
+	return a.redis.ZRange(ctx, key, 0, -1).Result()
 }
 
 func runtimeWikiScope(task *asynq.TaskInfo) string {
@@ -282,7 +315,7 @@ func (a *asynqTaskInspector) includeWikiPurgeSiblings(
 func (a *asynqTaskInspector) hasRuntimeExecutions(ctx context.Context, queue, taskID string) (bool, error) {
 	count, err := countRuntimeExecutions.Run(ctx, a.redis,
 		[]string{types.RuntimeTaskExecutionKey(queue, taskID)}).Int64()
-	return count > 0, err
+	return count != 0, err
 }
 
 func (a *asynqTaskInspector) waitRuntimeTaskStopped(
@@ -295,11 +328,16 @@ func (a *asynqTaskInspector) waitRuntimeTaskStopped(
 		if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) {
 			return err
 		}
-		running, err := a.hasRuntimeExecutions(ctx, queue, taskID)
+		running, err := countRuntimeExecutions.Run(ctx, a.redis,
+			[]string{types.RuntimeTaskExecutionKey(queue, taskID)}).Int64()
 		if err != nil {
 			return err
 		}
-		if !running && (task == nil || task.State != asynq.TaskStateActive) {
+		if running < 0 {
+			return fmt.Errorf("%w: execution heartbeat expired without an exit acknowledgement",
+				types.ErrRuntimeTaskNotStopped)
+		}
+		if running == 0 && (task == nil || task.State != asynq.TaskStateActive) {
 			return nil
 		}
 		if !time.Now().Before(deadline) {

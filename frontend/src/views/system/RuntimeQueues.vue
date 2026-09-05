@@ -602,8 +602,8 @@ const columns = computed(() => [
   { colKey: 'retry', title: t('system.globalSettings.runtime.columns.retry'), width: 68, align: 'center' as const },
   { colKey: 'archived', title: t('system.globalSettings.runtime.columns.archived'), width: 96, align: 'center' as const },
   { colKey: 'completed', title: t('system.globalSettings.runtime.columns.completed'), width: 84, align: 'center' as const },
-  { colKey: 'latency_ms', title: t('system.globalSettings.runtime.columns.latency'), width: 104, align: 'center' as const },
   { colKey: 'status', title: t('system.globalSettings.runtime.columns.status'), width: 96 },
+  { colKey: 'latency_ms', title: t('system.globalSettings.runtime.columns.latency'), width: 104, align: 'center' as const },
   { colKey: 'actions', title: t('system.globalSettings.runtime.columns.actions'), width: 92, fixed: 'right' as const },
 ])
 const modelColumns = computed(() => [

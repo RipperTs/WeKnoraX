@@ -168,12 +168,8 @@ const (
 var renewRuntimeExecution = redis.NewScript(`
 local clock = redis.call('TIME')
 local now = clock[1] * 1000 + math.floor(clock[2] / 1000)
-if ARGV[3] == 'renew' then
-	local expires = redis.call('ZSCORE', KEYS[1], ARGV[1])
-	if not expires or tonumber(expires) <= now then return 0 end
-end
 redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]), ARGV[1])
-redis.call('PEXPIRE', KEYS[1], ARGV[2])
+redis.call('PERSIST', KEYS[1])
 return 1
 `)
 
@@ -185,7 +181,7 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 			queue, _ := asynq.GetQueueName(ctx)
 			key, execution := types.RuntimeTaskExecutionKey(queue, id), uuid.NewString()
 			if err := renewRuntimeExecution.Run(ctx, client, []string{key},
-				execution, runtimeTaskLease.Milliseconds(), "start").Err(); err != nil {
+				execution, runtimeTaskLease.Milliseconds()).Err(); err != nil {
 				return err
 			}
 			workerCtx, cancelWorker := context.WithCancelCause(ctx)
@@ -195,25 +191,27 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 			go func() {
 				ticker := time.NewTicker(runtimeTaskLeaseRenew)
 				defer ticker.Stop()
+				var renewalErr error
 				for {
 					select {
 					case <-renewCtx.Done():
-						renewResult <- nil
+						renewResult <- renewalErr
 						return
 					case <-ticker.C:
-						renewed, err := renewRuntimeExecution.Run(renewCtx, client, []string{key},
-							execution, runtimeTaskLease.Milliseconds(), "renew").Int()
+						err := renewRuntimeExecution.Run(renewCtx, client, []string{key},
+							execution, runtimeTaskLease.Milliseconds()).Err()
 						if renewCtx.Err() != nil {
-							renewResult <- nil
+							renewResult <- renewalErr
 							return
-						}
-						if err == nil && renewed == 0 {
-							err = errors.New("runtime task execution lease expired")
 						}
 						if err != nil {
 							cancelWorker(err)
-							renewResult <- err
-							return
+							if renewalErr == nil {
+								renewalErr = err
+								logger.Errorf(renewCtx, "renew runtime execution %s: %v", id, err)
+							}
+							// Cancellation is cooperative. Keep reporting this
+							// execution until the handler actually returns.
 						}
 					}
 				}
@@ -224,8 +222,8 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 				defer cancel()
 				if err := client.ZRem(cleanupCtx, key, execution).Err(); err != nil {
-					// The lease expires without renewal. A cleanup failure must
-					// not replay successfully completed business work.
+					// Keep an unconfirmed execution visible if exit recording
+					// fails; never infer handler exit from heartbeat expiry.
 					logger.Errorf(cleanupCtx, "release runtime execution %s: %v", id, err)
 				}
 			}()

@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // Worker-pool names are part of the runtime observability API. Each pool is
 // backed by an independent asynq.Server, so concurrency is hard-isolated
 // between pools instead of being only a weighted dequeue preference.
@@ -266,6 +268,8 @@ type MemoryExtractPayload struct {
 	TenantID  uint64 `json:"tenant_id"`
 	SubjectID string `json:"subject_id"`
 	SessionID string `json:"session_id"`
+	// ScheduledAt identifies the extraction slot owned by this task.
+	ScheduledAt time.Time `json:"scheduled_at"`
 	// MessageID is the assistant message that closed the triggering turn. It
 	// bounds the extraction window and is stored as the source of any item
 	// produced, so every memory can be traced back to a real message.

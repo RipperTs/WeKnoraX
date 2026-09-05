@@ -22,6 +22,10 @@ type runtimeTaskCanceller interface {
 	CancelRuntimeTask(context.Context, string, []byte) error
 }
 
+type runtimeMemoryTaskCanceller interface {
+	PrepareRuntimeTaskCancellation(context.Context, []byte) (interfaces.RuntimeTaskCancellationPlan, error)
+}
+
 // RuntimeTaskCancellationParams supplies the domains that own queued work.
 type RuntimeTaskCancellationParams struct {
 	dig.In
@@ -29,7 +33,7 @@ type RuntimeTaskCancellationParams struct {
 	DataSource        interfaces.DataSourceService
 	TemporaryDocument interfaces.TemporaryDocumentService
 	Wiki              interfaces.TaskHandler `name:"wikiIngest"`
-	Memory            interfaces.MemoryRepository
+	Memory            interfaces.MemoryService
 	PendingOps        interfaces.TaskPendingOpsRepository
 }
 
@@ -40,13 +44,17 @@ type RuntimeTaskCancellationService struct {
 	dataSource        runtimeTaskCanceller
 	temporaryDocument runtimeTaskCanceller
 	wiki              runtimeTaskCanceller
-	memory            interfaces.MemoryRepository
+	memory            runtimeMemoryTaskCanceller
 	pendingOps        interfaces.TaskPendingOpsRepository
 }
 
 // NewRuntimeTaskCancellationService verifies each domain's cancellation capability.
 func NewRuntimeTaskCancellationService(p RuntimeTaskCancellationParams) (*RuntimeTaskCancellationService, error) {
-	s := &RuntimeTaskCancellationService{memory: p.Memory, pendingOps: p.PendingOps}
+	memory, ok := p.Memory.(runtimeMemoryTaskCanceller)
+	if !ok {
+		return nil, errors.New("memory service does not implement runtime task cancellation")
+	}
+	s := &RuntimeTaskCancellationService{memory: memory, pendingOps: p.PendingOps}
 	for _, binding := range []struct {
 		name    string
 		service any
@@ -80,6 +88,9 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 		knowledges: make(map[string]error), wikiOps: make(map[string][]*types.TaskPendingOp),
 	}
 	return func(ctx context.Context, taskType string, payload []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+		if taskType == types.TypeMemoryExtract {
+			return s.memory.PrepareRuntimeTaskCancellation(ctx, payload)
+		}
 		var plan interfaces.RuntimeTaskCancellationPlan
 		ctx = context.WithValue(ctx, runtimeCancelledKnowledgeKey{}, batch)
 		if taskType == types.TypeWikiIngest || taskType == types.TypeWikiFinalize {
@@ -135,16 +146,6 @@ func (s *RuntimeTaskCancellationService) cancel(ctx context.Context, taskType st
 		return s.temporaryDocument.CancelRuntimeTask(ctx, taskType, payload)
 	case types.TypeWikiIngest, types.TypeWikiFinalize:
 		return s.wiki.CancelRuntimeTask(ctx, taskType, payload)
-	case types.TypeMemoryExtract:
-		var p types.MemoryExtractPayload
-		if err := json.Unmarshal(payload, &p); err != nil {
-			return err
-		}
-		scope := interfaces.MemoryScope{TenantID: p.TenantID, SubjectID: p.SubjectID}
-		if _, _, err := s.memory.ClaimPendingSessions(ctx, scope); err != nil {
-			return err
-		}
-		return s.memory.ReleaseExtractionSlot(ctx, scope)
 	default:
 		return s.knowledge.CancelRuntimeTask(ctx, taskType, payload)
 	}

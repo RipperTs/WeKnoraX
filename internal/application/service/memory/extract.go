@@ -134,7 +134,10 @@ func (s *Service) ScheduleExtraction(ctx context.Context, sessionID, messageID, 
 		}
 	}
 
-	s.enqueueExtraction(ctx, scope, sessionID, messageID, chatModelID, delay)
+	if err := s.enqueueExtraction(ctx, scope, sessionID, messageID, chatModelID,
+		*previous.ExtractScheduledAt, delay); err != nil {
+		logger.Warnf(ctx, "memory: enqueue extraction failed: %v", err)
+	}
 }
 
 // enqueueExtraction pushes one distillation task. The in-flight slot is
@@ -144,12 +147,13 @@ func (s *Service) enqueueExtraction(
 	ctx context.Context,
 	scope interfaces.MemoryScope,
 	sessionID, messageID, chatModelID string,
-	delay time.Duration,
-) {
+	scheduledAt time.Time, delay time.Duration,
+) error {
 	payload := types.MemoryExtractPayload{
 		TenantID:    scope.TenantID,
 		SubjectID:   scope.SubjectID,
 		SessionID:   sessionID,
+		ScheduledAt: scheduledAt,
 		MessageID:   messageID,
 		ChatModelID: chatModelID,
 		Language:    types.LanguageNameFromContext(ctx),
@@ -157,9 +161,7 @@ func (s *Service) enqueueExtraction(
 	langfuse.InjectTracing(ctx, &payload)
 	body, err := json.Marshal(payload)
 	if err != nil {
-		logger.Warnf(ctx, "memory: marshal extraction payload failed: %v", err)
-		s.releaseSlot(ctx, scope)
-		return
+		return errors.Join(err, s.repo.ReleaseExtractionSlot(ctx, scope, scheduledAt))
 	}
 
 	task := asynq.NewTask(types.TypeMemoryExtract, body)
@@ -168,13 +170,13 @@ func (s *Service) enqueueExtraction(
 		asynq.ProcessIn(delay),
 		asynq.MaxRetry(2),
 	); err != nil {
-		logger.Warnf(ctx, "memory: enqueue extraction failed: %v", err)
-		s.releaseSlot(ctx, scope)
+		return errors.Join(err, s.repo.ReleaseExtractionSlot(ctx, scope, scheduledAt))
 	}
+	return nil
 }
 
-func (s *Service) releaseSlot(ctx context.Context, scope interfaces.MemoryScope) {
-	if err := s.repo.ReleaseExtractionSlot(ctx, scope); err != nil {
+func (s *Service) releaseSlot(ctx context.Context, scope interfaces.MemoryScope, scheduledAt time.Time) {
+	if err := s.repo.ReleaseExtractionSlot(ctx, scope, scheduledAt); err != nil {
 		logger.Warnf(ctx, "memory: release extraction slot failed: %v", err)
 	}
 }
@@ -268,7 +270,7 @@ func (s *Service) Handle(ctx context.Context, task *asynq.Task) error {
 
 	cfg := s.workspaceConfig(ctx, payload.TenantID)
 	if !cfg.AutoExtractEnabled() {
-		s.releaseSlot(ctx, scope)
+		s.releaseSlot(ctx, scope, payload.ScheduledAt)
 		return nil
 	}
 	// A task can outlive the row it was queued for (workspace reset, restore
@@ -279,7 +281,7 @@ func (s *Service) Handle(ctx context.Context, task *asynq.Task) error {
 		return fmt.Errorf("load memory subject: %w", err)
 	}
 	if !subject.Enabled {
-		s.releaseSlot(ctx, scope)
+		s.releaseSlot(ctx, scope, payload.ScheduledAt)
 		return nil
 	}
 
@@ -309,7 +311,7 @@ func (s *Service) Handle(ctx context.Context, task *asynq.Task) error {
 	if len(segments) == 0 {
 		// Nothing new to read. Advance nothing, but release the slot so the
 		// next turn can schedule a run immediately.
-		s.releaseSlot(ctx, scope)
+		s.releaseSlot(ctx, scope, payload.ScheduledAt)
 		return nil
 	}
 
@@ -340,11 +342,11 @@ func (s *Service) Handle(ctx context.Context, task *asynq.Task) error {
 			// must be read again, not skipped. Advancing over the segments that
 			// did succeed keeps the failure from replaying them.
 			if !newCursor.IsZero() {
-				if err := s.repo.FinishExtraction(ctx, scope, newCursor); err != nil {
+				if err := s.repo.FinishExtraction(ctx, scope, payload.ScheduledAt, newCursor); err != nil {
 					logger.Warnf(ctx, "memory: advance extraction cursor failed: %v", err)
 				}
 			}
-			s.releaseSlot(ctx, scope)
+			s.releaseSlot(ctx, scope, payload.ScheduledAt)
 			return err
 		}
 		s.applyDecisions(ctx, scope, cfg, segment, existing, parsed.Memories)
@@ -356,14 +358,16 @@ func (s *Service) Handle(ctx context.Context, task *asynq.Task) error {
 		}
 	}
 
-	if err := s.repo.FinishExtraction(ctx, scope, newCursor); err != nil {
+	if err := s.repo.FinishExtraction(ctx, scope, payload.ScheduledAt, newCursor); err != nil {
 		logger.Warnf(ctx, "memory: advance extraction cursor failed: %v", err)
 	}
 
 	// Either this run hit its message cap, or new turns arrived while it was
 	// working. Both mean there is more to read, and both are how the "every
 	// message is eventually considered" guarantee survives a busy user.
-	s.scheduleFollowUpIfNeeded(ctx, scope, cfg, payload, truncated)
+	if err := s.scheduleFollowUpIfNeeded(ctx, scope, cfg, payload, truncated); err != nil {
+		logger.Warnf(ctx, "memory: schedule follow-up failed: %v", err)
+	}
 
 	// Maintenance rides along on a background run that has already happened
 	// rather than needing its own scheduler, which keeps it working identically
@@ -388,36 +392,34 @@ func (s *Service) scheduleFollowUpIfNeeded(
 	cfg *types.MemoryConfig,
 	payload types.MemoryExtractPayload,
 	truncated bool,
-) {
+) error {
 	if s.enqueuer == nil {
-		return
+		return nil
 	}
 	subject, err := s.repo.GetSubject(ctx, scope)
 	if err != nil {
-		logger.Warnf(ctx, "memory: reload subject for follow-up failed: %v", err)
-		return
+		return err
 	}
-	if subject == nil {
-		return
+	if subject == nil || subject.ExtractScheduledAt != nil {
+		return nil
 	}
 	if !truncated && len(subject.PendingSessions) == 0 {
-		return
+		return nil
 	}
 	sessionID := payload.SessionID
 	if len(subject.PendingSessions) > 0 {
 		sessionID = subject.PendingSessions[0]
 	}
-	// Claim the slot again for the successor; FinishExtraction just cleared it.
-	if _, shouldEnqueue, err := s.repo.EnqueuePendingSession(
+	// Claim the slot again for the successor; never release another task's slot.
+	claimed, shouldEnqueue, err := s.repo.EnqueuePendingSession(
 		ctx, scope, sessionID, cfg.ExtractDelay()+extractInFlightGrace,
-	); err != nil || !shouldEnqueue {
-		if err != nil {
-			logger.Warnf(ctx, "memory: claim follow-up slot failed: %v", err)
-		}
-		return
+	)
+	if err != nil || !shouldEnqueue {
+		return err
 	}
 	logger.Infof(ctx, "memory: queueing follow-up distillation for subject %s", scope.SubjectID)
-	s.enqueueExtraction(ctx, scope, sessionID, payload.MessageID, payload.ChatModelID, extractFollowUpDelay)
+	return s.enqueueExtraction(ctx, scope, sessionID, payload.MessageID, payload.ChatModelID,
+		*claimed.ExtractScheduledAt, extractFollowUpDelay)
 }
 
 // transcriptLine is one thing the user said, kept with the identity of the

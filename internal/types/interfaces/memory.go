@@ -35,8 +35,8 @@ type MemoryRepository interface {
 	UpdateSubjectBlock(ctx context.Context, scope MemoryScope, block string, itemCount int) error
 	// EnqueuePendingSession records that a session has turns past the cursor
 	// and claims the in-flight slot when no run is already scheduled. It
-	// returns the subject as it was before the update plus whether this call
-	// is the one responsible for enqueuing the task, so a burst of turns
+	// returns the previous extraction watermark and the current slot identity,
+	// plus whether this call is responsible for enqueuing the task. A burst of turns
 	// produces exactly one task and never a dropped turn.
 	EnqueuePendingSession(
 		ctx context.Context, scope MemoryScope, sessionID string, inFlightTimeout time.Duration,
@@ -46,10 +46,13 @@ type MemoryRepository interface {
 	ClaimPendingSessions(ctx context.Context, scope MemoryScope) ([]string, time.Time, error)
 	// FinishExtraction advances the watermark and releases the in-flight slot.
 	// A zero cursor leaves the watermark untouched.
-	FinishExtraction(ctx context.Context, scope MemoryScope, cursor time.Time) error
+	FinishExtraction(ctx context.Context, scope MemoryScope, scheduledAt, cursor time.Time) error
 	// ReleaseExtractionSlot clears the in-flight marker without advancing the
 	// watermark, used when a run ends early.
-	ReleaseExtractionSlot(ctx context.Context, scope MemoryScope) error
+	ReleaseExtractionSlot(ctx context.Context, scope MemoryScope, scheduledAt time.Time) error
+	// CancelPendingExtraction releases only this task's slot. Pending sessions
+	// are cleared only if they have not changed since the cancellation snapshot.
+	CancelPendingExtraction(ctx context.Context, scope MemoryScope, scheduledAt, snapshotUpdatedAt time.Time) error
 
 	// CreateItem inserts one memory item.
 	CreateItem(ctx context.Context, item *types.MemoryItem) error

@@ -101,7 +101,8 @@ type RuntimeQueuePurgeResult struct {
 }
 
 // RuntimeTaskExecutionKey tracks handler goroutines, which can outlive asynq's
-// active state after cancellation. Sorted-set scores are execution lease expiries.
+// active state after cancellation. Scores are heartbeat deadlines; expired
+// members mean exit is unconfirmed and remain until the handler acknowledges it.
 func RuntimeTaskExecutionKey(queue, taskID string) string {
 	return "runtime:task:execution-leases:" + queue + ":" + taskID
 }

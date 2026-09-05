@@ -118,7 +118,7 @@ func (r *memoryRepository) EnqueuePendingSession(
 		}
 		snapshot = subject
 
-		now := time.Now()
+		now := time.Now().UTC().Truncate(time.Microsecond)
 		updates := map[string]interface{}{"updated_at": now}
 		if pending := subject.PendingSessions.Append(sessionID); len(pending) != len(subject.PendingSessions) {
 			updates["pending_sessions"] = pending
@@ -129,6 +129,7 @@ func (r *memoryRepository) EnqueuePendingSession(
 			now.Sub(*subject.ExtractScheduledAt) < inFlightTimeout
 		if !inFlight {
 			updates["extract_scheduled_at"] = now
+			snapshot.ExtractScheduledAt = &now
 			shouldSend = true
 		}
 		return tx.Model(&types.MemorySubject{}).
@@ -177,13 +178,15 @@ func (r *memoryRepository) ClaimPendingSessions(
 }
 
 func (r *memoryRepository) FinishExtraction(
-	ctx context.Context, scope interfaces.MemoryScope, cursor time.Time,
+	ctx context.Context, scope interfaces.MemoryScope, scheduledAt, cursor time.Time,
 ) error {
 	now := time.Now()
 	updates := map[string]interface{}{
-		"last_extracted_at":    now,
-		"extract_scheduled_at": nil,
-		"updated_at":           now,
+		"last_extracted_at": now,
+		"extract_scheduled_at": gorm.Expr(
+			"CASE WHEN extract_scheduled_at = ? THEN NULL ELSE extract_scheduled_at END", scheduledAt,
+		),
+		"updated_at": now,
 	}
 	if !cursor.IsZero() {
 		updates["extract_cursor"] = cursor
@@ -192,11 +195,40 @@ func (r *memoryRepository) FinishExtraction(
 }
 
 func (r *memoryRepository) ReleaseExtractionSlot(
-	ctx context.Context, scope interfaces.MemoryScope,
+	ctx context.Context, scope interfaces.MemoryScope, scheduledAt time.Time,
 ) error {
 	return r.scoped(ctx, scope).
 		Model(&types.MemorySubject{}).
+		Where("extract_scheduled_at = ?", scheduledAt).
 		Updates(map[string]interface{}{"extract_scheduled_at": nil, "updated_at": time.Now()}).Error
+}
+
+func (r *memoryRepository) CancelPendingExtraction(
+	ctx context.Context, scope interfaces.MemoryScope, scheduledAt, snapshotUpdatedAt time.Time,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var subject types.MemorySubject
+		err := tx.Where("tenant_id = ? AND subject_id = ?", scope.TenantID, scope.SubjectID).
+			Clauses(forUpdateClause()).First(&subject).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if subject.ExtractScheduledAt == nil || !subject.ExtractScheduledAt.Equal(scheduledAt) {
+			return nil
+		}
+		updates := map[string]interface{}{"extract_scheduled_at": nil, "updated_at": time.Now()}
+		// A later turn can reuse a session ID. Preserve the entire pending
+		// list when it changed, instead of deleting that turn by ID.
+		if subject.UpdatedAt.Equal(snapshotUpdatedAt) {
+			updates["pending_sessions"] = types.MemoryPendingSessions{}
+		}
+		return tx.Model(&types.MemorySubject{}).
+			Where("tenant_id = ? AND subject_id = ?", scope.TenantID, scope.SubjectID).
+			Updates(updates).Error
+	})
 }
 
 func (r *memoryRepository) CreateItem(ctx context.Context, item *types.MemoryItem) error {
