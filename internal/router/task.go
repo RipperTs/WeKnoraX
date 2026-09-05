@@ -175,8 +175,12 @@ return 1
 `)
 
 var startRuntimeExecution = redis.NewScript(`
-if redis.call('EXISTS', KEYS[2]) ~= 0 then
-	return 0
+local recovery = redis.call('GET', KEYS[2])
+if recovery then
+	local owner = cjson.decode(recovery).owner_token or ''
+	if owner ~= '' and redis.call('HGET', KEYS[3], ARGV[3]) == owner then
+		return 0
+	end
 end
 local clock = redis.call('TIME')
 local now = clock[1] * 1000 + math.floor(clock[2] / 1000)
@@ -193,7 +197,8 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 			queue, _ := asynq.GetQueueName(ctx)
 			key, execution := types.RuntimeTaskExecutionKey(queue, id), uuid.NewString()
 			started, err := startRuntimeExecution.Run(ctx, client,
-				[]string{key, runtimePurgeRecoveryKey(queue, id)}, execution, runtimeTaskLease.Milliseconds()).Int64()
+				[]string{key, runtimePurgeRecoveryKey(queue, id), runtimeTaskDataKey(queue, id)},
+				execution, runtimeTaskLease.Milliseconds(), runtimePurgeOwnerField).Int64()
 			if err != nil {
 				logger.Errorf(ctx, "register runtime execution %s: %v", id, err)
 				return next.ProcessTask(ctx, task)

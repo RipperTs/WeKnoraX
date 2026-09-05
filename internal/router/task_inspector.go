@@ -611,7 +611,11 @@ func (a *asynqTaskInspector) ListRuntimeTasks(
 			if recoveryErr != nil {
 				return types.RuntimeTaskPage{}, true, recoveryErr
 			}
-			if recovery != nil {
+			owned, ownershipErr := a.runtimePurgeRecoveryOwnsCurrentTask(ctx, queue, recovery)
+			if ownershipErr != nil {
+				return types.RuntimeTaskPage{}, true, ownershipErr
+			}
+			if owned {
 				info.AllowedActions = []types.RuntimeTaskAction{}
 			}
 			result = append(result, info)
@@ -659,7 +663,11 @@ func (a *asynqTaskInspector) GetRuntimeTask(
 	if err != nil {
 		return nil, true, err
 	}
-	if recovery != nil {
+	owned, err := a.runtimePurgeRecoveryOwnsCurrentTask(ctx, queue, recovery)
+	if err != nil {
+		return nil, true, err
+	}
+	if owned {
 		info.AllowedActions = []types.RuntimeTaskAction{}
 	}
 	return &info, true, nil
@@ -703,7 +711,11 @@ func (a *asynqTaskInspector) ForceDeleteRuntimeTask(ctx context.Context, queue, 
 	if err != nil {
 		return true, err
 	}
-	if recovery != nil {
+	owned, err := a.runtimePurgeRecoveryOwnsCurrentTask(ctx, queue, recovery)
+	if err != nil {
+		return true, err
+	}
+	if owned {
 		return true, fmt.Errorf("task %s in queue %s is awaiting purge cleanup", taskID, queue)
 	}
 	return true, a.inspector.DeleteTask(queue, taskID)

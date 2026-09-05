@@ -149,12 +149,15 @@ const (
 )
 
 type runtimePurgeRecovery struct {
-	TaskID   string          `json:"task_id"`
-	TaskType string          `json:"task_type"`
-	Payload  []byte          `json:"payload"`
-	Snapshot json.RawMessage `json:"snapshot"`
-	Phase    string          `json:"phase"`
+	TaskID     string          `json:"task_id"`
+	TaskType   string          `json:"task_type"`
+	Payload    []byte          `json:"payload"`
+	Snapshot   json.RawMessage `json:"snapshot"`
+	Phase      string          `json:"phase"`
+	OwnerToken string          `json:"owner_token"`
 }
+
+const runtimePurgeOwnerField = "runtime_purge_owner"
 
 func runtimePurgeRecoveryKey(queue, taskID string) string {
 	return "runtime:task:purge-recovery:{" + queue + "}:" + taskID
@@ -205,6 +208,56 @@ func (a *asynqTaskInspector) saveRuntimePurgeRecovery(
 	})
 }
 
+var claimRuntimePurgeTaskRecord = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) == 0 then
+	return 0
+end
+local current = redis.call("GET", KEYS[2])
+if current then
+	local owner = cjson.decode(current).owner_token or ""
+	if owner ~= ARGV[4] then
+		return -1
+	end
+else
+	redis.call("SET", KEYS[2], ARGV[2])
+end
+redis.call("ZADD", KEYS[3], ARGV[3], ARGV[1])
+redis.call("HSET", KEYS[1], ARGV[5], ARGV[4])
+return 1
+`)
+
+func (a *asynqTaskInspector) claimRuntimePurgeTask(
+	ctx context.Context, queue string, recovery *runtimePurgeRecovery,
+) error {
+	data, err := json.Marshal(recovery)
+	if err != nil {
+		return err
+	}
+	score := time.Now().Unix()
+	var result int64
+	err = runRuntimePurgeCallback(ctx, func(attemptCtx context.Context) error {
+		var runErr error
+		result, runErr = claimRuntimePurgeTaskRecord.Run(attemptCtx, a.redis, []string{
+			runtimeTaskDataKey(queue, recovery.TaskID), runtimePurgeRecoveryKey(queue, recovery.TaskID),
+			runtimePurgeRecoveryIndex(queue),
+		}, recovery.TaskID, data, score, recovery.OwnerToken, runtimePurgeOwnerField).Int64()
+		return runErr
+	})
+	if err != nil {
+		return err
+	}
+	switch result {
+	case 1:
+		return nil
+	case 0:
+		return asynq.ErrTaskNotFound
+	case -1:
+		return errors.New("runtime purge recovery already owns this task ID")
+	default:
+		return fmt.Errorf("unexpected runtime purge claim result %d", result)
+	}
+}
+
 func (a *asynqTaskInspector) setRuntimePurgePhase(ctx context.Context, queue, taskID, phase string) error {
 	recovery, err := a.runtimePurgeRecovery(ctx, queue, taskID)
 	if err != nil {
@@ -217,15 +270,77 @@ func (a *asynqTaskInspector) setRuntimePurgePhase(ctx context.Context, queue, ta
 	return a.saveRuntimePurgeRecovery(ctx, queue, recovery)
 }
 
-func (a *asynqTaskInspector) deleteRuntimePurgeRecovery(ctx context.Context, queue, taskID string) error {
+var deleteRuntimePurgeRecoveryRecord = redis.NewScript(`
+local recovery = redis.call("GET", KEYS[1])
+if not recovery then
+	return 0
+end
+local owner = cjson.decode(recovery).owner_token or ""
+if owner ~= ARGV[2] then
+	return -1
+end
+redis.call("DEL", KEYS[1])
+redis.call("ZREM", KEYS[2], ARGV[1])
+if redis.call("HGET", KEYS[3], ARGV[3]) == ARGV[2] then
+	redis.call("HDEL", KEYS[3], ARGV[3])
+end
+return 1
+`)
+
+func (a *asynqTaskInspector) deleteRuntimePurgeRecovery(
+	ctx context.Context, queue, taskID, ownerToken string,
+) error {
 	return runRuntimePurgeCallback(ctx, func(attemptCtx context.Context) error {
-		_, err := a.redis.TxPipelined(attemptCtx, func(pipe redis.Pipeliner) error {
-			pipe.Del(attemptCtx, runtimePurgeRecoveryKey(queue, taskID))
-			pipe.ZRem(attemptCtx, runtimePurgeRecoveryIndex(queue), taskID)
-			return nil
-		})
-		return err
+		result, err := deleteRuntimePurgeRecoveryRecord.Run(attemptCtx, a.redis, []string{
+			runtimePurgeRecoveryKey(queue, taskID), runtimePurgeRecoveryIndex(queue),
+			runtimeTaskDataKey(queue, taskID),
+		}, taskID, ownerToken, runtimePurgeOwnerField).Int64()
+		if err != nil {
+			return err
+		}
+		if result == -1 {
+			return errors.New("runtime purge recovery ownership changed before deletion")
+		}
+		return nil
 	})
+}
+
+const (
+	runtimePurgeTaskMissing = iota
+	runtimePurgeTaskOwned
+	runtimePurgeTaskReused
+)
+
+var runtimePurgeTaskOwnership = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) == 0 then
+	return 0
+end
+if ARGV[2] ~= "" and redis.call("HGET", KEYS[1], ARGV[1]) == ARGV[2] then
+	return 1
+end
+return 2
+`)
+
+func (a *asynqTaskInspector) runtimePurgeRecoveryTaskStatus(
+	ctx context.Context, queue string, recovery *runtimePurgeRecovery,
+) (int, error) {
+	if recovery.OwnerToken == "" {
+		return runtimePurgeTaskReused, nil
+	}
+	return runtimePurgeTaskOwnership.Run(ctx, a.redis,
+		[]string{runtimeTaskDataKey(queue, recovery.TaskID)},
+		runtimePurgeOwnerField, recovery.OwnerToken,
+	).Int()
+}
+
+func (a *asynqTaskInspector) runtimePurgeRecoveryOwnsCurrentTask(
+	ctx context.Context, queue string, recovery *runtimePurgeRecovery,
+) (bool, error) {
+	if recovery == nil {
+		return false, nil
+	}
+	status, err := a.runtimePurgeRecoveryTaskStatus(ctx, queue, recovery)
+	return status == runtimePurgeTaskOwned, err
 }
 
 func (a *asynqTaskInspector) listRuntimePurgeRecoveries(
@@ -265,6 +380,10 @@ end
 if recovery and cjson.decode(recovery).phase ~= "delete" then
 	return -3
 end
+if recovery and (ARGV[3] == "" or
+	(redis.call("EXISTS", KEYS[1]) ~= 0 and redis.call("HGET", KEYS[1], ARGV[4]) ~= ARGV[3])) then
+	return -4
+end
 if redis.call("EXISTS", KEYS[1]) ~= 0 and redis.call("HGET", KEYS[1], "state") ~= "archived" then
 	return -1
 end
@@ -291,11 +410,19 @@ func (a *asynqTaskInspector) deleteRuntimePurgeTask(
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return err
 	}
+	ownerToken := ""
+	if recovery != "" {
+		var record runtimePurgeRecovery
+		if err := json.Unmarshal([]byte(recovery), &record); err != nil {
+			return err
+		}
+		ownerToken = record.OwnerToken
+	}
 	archivedKey, _ := runtimeTaskStateKey(queue, types.RuntimeTaskArchived)
 	result, err := deleteRuntimePurgeTaskRecord.Run(
 		ctx, a.redis, []string{
 			runtimeTaskDataKey(queue, taskID), archivedKey, recoveryKey, runtimePurgeRecoveryIndex(queue),
-		}, taskID, recovery,
+		}, taskID, recovery, ownerToken, runtimePurgeOwnerField,
 	).Int64()
 	if err != nil {
 		return err
@@ -309,6 +436,8 @@ func (a *asynqTaskInspector) deleteRuntimePurgeTask(
 		return errors.New("runtime purge recovery changed before deletion")
 	case -3:
 		return errors.New("runtime purge business cleanup is incomplete")
+	case -4:
+		return errors.New("runtime purge task ownership changed before deletion")
 	default:
 		return fmt.Errorf("unexpected runtime purge delete result %d", result)
 	}
@@ -319,23 +448,28 @@ func (a *asynqTaskInspector) quarantineRuntimeTask(
 ) error {
 	// Mark first so concurrent runtime actions cannot requeue or delete the
 	// record between its state transition and business cancellation.
+	ownerToken, err := redislock.NewToken()
+	if err != nil {
+		return err
+	}
 	recovery := &runtimePurgeRecovery{
 		TaskID: task.ID, TaskType: task.Type, Payload: task.Payload, Phase: phase, Snapshot: snapshot,
+		OwnerToken: ownerToken,
 	}
-	if err := a.saveRuntimePurgeRecovery(ctx, queue, recovery); err != nil {
+	if err := a.claimRuntimePurgeTask(ctx, queue, recovery); err != nil {
 		return err
 	}
 	if err := a.inspector.ArchiveTask(queue, task.ID); err != nil {
 		current, getErr := a.inspector.GetTaskInfo(queue, task.ID)
 		if errors.Is(getErr, asynq.ErrTaskNotFound) {
-			clearErr := a.deleteRuntimePurgeRecovery(ctx, queue, task.ID)
+			clearErr := a.deleteRuntimePurgeRecovery(ctx, queue, task.ID, recovery.OwnerToken)
 			return errors.Join(asynq.ErrTaskNotFound, clearErr)
 		}
 		if getErr != nil {
 			return errors.Join(err, getErr)
 		}
 		if current.State != asynq.TaskStateArchived {
-			if clearErr := a.deleteRuntimePurgeRecovery(ctx, queue, task.ID); clearErr != nil {
+			if clearErr := a.deleteRuntimePurgeRecovery(ctx, queue, task.ID, recovery.OwnerToken); clearErr != nil {
 				return errors.Join(err, clearErr)
 			}
 			return err
@@ -592,9 +726,7 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 	}
 
 	recoveryByID := make(map[string]*runtimePurgeRecovery, len(recoveries))
-	for _, recovery := range recoveries {
-		recoveryByID[recovery.TaskID] = recovery
-	}
+	recoveryOnly := make(map[string]bool, len(recoveries))
 	plans := make(map[string]interfaces.RuntimeTaskCancellationPlan, len(recoveries))
 	tasks := make([]*asynq.TaskInfo, 0, len(recoveries))
 	taskRecoveries := make(map[string]*runtimePurgeRecovery, len(recoveries))
@@ -608,7 +740,30 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 			return result, err
 		}
 		current, getErr := a.inspector.GetTaskInfo(queue, recovery.TaskID)
-		if getErr == nil && current.State != asynq.TaskStateArchived {
+		if getErr != nil && !errors.Is(getErr, asynq.ErrTaskNotFound) {
+			task := &asynq.TaskInfo{ID: recovery.TaskID, Queue: queue, Type: recovery.TaskType}
+			recordFailure(task, "queue_quarantine_failed", getErr)
+			continue
+		}
+		status, statusErr := a.runtimePurgeRecoveryTaskStatus(ctx, queue, recovery)
+		if statusErr != nil {
+			task := &asynq.TaskInfo{ID: recovery.TaskID, Queue: queue, Type: recovery.TaskType}
+			recordFailure(task, "queue_quarantine_failed", statusErr)
+			continue
+		}
+		switch status {
+		case runtimePurgeTaskReused:
+			recoveryOnly[recovery.TaskID] = true
+		case runtimePurgeTaskMissing, runtimePurgeTaskOwned:
+			recoveryByID[recovery.TaskID] = recovery
+		default:
+			task := &asynq.TaskInfo{ID: recovery.TaskID, Queue: queue, Type: recovery.TaskType}
+			recordFailure(task, "queue_quarantine_failed", fmt.Errorf(
+				"unexpected runtime purge ownership status %d", status,
+			))
+			continue
+		}
+		if status == runtimePurgeTaskOwned && current != nil && current.State != asynq.TaskStateArchived {
 			archiveErr := a.inspector.ArchiveTask(queue, recovery.TaskID)
 			if archiveErr != nil {
 				current, getErr = a.inspector.GetTaskInfo(queue, recovery.TaskID)
@@ -629,11 +784,6 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 					continue
 				}
 			}
-		}
-		if getErr != nil && !errors.Is(getErr, asynq.ErrTaskNotFound) {
-			task := &asynq.TaskInfo{ID: recovery.TaskID, Queue: queue, Type: recovery.TaskType}
-			recordFailure(task, "queue_quarantine_failed", getErr)
-			continue
 		}
 		task := &asynq.TaskInfo{
 			ID: recovery.TaskID, Queue: queue, Type: recovery.TaskType, Payload: recovery.Payload,
@@ -751,7 +901,17 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 			}
 		}
 		if taskErr == nil && taskRecoveries[task.ID].Phase == runtimePurgeDelete {
-			deleteTask(task)
+			if recoveryOnly[task.ID] {
+				if deleteErr := a.deleteRuntimePurgeRecovery(
+					ctx, queue, task.ID, taskRecoveries[task.ID].OwnerToken,
+				); deleteErr != nil {
+					recordFailure(task, "queue_delete_failed", deleteErr)
+				} else {
+					result.Deleted++
+				}
+			} else {
+				deleteTask(task)
+			}
 			continue
 		}
 		if taskErr == nil {

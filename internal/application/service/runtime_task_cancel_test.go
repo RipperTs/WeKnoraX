@@ -73,7 +73,7 @@ type runtimeCancellationInspector struct {
 }
 
 func (i *runtimeCancellationInspector) CancelRuntimeKnowledgeTasks(
-	ctx context.Context, _ uint64, id string, cancel interfaces.RuntimeTaskCancellation,
+	ctx context.Context, _ uint64, id string, _ int, cancel interfaces.RuntimeTaskCancellation,
 ) error {
 	i.stopped = append(i.stopped, id)
 	return cancel(ctx)

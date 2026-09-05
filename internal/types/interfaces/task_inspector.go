@@ -136,7 +136,7 @@ type RuntimeTaskCancellation func(context.Context) error
 // RuntimeKnowledgeTaskCanceller keeps related queues paused while confirming
 // every document handler's exit, applying domain cancellation and deleting records.
 type RuntimeKnowledgeTaskCanceller interface {
-	CancelRuntimeKnowledgeTasks(ctx context.Context, tenantID uint64, knowledgeID string,
+	CancelRuntimeKnowledgeTasks(ctx context.Context, tenantID uint64, knowledgeID string, attempt int,
 		cancel RuntimeTaskCancellation) error
 	// RuntimeKnowledgeAttemptSnapshotted reports whether this parse attempt
 	// was present in the task snapshot taken before cancellation began.

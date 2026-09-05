@@ -13,8 +13,9 @@ import (
 )
 
 type runtimeQueuedTask struct {
-	queue string
-	info  *asynq.TaskInfo
+	queue   string
+	info    *asynq.TaskInfo
+	attempt int
 }
 
 type runtimeKnowledgeTasksKey struct{}
@@ -80,12 +81,16 @@ func (a *asynqTaskInspector) withRuntimeKnowledgeQueuesPaused(
 // CancelRuntimeKnowledgeTasks owns record deletion for a document cancellation.
 // The batch keeps its queues paused and shares an index across all documents.
 func (a *asynqTaskInspector) CancelRuntimeKnowledgeTasks(
-	ctx context.Context, tenantID uint64, knowledgeID string, cancel interfaces.RuntimeTaskCancellation,
+	ctx context.Context, tenantID uint64, knowledgeID string, attempt int,
+	cancel interfaces.RuntimeTaskCancellation,
 ) error {
 	index := ctx.Value(runtimeKnowledgeTasksKey{}).(*runtimeKnowledgeTasks)
 	scope := runtimeKnowledgeScope{tenantID: tenantID, knowledgeID: knowledgeID}
 	var tasks []runtimeQueuedTask
 	for _, task := range index.byKnowledge[scope] {
+		if attempt <= 0 || task.attempt != attempt {
+			continue
+		}
 		if task.info.State == asynq.TaskStateArchived {
 			running, err := a.hasRuntimeExecutions(ctx, task.queue, task.info.ID)
 			if err != nil {
@@ -174,7 +179,7 @@ func (a *asynqTaskInspector) snapshotRuntimeKnowledgeTasks(ctx context.Context) 
 				}
 				scope := runtimeKnowledgeScope{tenantID: payload.TenantID, knowledgeID: payload.KnowledgeID}
 				index.byKnowledge[scope] = append(index.byKnowledge[scope], runtimeQueuedTask{
-					queue: queue, info: task,
+					queue: queue, info: task, attempt: payload.Attempt,
 				})
 				if payload.Attempt > 0 {
 					if index.attempts[scope] == nil {

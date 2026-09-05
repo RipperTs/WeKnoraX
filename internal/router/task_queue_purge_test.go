@@ -203,9 +203,12 @@ func TestRuntimePurgeRecoveryPreventsTaskExecution(t *testing.T) {
 	ctx := context.Background()
 	info, err := client.Enqueue(asynq.NewTask("purge:test", nil), asynq.TaskID("quarantined-pending"))
 	require.NoError(t, err)
+	const ownerToken = "quarantined-pending-owner"
 	require.NoError(t, inspector.saveRuntimePurgeRecovery(ctx, types.QueueDefault, &runtimePurgeRecovery{
-		TaskID: info.ID, TaskType: "purge:test", Phase: runtimePurgeCancel,
+		TaskID: info.ID, TaskType: "purge:test", Phase: runtimePurgeCancel, OwnerToken: ownerToken,
 	}))
+	require.NoError(t, inspector.redis.HSet(ctx, runtimeTaskDataKey(types.QueueDefault, info.ID),
+		runtimePurgeOwnerField, ownerToken).Err())
 
 	worker := asynq.NewServerFromRedisClient(inspector.redis, asynq.Config{
 		Concurrency: 1, Queues: map[string]int{types.QueueDefault: 1},
@@ -236,10 +239,13 @@ func TestRuntimePurgeRecoversTaskBeforeQuarantineCompleted(t *testing.T) {
 	ctx := context.Background()
 	info, err := client.Enqueue(asynq.NewTask("purge:test", []byte("payload")), asynq.TaskID("unarchived"))
 	require.NoError(t, err)
+	const ownerToken = "unarchived-owner"
 	require.NoError(t, inspector.saveRuntimePurgeRecovery(ctx, types.QueueDefault, &runtimePurgeRecovery{
 		TaskID: info.ID, TaskType: "purge:test", Payload: []byte("payload"), Phase: runtimePurgeCancel,
-		Snapshot: json.RawMessage(`{}`),
+		Snapshot: json.RawMessage(`{}`), OwnerToken: ownerToken,
 	}))
+	require.NoError(t, inspector.redis.HSet(ctx, runtimeTaskDataKey(types.QueueDefault, info.ID),
+		runtimePurgeOwnerField, ownerToken).Err())
 	cancelled := 0
 	prepare := func(_ context.Context, _ string, payload []byte,
 		_ json.RawMessage,
@@ -537,6 +543,32 @@ func TestRuntimePurgeAtomicDeleteAllowsTaskIDReuse(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.RuntimeTaskScheduled, successor.State)
 	require.True(t, successor.Allows(types.RuntimeTaskActionRunNow))
+
+	require.NoError(t, inspector.inspector.DeleteTask(types.QueueDefault, taskID))
+	old, err := client.Enqueue(asynq.NewTask("purge:test", []byte("evicted")), asynq.TaskID(taskID))
+	require.NoError(t, err)
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, old, runtimePurgeDelete, nil))
+	archivedKey, _ := runtimeTaskStateKey(types.QueueDefault, types.RuntimeTaskArchived)
+	require.NoError(t, observer.Del(ctx, runtimeTaskDataKey(types.QueueDefault, taskID)).Err())
+	require.NoError(t, observer.ZRem(ctx, archivedKey, taskID).Err())
+	_, err = successorClient.Enqueue(asynq.NewTask("purge:test", []byte("replacement")),
+		asynq.TaskID(taskID), asynq.ProcessIn(time.Hour))
+	require.NoError(t, err)
+
+	result, supported, err = inspector.PurgeRuntimeTasks(
+		ctx, types.QueueDefault, types.RuntimeTaskArchived, nil,
+	)
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Equal(t, 1, result.Deleted, "the stale recovery record should be resolved")
+	require.Zero(t, result.Failed)
+	successor, _, err = inspector.GetRuntimeTask(ctx, types.QueueDefault, taskID)
+	require.NoError(t, err)
+	require.Equal(t, types.RuntimeTaskScheduled, successor.State)
+	require.True(t, successor.Allows(types.RuntimeTaskActionRunNow))
+	recovery, err := inspector.runtimePurgeRecovery(ctx, types.QueueDefault, taskID)
+	require.NoError(t, err)
+	require.Nil(t, recovery)
 }
 
 func TestRuntimePurgePreservesUnfinishedRecovery(t *testing.T) {
@@ -694,7 +726,7 @@ func TestRuntimePurgeBlocksRecoveryWithoutOriginalSnapshot(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRuntimePurgePreservesDocumentTasksSubmittedAfterSnapshot(t *testing.T) {
+func TestRuntimePurgePreservesOtherAttemptsAndTasksSubmittedAfterSnapshot(t *testing.T) {
 	inspector, client := newRuntimePurgeTestQueue(t)
 	ctx := context.Background()
 	enqueue := func(queue, taskType, id string, attempt int) {
@@ -705,18 +737,20 @@ func TestRuntimePurgePreservesDocumentTasksSubmittedAfterSnapshot(t *testing.T) 
 	}
 	enqueue(types.QueueDefault, types.TypeDocumentProcess, "original", 1)
 	enqueue(types.QueueSummary, types.TypeSummaryGeneration, "original-summary", 1)
+	enqueue(types.QueueSummary, types.TypeSummaryGeneration, "current-summary", 2)
 	prepare := func(prepareCtx context.Context, _ string, _ []byte,
 		_ json.RawMessage,
 	) (interfaces.RuntimeTaskCancellationPlan, error) {
 		require.True(t, inspector.RuntimeKnowledgeAttemptSnapshotted(prepareCtx, 1, "doc-1", 1))
-		require.False(t, inspector.RuntimeKnowledgeAttemptSnapshotted(prepareCtx, 1, "doc-1", 2))
+		require.True(t, inspector.RuntimeKnowledgeAttemptSnapshotted(prepareCtx, 1, "doc-1", 2))
+		require.False(t, inspector.RuntimeKnowledgeAttemptSnapshotted(prepareCtx, 1, "doc-1", 3))
 		// A reparse arrives after task selection and before any cancel callback.
-		enqueue(types.QueueDefault, types.TypeDocumentProcess, "later", 2)
-		enqueue(types.QueueSummary, types.TypeSummaryGeneration, "later-summary", 2)
+		enqueue(types.QueueDefault, types.TypeDocumentProcess, "later", 3)
+		enqueue(types.QueueSummary, types.TypeSummaryGeneration, "later-summary", 3)
 		return interfaces.RuntimeTaskCancellationPlan{
 			Snapshot: json.RawMessage(`{}`),
 			Cancel: func(cancelCtx context.Context) error {
-				return inspector.CancelRuntimeKnowledgeTasks(cancelCtx, 1, "doc-1", func(context.Context) error {
+				return inspector.CancelRuntimeKnowledgeTasks(cancelCtx, 1, "doc-1", 1, func(context.Context) error {
 					return nil
 				})
 			},
@@ -727,14 +761,24 @@ func TestRuntimePurgePreservesDocumentTasksSubmittedAfterSnapshot(t *testing.T) 
 	require.True(t, supported)
 	require.Equal(t, 1, result.Deleted)
 	require.Zero(t, result.Failed)
-	for queue, ids := range map[string][]string{
-		types.QueueDefault: {"original", "later"}, types.QueueSummary: {"original-summary", "later-summary"},
+	for queue, tasks := range map[string]struct {
+		deleted []string
+		kept    []string
+	}{
+		types.QueueDefault: {deleted: []string{"original"}, kept: []string{"later"}},
+		types.QueueSummary: {
+			deleted: []string{"original-summary"}, kept: []string{"current-summary", "later-summary"},
+		},
 	} {
-		_, err := inspector.inspector.GetTaskInfo(queue, ids[0])
-		require.ErrorIs(t, err, asynq.ErrTaskNotFound)
-		later, err := inspector.inspector.GetTaskInfo(queue, ids[1])
-		require.NoError(t, err)
-		require.Equal(t, asynq.TaskStatePending, later.State)
+		for _, id := range tasks.deleted {
+			_, err := inspector.inspector.GetTaskInfo(queue, id)
+			require.ErrorIs(t, err, asynq.ErrTaskNotFound)
+		}
+		for _, id := range tasks.kept {
+			later, err := inspector.inspector.GetTaskInfo(queue, id)
+			require.NoError(t, err)
+			require.Equal(t, asynq.TaskStatePending, later.State)
+		}
 	}
 }
 
