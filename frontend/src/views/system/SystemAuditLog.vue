@@ -261,7 +261,7 @@ function auditActionTheme(
     case 'system.queue_task_deleted':
     case 'system.queue_task_cancelled':
     case 'system.queue_archived_purged':
-    case 'system.queue_pending_purged':
+    case 'system.queue_pending_cancelled':
       return 'danger'
     case 'rbac.access_denied':
       return 'danger'
@@ -336,7 +336,7 @@ function auditTargetKey(row: AuditLog): string {
   }
   if (
     row.action === 'system.queue_archived_purged'
-    || row.action === 'system.queue_pending_purged'
+    || row.action === 'system.queue_pending_cancelled'
   ) {
     const queue = details && typeof details.queue === 'string' ? details.queue : ''
     return queue || row.target_id || ''

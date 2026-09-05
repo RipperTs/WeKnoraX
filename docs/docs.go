@@ -12951,15 +12951,15 @@ const docTemplate = `{
                 }
             }
         },
-        "/system/admin/runtime/queues/{queue}/pending": {
-            "delete": {
+        "/system/admin/runtime/queues/{queue}/cancellations": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "System Admin"
                 ],
-                "summary": "Purge all pending tasks in a queue",
+                "summary": "Get pending task cancellation progress",
                 "parameters": [
                     {
                         "type": "string",
@@ -12973,8 +12973,33 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.RuntimeTaskCancellation"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System Admin"
+                ],
+                "summary": "Start cancellation of pending queue tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue name",
+                        "name": "queue",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.RuntimeTaskCancellation"
                         }
                     }
                 }
@@ -16198,7 +16223,7 @@ const docTemplate = `{
                 "system.queue_task_run_now",
                 "system.queue_task_cancelled",
                 "system.queue_archived_purged",
-                "system.queue_pending_purged",
+                "system.queue_pending_cancelled",
                 "kb.created",
                 "kb.updated",
                 "kb.deleted",
@@ -16262,7 +16287,7 @@ const docTemplate = `{
                 "AuditActionSystemQueueTaskRunNow",
                 "AuditActionSystemQueueTaskCancelled",
                 "AuditActionSystemQueueArchivedPurged",
-                "AuditActionSystemQueuePendingPurged",
+                "AuditActionSystemQueuePendingCancelled",
                 "AuditActionKBCreated",
                 "AuditActionKBUpdated",
                 "AuditActionKBDeleted",
@@ -19673,6 +19698,50 @@ const docTemplate = `{
                 "RuntimeTaskActionRunNow",
                 "RuntimeTaskActionDelete"
             ]
+        },
+        "github_com_Tencent_WeKnora_internal_types.RuntimeTaskCancellation": {
+            "type": "object",
+            "properties": {
+                "active_signaled": {
+                    "type": "integer"
+                },
+                "cancelled": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "processed": {
+                    "type": "integer"
+                },
+                "queue": {
+                    "type": "string"
+                },
+                "related_deleted": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
         },
         "github_com_Tencent_WeKnora_internal_types.RuntimeTaskInfo": {
             "type": "object",

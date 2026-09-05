@@ -37,7 +37,7 @@ const SYSTEM_GLOBAL_AUDIT_ACTION_LABELS_EN: Record<string, string> = {
   'system.queue_task_run_now': 'Queue task run now',
   'system.queue_task_cancelled': 'Queue task cancelled',
   'system.queue_archived_purged': 'All failed tasks cleared',
-  'system.queue_pending_purged': 'All pending tasks cleared',
+  'system.queue_pending_cancelled': 'Pending task cancellation started',
 }
 
 const KB_ACTIVITY_ACTION_LABELS_EN: Record<string, string> = {

@@ -4,16 +4,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestQueueStatsDoesNotWarnForQueuesThatDoNotExist(t *testing.T) {
@@ -127,8 +134,8 @@ func TestProjectRuntimeTaskUsesAllowListedBatchMetadata(t *testing.T) {
 		info.TargetKBID != "target-kb" || info.KnowledgeCount != 2 || info.EnqueuedAt == nil {
 		t.Fatalf("batch projection mismatch: %+v", info)
 	}
-	if len(info.AllowedActions) != 0 {
-		t.Fatalf("generic maintenance task must not expose raw deletion: %v", info.AllowedActions)
+	if len(info.AllowedActions) != 1 || info.AllowedActions[0] != types.RuntimeTaskActionCancel {
+		t.Fatalf("pending maintenance task must expose business cancellation: %v", info.AllowedActions)
 	}
 }
 
@@ -290,4 +297,222 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func TestRuntimeCancellationDeleteChecksTaskIdentityAndUniqueLock(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	inspector := &asynqTaskInspector{redis: client, inspector: asynq.NewInspectorFromRedisClient(client)}
+	enqueuer := asynq.NewClientFromRedisClient(client)
+	ctx := context.Background()
+	payload := []byte(`{"tenant_id":42,"knowledge_id":"doc","attempt":1}`)
+	_, err := enqueuer.Enqueue(asynq.NewTask(types.TypeQuestionGeneration, payload),
+		asynq.Queue(types.QueueQuestion), asynq.TaskID("reused"))
+	require.NoError(t, err)
+	captured, err := inspector.GetPendingRuntimeCancellationTask(ctx, types.QueueQuestion, "reused")
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.NoError(t, inspector.inspector.DeleteTask(types.QueueQuestion, "reused"))
+	_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeQuestionGeneration, payload),
+		asynq.Queue(types.QueueQuestion), asynq.TaskID("reused"), asynq.Unique(time.Minute))
+	require.NoError(t, err)
+	deleted, err := inspector.DeletePendingRuntimeCancellationTask(ctx, captured)
+	require.NoError(t, err)
+	require.False(t, deleted)
+	current, err := inspector.GetPendingRuntimeCancellationTask(ctx, types.QueueQuestion, "reused")
+	require.NoError(t, err)
+	require.NotNil(t, current)
+	uniqueKey, err := client.HGet(ctx, "asynq:{question}:t:reused", "unique_key").Result()
+	require.NoError(t, err)
+	deleted, err = inspector.DeletePendingRuntimeCancellationTask(ctx, current)
+	require.NoError(t, err)
+	require.True(t, deleted)
+	require.ErrorIs(t, client.Get(ctx, uniqueKey).Err(), redis.Nil)
+}
+
+func TestRuntimeCancellationRelatedSweepScopesTenantAttemptAndState(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	inspector := &asynqTaskInspector{redis: client, inspector: asynq.NewInspectorFromRedisClient(client)}
+	enqueuer := asynq.NewClientFromRedisClient(client)
+	ctx := context.Background()
+	for _, item := range []struct {
+		id        string
+		tenant    uint64
+		attempt   int
+		scheduled bool
+	}{
+		{"pending", 42, 1, false},
+		{"scheduled", 42, 1, true},
+		{"new-attempt", 42, 2, false},
+		{"other-tenant", 43, 1, false},
+	} {
+		payload, err := json.Marshal(map[string]any{
+			"tenant_id": item.tenant, "knowledge_id": "doc", "attempt": item.attempt,
+		})
+		require.NoError(t, err)
+		options := []asynq.Option{asynq.Queue(types.QueueQuestion), asynq.TaskID(item.id)}
+		if item.scheduled {
+			options = append(options, asynq.ProcessIn(time.Hour))
+		}
+		_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeQuestionGeneration, payload), options...)
+		require.NoError(t, err)
+	}
+	deleted, signaled, err := inspector.CancelRuntimeKnowledgeTasks(ctx,
+		[]types.RuntimeCancelledKnowledge{{TenantID: 42, ID: "doc", Attempt: 1}})
+	require.NoError(t, err)
+	require.Equal(t, 2, deleted)
+	require.Zero(t, signaled)
+	for _, id := range []string{"new-attempt", "other-tenant"} {
+		_, err := inspector.inspector.GetTaskInfo(types.QueueQuestion, id)
+		require.NoError(t, err)
+	}
+}
+
+func TestRuntimeCancellationProcessesSnapshotAfterRequestCloses(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	inspector := &asynqTaskInspector{redis: client, inspector: asynq.NewInspectorFromRedisClient(client)}
+	enqueuer := asynq.NewClientFromRedisClient(client)
+	for i := 0; i < 201; i++ {
+		_, err := enqueuer.Enqueue(asynq.NewTask(types.TypeKnowledgeListReparse, []byte(`{"tenant_id":42}`)),
+			asynq.Queue(types.QueueMaintenance))
+		require.NoError(t, err)
+	}
+	for _, task := range []*asynq.Task{
+		asynq.NewTask(types.TypeKnowledgeListReparse, []byte(`{broken`)),
+		asynq.NewTask(types.TypeKBDelete, []byte(`{"tenant_id":42}`)),
+	} {
+		_, err := enqueuer.Enqueue(task, asynq.Queue(types.QueueMaintenance))
+		require.NoError(t, err)
+	}
+	svc := service.NewRuntimeTaskCancellationService(inspector, client, nil, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	job, err := svc.Start(ctx, types.QueueMaintenance)
+	require.NoError(t, err)
+	require.Equal(t, 203, job.Total)
+	cancel()
+	_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeKnowledgeListReparse, []byte(`{"tenant_id":42}`)),
+		asynq.Queue(types.QueueMaintenance), asynq.TaskID("new-task"))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		job, err = svc.Get(context.Background(), types.QueueMaintenance)
+		return err == nil && job.Status != "running"
+	}, 20*time.Second, 20*time.Millisecond)
+	require.Equal(t, "completed", job.Status)
+	require.Equal(t, 203, job.Processed)
+	require.Equal(t, 201, job.Cancelled)
+	require.Equal(t, 1, job.Skipped)
+	require.Equal(t, 1, job.Failed)
+	_, err = inspector.inspector.GetTaskInfo(types.QueueMaintenance, "new-task")
+	require.NoError(t, err)
+	info, err := inspector.inspector.GetQueueInfo(types.QueueMaintenance)
+	require.NoError(t, err)
+	require.Equal(t, 3, info.Pending)
+}
+
+// Run against an explicitly supplied disposable local Redis, never the app's
+// configured Redis. Database 15 is emptied between benchmark iterations.
+func BenchmarkRuntimeTaskCancellation(b *testing.B) {
+	addr := os.Getenv("WEKNORA_CANCELLATION_BENCH_REDIS")
+	if addr == "" {
+		b.Skip("requires disposable local Redis via WEKNORA_CANCELLATION_BENCH_REDIS")
+	}
+	if !strings.HasPrefix(addr, "127.0.0.1:") {
+		b.Fatal("benchmark requires loopback Redis")
+	}
+	for _, queue := range []string{types.QueueMultimodal, types.QueueQuestion} {
+		for _, count := range []int{10000, 50000} {
+			b.Run(fmt.Sprintf("%s/%d", queue, count), func(b *testing.B) {
+				client := redis.NewClient(&redis.Options{Addr: addr, DB: 15})
+				b.Cleanup(func() { _ = client.Close() })
+				inspector := &asynqTaskInspector{redis: client, inspector: asynq.NewInspectorFromRedisClient(client)}
+				enqueuer := asynq.NewClientFromRedisClient(client)
+				ctx := context.Background()
+				for iteration := 0; iteration < b.N; iteration++ {
+					b.StopTimer()
+					require.NoError(b, client.FlushDB(ctx).Err())
+					db, err := gorm.Open(sqlite.Open(filepath.Join(b.TempDir(), "cancellation.db")), &gorm.Config{})
+					require.NoError(b, err)
+					sqlDB, err := db.DB()
+					require.NoError(b, err)
+					sqlDB.SetMaxOpenConns(1)
+					require.NoError(b, db.Exec(`CREATE TABLE knowledges (
+      id TEXT PRIMARY KEY,tenant_id INTEGER,knowledge_base_id TEXT,parse_status TEXT,
+      summary_status TEXT,pending_subtasks_count INTEGER,error_message TEXT,
+      updated_at DATETIME,deleted_at DATETIME)`).Error)
+					require.NoError(b, db.AutoMigrate(&types.KnowledgeProcessingSpan{}, &types.TaskPendingOp{}))
+					const documents = 1000
+					before := time.Now().Add(-time.Minute)
+					require.NoError(b, db.Transaction(func(tx *gorm.DB) error {
+						for i := 0; i < documents; i++ {
+							id := fmt.Sprintf("doc-%d", i)
+							if err := tx.Exec(`INSERT INTO knowledges VALUES (?,?,?,?,?,?,?,?,?)`,
+								id, 42, "kb", types.ParseStatusFinalizing, types.SummaryStatusPending,
+								50, "", before, nil).Error; err != nil {
+								return err
+							}
+							if err := tx.Create(&types.KnowledgeProcessingSpan{
+								KnowledgeID: id, Attempt: 1, SpanID: "root", Name: "parse",
+								Kind: types.SpanKindRoot, Status: types.SpanStatusRunning,
+							}).Error; err != nil {
+								return err
+							}
+						}
+						return nil
+					}))
+					taskType := types.TypeImageMultimodal
+					if queue == types.QueueQuestion {
+						taskType = types.TypeQuestionGeneration
+					}
+					for i := 0; i < count; i++ {
+						payload := []byte(fmt.Sprintf(`{"tenant_id":42,"knowledge_id":"doc-%d","attempt":1}`,
+							i%documents))
+						_, err := enqueuer.Enqueue(asynq.NewTask(taskType, payload), asynq.Queue(queue))
+						require.NoError(b, err)
+					}
+					for i := 0; i < documents; i++ {
+						payload := []byte(fmt.Sprintf(`{"tenant_id":42,"knowledge_id":"doc-%d","attempt":1}`, i))
+						_, err := enqueuer.Enqueue(asynq.NewTask(types.TypeSummaryGeneration, payload),
+							asynq.Queue(types.QueueSummary))
+						require.NoError(b, err)
+					}
+					svc := service.NewRuntimeTaskCancellationService(inspector, client,
+						repository.NewRuntimeTaskCancellationRepository(db), nil, nil)
+					b.StartTimer()
+					started := time.Now()
+					job, err := svc.Start(ctx, queue)
+					require.NoError(b, err)
+					acknowledgement := time.Since(started)
+					deadline := time.Now().Add(5 * time.Minute)
+					for job.Status == "running" && time.Now().Before(deadline) {
+						time.Sleep(20 * time.Millisecond)
+						job, err = svc.Get(ctx, queue)
+						require.NoError(b, err)
+					}
+					elapsed := time.Since(started)
+					b.StopTimer()
+					require.Equal(b, "completed", job.Status)
+					require.Equal(b, count, job.Total)
+					require.Equal(b, count, job.Processed)
+					require.Equal(b, count, job.Cancelled)
+					require.Zero(b, job.Failed)
+					require.Zero(b, job.Skipped)
+					require.Equal(b, documents, job.RelatedDeleted)
+					var settled int64
+					require.NoError(b, db.Model(&types.Knowledge{}).
+						Where("parse_status = ? AND summary_status = ? AND pending_subtasks_count = 0",
+							types.ParseStatusCancelled, types.SummaryStatusFailed).Count(&settled).Error)
+					require.EqualValues(b, documents, settled)
+					b.ReportMetric(float64(acknowledgement.Microseconds())/1000, "start_ms")
+					b.ReportMetric(elapsed.Seconds(), "seconds/op")
+					b.ReportMetric(float64(count)/elapsed.Seconds(), "tasks/s")
+					require.NoError(b, sqlDB.Close())
+				}
+			})
+		}
+	}
 }

@@ -3838,10 +3838,17 @@ export default {
           purgeArchivedConfirm: 'Remove all {count} failed records from this queue at once. This only clears failed tasks in the queue — it does not affect running or pending tasks, nor does it roll back the business status of documents that already failed. Clear them?',
           purgeArchivedSuccess: 'Cleared {count} failed tasks',
           purgeArchivedError: 'Failed to clear failed tasks',
-          purgePending: 'Clear pending',
-          purgePendingConfirm: 'Remove all {count} pending tasks directly from this queue. This only clears tasks waiting in Redis/Asynq and does not update document or other business state. Clear them?',
-          purgePendingSuccess: 'Cleared {count} pending tasks',
-          purgePendingError: 'Failed to clear pending tasks',
+          cancelPending: 'Cancel pending tasks',
+          cancelPendingConfirm: 'Cancel tasks pending in this queue when the operation starts (currently about {count}) and settle their business state. Document cancellation stops the entire document pipeline and related tasks. Required cleanup is retained. New tasks are excluded; failures and tasks whose state changes are kept. Processing continues in the background after closing this page. Continue?',
+          cancelPendingError: 'Failed to start cancellation',
+          cancellationProgressError: 'Failed to read cancellation progress. Refresh to try again.',
+          cancellationProgress: 'Processed {processed}/{total} · Cancelled {cancelled} · Skipped {skipped} · Failed {failed}',
+          cancellationRelated: 'Also removed {related_deleted} related tasks and signaled {active_signaled} active tasks',
+          cancellationStatus: {
+            running: 'Cancelling pending tasks',
+            completed: 'Cancellation completed',
+            failed: 'Cancellation incomplete',
+          },
           stateFilter: 'Filter by task state',
           states: {
             active: 'Active',
@@ -4153,7 +4160,7 @@ export default {
           'system.queue_task_run_now': 'Queue task run now',
           'system.queue_task_cancelled': 'Queue task cancelled',
           'system.queue_archived_purged': 'All failed tasks cleared',
-          'system.queue_pending_purged': 'All pending tasks cleared'
+          'system.queue_pending_cancelled': 'Pending task cancellation started'
         },
         outcome: {
           success: 'Success',

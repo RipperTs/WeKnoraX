@@ -284,7 +284,9 @@ func runtimePayloadTime(value int64) *time.Time {
 
 func runtimeTaskActions(info types.RuntimeTaskInfo) []types.RuntimeTaskAction {
 	actions := make([]types.RuntimeTaskAction, 0, 3)
-	if _, cancellable := taskTypesForKnowledgeCancel[info.Type]; cancellable &&
+	if info.State == types.RuntimeTaskPending && types.CanCancelPendingRuntimeTask(info.Type) && info.TenantID > 0 {
+		actions = append(actions, types.RuntimeTaskActionCancel)
+	} else if _, cancellable := taskTypesForKnowledgeCancel[info.Type]; cancellable &&
 		info.TenantID > 0 && info.KnowledgeID != "" {
 		switch info.State {
 		case types.RuntimeTaskPending, types.RuntimeTaskActive,
@@ -690,19 +692,6 @@ func (a *asynqTaskInspector) PurgeArchivedRuntimeTasks(ctx context.Context, queu
 		return 0, false, nil
 	}
 	deleted, err := a.inspector.DeleteAllArchivedTasks(queue)
-	if err != nil {
-		return 0, true, err
-	}
-	return deleted, true, nil
-}
-
-// PurgePendingRuntimeTasks clears tasks waiting to be claimed from one queue.
-// asynq removes both the pending-list entries and the corresponding task data.
-func (a *asynqTaskInspector) PurgePendingRuntimeTasks(ctx context.Context, queue string) (int, bool, error) {
-	if a == nil || a.inspector == nil {
-		return 0, false, nil
-	}
-	deleted, err := a.inspector.DeleteAllPendingTasks(queue)
 	if err != nil {
 		return 0, true, err
 	}

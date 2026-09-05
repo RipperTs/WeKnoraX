@@ -301,7 +301,7 @@ definitions:
     - system.queue_task_run_now
     - system.queue_task_cancelled
     - system.queue_archived_purged
-    - system.queue_pending_purged
+    - system.queue_pending_cancelled
     - kb.created
     - kb.updated
     - kb.deleted
@@ -365,7 +365,7 @@ definitions:
     - AuditActionSystemQueueTaskRunNow
     - AuditActionSystemQueueTaskCancelled
     - AuditActionSystemQueueArchivedPurged
-    - AuditActionSystemQueuePendingPurged
+    - AuditActionSystemQueuePendingCancelled
     - AuditActionKBCreated
     - AuditActionKBUpdated
     - AuditActionKBDeleted
@@ -3061,6 +3061,35 @@ definitions:
     - RuntimeTaskActionCancel
     - RuntimeTaskActionRunNow
     - RuntimeTaskActionDelete
+  github_com_Tencent_WeKnora_internal_types.RuntimeTaskCancellation:
+    properties:
+      active_signaled:
+        type: integer
+      cancelled:
+        type: integer
+      error:
+        type: string
+      failed:
+        type: integer
+      id:
+        type: string
+      processed:
+        type: integer
+      queue:
+        type: string
+      related_deleted:
+        type: integer
+      skipped:
+        type: integer
+      started_at:
+        type: string
+      status:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
   github_com_Tencent_WeKnora_internal_types.RuntimeTaskInfo:
     properties:
       allowed_actions:
@@ -14466,8 +14495,8 @@ paths:
       summary: Purge all archived tasks in a queue
       tags:
       - System Admin
-  /system/admin/runtime/queues/{queue}/pending:
-    delete:
+  /system/admin/runtime/queues/{queue}/cancellations:
+    get:
       parameters:
       - description: Queue name
         in: path
@@ -14480,9 +14509,25 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
-      summary: Purge all pending tasks in a queue
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.RuntimeTaskCancellation'
+      summary: Get pending task cancellation progress
+      tags:
+      - System Admin
+    post:
+      parameters:
+      - description: Queue name
+        in: path
+        name: queue
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.RuntimeTaskCancellation'
+      summary: Start cancellation of pending queue tasks
       tags:
       - System Admin
   /system/admin/runtime/queues/{queue}/tasks:

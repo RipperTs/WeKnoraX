@@ -37,6 +37,12 @@ type runtimeKnowledgeCanceller interface {
 	CancelKnowledgeParse(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
 }
 
+type runtimeTaskCanceller interface {
+	Start(context.Context, string) (*types.RuntimeTaskCancellation, error)
+	Get(context.Context, string) (*types.RuntimeTaskCancellation, error)
+	CancelOne(context.Context, string, string) (bool, error)
+}
+
 type siteLogoAssetProvider interface {
 	GetSiteLogoAsset(ctx context.Context) *service.SiteLogoAsset
 }
@@ -66,7 +72,8 @@ type SystemHandler struct {
 	// knowledgeSvc supplies the domain-level cancellation path used by the
 	// runtime task console. It updates business state and tracing before queue
 	// records are removed, unlike a raw Redis deletion.
-	knowledgeSvc runtimeKnowledgeCanceller
+	knowledgeSvc           runtimeKnowledgeCanceller
+	runtimeCancellationSvc runtimeTaskCanceller
 	// storageBackendRepo lets GetStorageEngineStatus report multi-instance
 	// storage backends (Settings → Storage) as "available", not just the legacy
 	// singleton tenant.StorageEngineConfig. Optional — nil in partially-wired
@@ -90,20 +97,22 @@ func NewSystemHandler(cfg *config.Config,
 	knowledgeSvc interfaces.KnowledgeService,
 	storageBackendRepo interfaces.StorageBackendRepository,
 	sandboxConfigSvc *service.TenantSandboxConfigService,
+	runtimeCancellationSvc *service.RuntimeTaskCancellationService,
 ) *SystemHandler {
 	return &SystemHandler{
-		cfg:                cfg,
-		neo4jDriver:        neo4jDriver,
-		documentReader:     documentReader,
-		tenantSvc:          tenantSvc,
-		userSvc:            userSvc,
-		systemSettingSvc:   systemSettingSvc,
-		apiKeySvc:          apiKeySvc,
-		auditSvc:           auditSvc,
-		taskInspector:      taskInspector,
-		knowledgeSvc:       knowledgeSvc,
-		storageBackendRepo: storageBackendRepo,
-		sandboxConfigSvc:   sandboxConfigSvc,
+		cfg:                    cfg,
+		neo4jDriver:            neo4jDriver,
+		documentReader:         documentReader,
+		tenantSvc:              tenantSvc,
+		userSvc:                userSvc,
+		systemSettingSvc:       systemSettingSvc,
+		apiKeySvc:              apiKeySvc,
+		auditSvc:               auditSvc,
+		taskInspector:          taskInspector,
+		knowledgeSvc:           knowledgeSvc,
+		runtimeCancellationSvc: runtimeCancellationSvc,
+		storageBackendRepo:     storageBackendRepo,
+		sandboxConfigSvc:       sandboxConfigSvc,
 	}
 }
 
@@ -2201,6 +2210,21 @@ func (h *SystemHandler) mutateRuntimeTask(c *gin.Context, action types.RuntimeTa
 	}
 	switch action {
 	case types.RuntimeTaskActionCancel:
+		if task.State == types.RuntimeTaskPending {
+			if h.runtimeCancellationSvc == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Business cancellation is unavailable"})
+				return
+			}
+			cancelled, cancelErr := h.runtimeCancellationSvc.CancelOne(c.Request.Context(), queue, taskID)
+			if cancelErr != nil || !cancelled {
+				logger.Warnf(c.Request.Context(),
+					"cancel pending runtime task queue=%s task=%s: %v", queue, taskID, cancelErr)
+				c.JSON(http.StatusConflict, gin.H{"error": "Task could not be cancelled; refresh its current state"})
+				return
+			}
+			auditAction = types.AuditActionSystemQueueTaskCancelled
+			break
+		}
 		if h.knowledgeSvc == nil || task.TenantID == 0 || task.KnowledgeID == "" {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Business cancellation is unavailable"})
 			return
@@ -2341,42 +2365,59 @@ func (h *SystemHandler) PurgeArchivedRuntimeTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
 }
 
-// PurgePendingRuntimeTasks clears every pending task in one queue directly
-// from asynq. Business records are intentionally left unchanged.
-// @Summary      Purge all pending tasks in a queue
+// StartRuntimeTaskCancellation starts a best-effort business cancellation job
+// for a snapshot of the queue. New tasks are excluded from that snapshot.
+// @Summary      Start cancellation of pending queue tasks
 // @Tags         System Admin
 // @Produce      json
 // @Param        queue path string true "Queue name"
-// @Success      200 {object} map[string]interface{}
-// @Router       /system/admin/runtime/queues/{queue}/pending [delete]
-func (h *SystemHandler) PurgePendingRuntimeTasks(c *gin.Context) {
+// @Success      202 {object} types.RuntimeTaskCancellation
+// @Router       /system/admin/runtime/queues/{queue}/cancellations [post]
+func (h *SystemHandler) StartRuntimeTaskCancellation(c *gin.Context) {
 	queue := c.Param("queue")
 	if !isKnownRuntimeQueue(queue) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue"})
 		return
 	}
-	if queue == types.QueueWiki || queue == types.QueueSync {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Pending tasks in this queue cannot be purged"})
-		return
-	}
-	purger, supported := h.taskInspector.(interfaces.RuntimePendingTaskPurger)
-	if !supported {
+	if h.runtimeCancellationSvc == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
 		return
 	}
-	deleted, available, err := purger.PurgePendingRuntimeTasks(c.Request.Context(), queue)
-	if !available {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
-		return
-	}
+	job, err := h.runtimeCancellationSvc.Start(c.Request.Context(), queue)
 	if err != nil {
-		logger.Errorf(c.Request.Context(), "purge pending queue tasks queue=%s: %v", queue, err)
-		c.JSON(http.StatusConflict, gin.H{"error": "Pending tasks could not be purged"})
+		logger.Errorf(c.Request.Context(), "start runtime cancellation queue=%s: %v", queue, err)
+		c.JSON(http.StatusConflict, gin.H{"error": "Pending task cancellation could not be started"})
 		return
 	}
-	h.emitQueueTaskAudit(c.Request.Context(), types.AuditActionSystemQueuePendingPurged, queue, "",
-		map[string]string{"deleted": strconv.Itoa(deleted)})
-	c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
+	h.emitQueueTaskAudit(c.Request.Context(), types.AuditActionSystemQueuePendingCancelled, queue, "",
+		map[string]string{"job_id": job.ID, "total": strconv.Itoa(job.Total)})
+	c.JSON(http.StatusAccepted, job)
+}
+
+// GetRuntimeTaskCancellation returns the latest operation for this queue.
+// @Summary      Get pending task cancellation progress
+// @Tags         System Admin
+// @Produce      json
+// @Param        queue path string true "Queue name"
+// @Success      200 {object} types.RuntimeTaskCancellation
+// @Router       /system/admin/runtime/queues/{queue}/cancellations [get]
+func (h *SystemHandler) GetRuntimeTaskCancellation(c *gin.Context) {
+	queue := c.Param("queue")
+	if !isKnownRuntimeQueue(queue) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue"})
+		return
+	}
+	if h.runtimeCancellationSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
+		return
+	}
+	job, err := h.runtimeCancellationSvc.Get(c.Request.Context(), queue)
+	if err != nil {
+		logger.Errorf(c.Request.Context(), "get runtime cancellation queue=%s: %v", queue, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Cancellation progress is unavailable"})
+		return
+	}
+	c.JSON(http.StatusOK, job)
 }
 
 func (h *SystemHandler) ListSystemSettings(c *gin.Context) {
