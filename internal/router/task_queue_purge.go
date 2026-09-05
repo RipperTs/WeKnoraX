@@ -41,7 +41,11 @@ func (a *asynqTaskInspector) purgeRuntimeState(
 	prepare interfaces.RuntimeTaskCancellationPreparer,
 ) (result types.RuntimeQueuePurgeResult, err error) {
 	if state == types.RuntimeTaskArchived {
-		result.Deleted, err = a.inspector.DeleteAllArchivedTasks(queue)
+		err = a.withRuntimeQueuePaused(ctx, queue, func(pauseCtx context.Context) error {
+			var purgeErr error
+			result, purgeErr = a.purgeArchivedRuntimeTasks(pauseCtx, queue, prepare)
+			return purgeErr
+		})
 		return result, err
 	}
 	if state == types.RuntimeTaskCompleted {
@@ -118,6 +122,95 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 type runtimePurgeFinalizer struct {
 	remaining int
 	finish    interfaces.RuntimeTaskCancellation
+	tasks     []*asynq.TaskInfo
+	err       error
+}
+
+const (
+	// Asynq expires archived records after 90 days. Keep recovery state one
+	// day longer so it cannot disappear while its quarantined record exists.
+	runtimePurgePhaseTTL = 91 * 24 * time.Hour
+	runtimePurgeCancel   = "cancel"
+	runtimePurgeFinalize = "finalize"
+	runtimePurgeDelete   = "delete"
+)
+
+func runtimePurgePhaseKey(queue, taskID string) string {
+	return "runtime:task:purge-phase:{" + queue + "}:" + taskID
+}
+
+func (a *asynqTaskInspector) runtimePurgePhase(ctx context.Context, queue, taskID string) (string, error) {
+	phase, err := a.redis.Get(ctx, runtimePurgePhaseKey(queue, taskID)).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil
+	}
+	return phase, err
+}
+
+func (a *asynqTaskInspector) setRuntimePurgePhase(ctx context.Context, queue, taskID, phase string) error {
+	return runRuntimePurgeCallback(ctx, func(attemptCtx context.Context) error {
+		return a.redis.Set(attemptCtx, runtimePurgePhaseKey(queue, taskID), phase, runtimePurgePhaseTTL).Err()
+	})
+}
+
+func (a *asynqTaskInspector) deleteRuntimePurgeTask(ctx context.Context, queue, taskID string) error {
+	err := a.inspector.DeleteTask(queue, taskID)
+	if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) {
+		return err
+	}
+	return runRuntimePurgeCallback(ctx, func(attemptCtx context.Context) error {
+		return a.redis.Del(attemptCtx, runtimePurgePhaseKey(queue, taskID)).Err()
+	})
+}
+
+func (a *asynqTaskInspector) quarantineRuntimeTask(ctx context.Context, queue, taskID, phase string) error {
+	// Mark first so concurrent runtime actions cannot requeue or delete the
+	// record between its state transition and business cancellation.
+	if err := a.setRuntimePurgePhase(ctx, queue, taskID, phase); err != nil {
+		return err
+	}
+	if err := a.inspector.ArchiveTask(queue, taskID); err != nil {
+		current, getErr := a.inspector.GetTaskInfo(queue, taskID)
+		if errors.Is(getErr, asynq.ErrTaskNotFound) {
+			clearErr := a.redis.Del(ctx, runtimePurgePhaseKey(queue, taskID)).Err()
+			return errors.Join(asynq.ErrTaskNotFound, clearErr)
+		}
+		if getErr != nil || current.State != asynq.TaskStateArchived {
+			if clearErr := a.redis.Del(ctx, runtimePurgePhaseKey(queue, taskID)).Err(); clearErr != nil {
+				return errors.Join(err, clearErr)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func runRuntimePurgeCallback(ctx context.Context, callback interfaces.RuntimeTaskCancellation) error {
+	if callback == nil {
+		return nil
+	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(lastErr, err)
+		}
+		if lastErr = callback(ctx); lastErr == nil {
+			return nil
+		}
+		if attempt == 2 {
+			break
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return errors.Join(lastErr, ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return lastErr
 }
 
 func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
@@ -141,17 +234,18 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 		}
 		cancellableTasks = append(cancellableTasks, task)
 		cancellations[task.ID] = cancel
-		if cancel.AfterDelete != nil {
-			key := cancel.AfterDeleteKey
+		if cancel.Finalize != nil {
+			key := cancel.FinalizeKey
 			if key == "" {
 				key = task.ID
 			}
 			group := finalizers[key]
 			if group == nil {
-				group = &runtimePurgeFinalizer{finish: cancel.AfterDelete}
+				group = &runtimePurgeFinalizer{finish: cancel.Finalize}
 				finalizers[key] = group
 			}
 			group.remaining++
+			group.tasks = append(group.tasks, task)
 			taskFinalizers[task.ID] = group
 		}
 	}
@@ -183,12 +277,36 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 			}
 		}
 	}
+	quarantineErrors := make(map[string]error)
+	for _, task := range tasks {
+		if stopErrors[task.ID] != nil || wikiFailures[runtimeWikiScope(task)] {
+			continue
+		}
+		phase := runtimePurgeDelete
+		if cancellations[task.ID].Cancel != nil {
+			phase = runtimePurgeCancel
+		} else if cancellations[task.ID].Finalize != nil {
+			phase = runtimePurgeFinalize
+		}
+		quarantineErrors[task.ID] = a.quarantineRuntimeTask(ctx, queue, task.ID, phase)
+		if quarantineErrors[task.ID] != nil {
+			if kbID := runtimeWikiScope(task); kbID != "" {
+				wikiFailures[kbID] = true
+			}
+		}
+	}
 	wikiCancellationErrors := make(map[string]error)
+	taskErrors := make(map[string]error)
+	taskReasons := make(map[string]string)
 	for _, task := range tasks {
 		reason := "worker_not_stopped"
 		taskErr := stopErrors[task.ID]
 		if wikiFailures[runtimeWikiScope(task)] {
 			taskErr = errors.New("related Wiki task has not stopped")
+		}
+		if taskErr == nil && quarantineErrors[task.ID] != nil {
+			reason = "queue_quarantine_failed"
+			taskErr = quarantineErrors[task.ID]
 		}
 		if taskErr == nil {
 			taskErr = ctx.Err()
@@ -201,9 +319,7 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 				taskErr, done = wikiCancellationErrors[kbID]
 			}
 			if !done {
-				if cancel := cancellations[task.ID].BeforeDelete; cancel != nil {
-					taskErr = cancel(ctx)
-				}
+				taskErr = runRuntimePurgeCallback(ctx, cancellations[task.ID].Cancel)
 				if kbID != "" {
 					wikiCancellationErrors[kbID] = taskErr
 				}
@@ -213,18 +329,15 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 			}
 		}
 		if taskErr == nil {
-			reason = "queue_delete_failed"
-			taskErr = a.inspector.DeleteTask(queue, task.ID)
-			if errors.Is(taskErr, asynq.ErrTaskNotFound) {
-				taskErr = nil // A related document cancellation already removed it.
+			nextPhase := runtimePurgeDelete
+			if cancellations[task.ID].Finalize != nil {
+				nextPhase = runtimePurgeFinalize
 			}
+			taskErr = a.setRuntimePurgePhase(ctx, queue, task.ID, nextPhase)
+			reason = "queue_quarantine_failed"
 		}
-		if taskErr != nil {
-			result.Failed++
-			result.FailureReasons[reason]++
-			logger.Errorf(ctx, "purge runtime task queue=%s id=%s: %v", queue, task.ID, taskErr)
-		} else {
-			result.Deleted++
+		taskErrors[task.ID], taskReasons[task.ID] = taskErr, reason
+		if taskErr == nil {
 			if group := taskFinalizers[task.ID]; group != nil {
 				group.remaining--
 			}
@@ -232,17 +345,149 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 	}
 	for key, group := range finalizers {
 		if group.remaining != 0 {
+			group.err = errors.New("related runtime task cleanup is incomplete")
+			for _, task := range group.tasks {
+				if taskErrors[task.ID] == nil {
+					taskErrors[task.ID] = group.err
+					taskReasons[task.ID] = "business_cancel_failed"
+					if phaseErr := a.setRuntimePurgePhase(ctx, queue, task.ID, runtimePurgeCancel); phaseErr != nil {
+						taskErrors[task.ID] = errors.Join(taskErrors[task.ID], phaseErr)
+					}
+				}
+			}
 			continue
 		}
-		// Confirm every dependency was deleted before changing scheduling
-		// state. Finish successful groups even if the caller disconnected.
-		finishCtx, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		if finishErr := group.finish(finishCtx); finishErr != nil {
-			err = errors.Join(err, fmt.Errorf("finalize runtime task cleanup %s: %w", key, finishErr))
-		}
+		// The tasks are already non-executable. Keep retrying transient cleanup
+		// while the purge lock is owned, and retain the archived records on failure.
+		finishCtx, cancelFinish := context.WithTimeout(redislock.OwnershipContext(ctx), 5*time.Second)
+		group.err = runRuntimePurgeCallback(finishCtx, group.finish)
 		cancelFinish()
+		if group.err == nil {
+			for _, task := range group.tasks {
+				if phaseErr := a.setRuntimePurgePhase(ctx, queue, task.ID, runtimePurgeDelete); phaseErr != nil {
+					taskErrors[task.ID] = phaseErr
+					taskReasons[task.ID] = "queue_quarantine_failed"
+				}
+			}
+		} else {
+			logger.Errorf(ctx, "finalize runtime task cleanup %s: %v", key, group.err)
+		}
+	}
+	for _, task := range tasks {
+		taskErr, reason := taskErrors[task.ID], taskReasons[task.ID]
+		if taskErr == nil {
+			if group := taskFinalizers[task.ID]; group != nil && group.err != nil {
+				taskErr, reason = group.err, "business_cancel_failed"
+			}
+		}
+		if taskErr == nil {
+			reason = "queue_delete_failed"
+			taskErr = a.deleteRuntimePurgeTask(ctx, queue, task.ID)
+		}
+		if taskErr == nil {
+			result.Deleted++
+			continue
+		}
+		result.Failed++
+		result.FailureReasons[reason]++
+		logger.Errorf(ctx, "purge runtime task queue=%s id=%s: %v", queue, task.ID, taskErr)
 	}
 	return result, err
+}
+
+func (a *asynqTaskInspector) purgeArchivedRuntimeTasks(
+	ctx context.Context, queue string, prepare interfaces.RuntimeTaskCancellationPreparer,
+) (result types.RuntimeQueuePurgeResult, err error) {
+	tasks, err := a.snapshotRuntimeState(ctx, queue, types.RuntimeTaskArchived)
+	if err != nil {
+		return result, err
+	}
+	result.FailureReasons = make(map[string]int)
+	type recoveryGroup struct {
+		finish interfaces.RuntimeTaskCancellation
+		tasks  []*asynq.TaskInfo
+	}
+	groups := make(map[string]*recoveryGroup)
+
+	recordFailure := func(task *asynq.TaskInfo, reason string, taskErr error) {
+		result.Failed++
+		result.FailureReasons[reason]++
+		logger.Errorf(ctx, "purge archived runtime task queue=%s id=%s: %v", queue, task.ID, taskErr)
+	}
+	deleteTask := func(task *asynq.TaskInfo) {
+		if deleteErr := a.deleteRuntimePurgeTask(ctx, queue, task.ID); deleteErr != nil {
+			recordFailure(task, "queue_delete_failed", deleteErr)
+		} else {
+			result.Deleted++
+		}
+	}
+
+	for _, task := range tasks {
+		phase, phaseErr := a.runtimePurgePhase(ctx, queue, task.ID)
+		if phaseErr != nil {
+			recordFailure(task, "queue_quarantine_failed", phaseErr)
+			continue
+		}
+		switch phase {
+		case "", runtimePurgeDelete:
+			deleteTask(task)
+		case runtimePurgeCancel:
+			// Cancellation may have partially changed external state. Preserve
+			// its payload for explicit operator recovery instead of replaying it.
+			recordFailure(task, "business_cancel_failed", errors.New("runtime task cancellation requires recovery"))
+		case runtimePurgeFinalize:
+			if prepare == nil {
+				recordFailure(task, "business_cancel_failed", errors.New("runtime task finalization is unavailable"))
+				continue
+			}
+			plan, prepareErr := prepare(ctx, task.Type, task.Payload)
+			if prepareErr != nil {
+				reason := "business_cancel_failed"
+				if errors.Is(prepareErr, types.ErrRuntimeTaskCleanupRequired) {
+					reason = "cleanup_required"
+				}
+				recordFailure(task, reason, prepareErr)
+				continue
+			}
+			if plan.Finalize == nil {
+				recordFailure(task, "business_cancel_failed", errors.New("runtime task finalizer is missing"))
+				continue
+			}
+			key := plan.FinalizeKey
+			if key == "" {
+				key = task.ID
+			}
+			group := groups[key]
+			if group == nil {
+				group = &recoveryGroup{finish: plan.Finalize}
+				groups[key] = group
+			}
+			group.tasks = append(group.tasks, task)
+		default:
+			recordFailure(task, "business_cancel_failed", fmt.Errorf("unknown runtime purge phase %q", phase))
+		}
+	}
+
+	for key, group := range groups {
+		finishCtx, cancelFinish := context.WithTimeout(redislock.OwnershipContext(ctx), 5*time.Second)
+		finishErr := runRuntimePurgeCallback(finishCtx, group.finish)
+		cancelFinish()
+		if finishErr != nil {
+			for _, task := range group.tasks {
+				recordFailure(task, "business_cancel_failed", finishErr)
+			}
+			logger.Errorf(ctx, "recover runtime task finalization %s: %v", key, finishErr)
+			continue
+		}
+		for _, task := range group.tasks {
+			if phaseErr := a.setRuntimePurgePhase(ctx, queue, task.ID, runtimePurgeDelete); phaseErr != nil {
+				recordFailure(task, "queue_quarantine_failed", phaseErr)
+				continue
+			}
+			deleteTask(task)
+		}
+	}
+	return result, nil
 }
 
 var countRuntimeExecutions = redis.NewScript(`

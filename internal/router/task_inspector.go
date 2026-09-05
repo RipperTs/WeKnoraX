@@ -601,6 +601,13 @@ func (a *asynqTaskInspector) ListRuntimeTasks(
 			if info.State != state {
 				continue
 			}
+			phase, phaseErr := a.runtimePurgePhase(ctx, queue, task.ID)
+			if phaseErr != nil {
+				return types.RuntimeTaskPage{}, true, phaseErr
+			}
+			if phase != "" {
+				info.AllowedActions = nil
+			}
 			result = append(result, info)
 			if len(result) == pageSize {
 				// A full raw batch may have contained stale IDs that were
@@ -642,6 +649,13 @@ func (a *asynqTaskInspector) GetRuntimeTask(
 	if err != nil {
 		return nil, true, err
 	}
+	phase, err := a.runtimePurgePhase(ctx, queue, taskID)
+	if err != nil {
+		return nil, true, err
+	}
+	if phase != "" {
+		info.AllowedActions = nil
+	}
 	return &info, true, nil
 }
 
@@ -678,6 +692,13 @@ func (a *asynqTaskInspector) DeleteRuntimeTask(ctx context.Context, queue, taskI
 func (a *asynqTaskInspector) ForceDeleteRuntimeTask(ctx context.Context, queue, taskID string) (bool, error) {
 	if a == nil || a.inspector == nil {
 		return false, nil
+	}
+	phase, err := a.runtimePurgePhase(ctx, queue, taskID)
+	if err != nil {
+		return true, err
+	}
+	if phase != "" {
+		return true, fmt.Errorf("task %s in queue %s is awaiting purge cleanup", taskID, queue)
 	}
 	return true, a.inspector.DeleteTask(queue, taskID)
 }

@@ -2333,12 +2333,15 @@ func (h *SystemHandler) PurgeRuntimeTasks(c *gin.Context) {
 		return
 	}
 	var cancelTask interfaces.RuntimeTaskCancellationPreparer
-	if state != types.RuntimeTaskArchived && state != types.RuntimeTaskCompleted {
+	if state != types.RuntimeTaskCompleted {
 		if h.runtimeTaskCancellation == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Business cancellation is unavailable"})
-			return
+			if state != types.RuntimeTaskArchived {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Business cancellation is unavailable"})
+				return
+			}
+		} else {
+			cancelTask = h.runtimeTaskCancellation.CancelBatch()
 		}
-		cancelTask = h.runtimeTaskCancellation.CancelBatch()
 	}
 	result, available, err := inspector.PurgeRuntimeTasks(c.Request.Context(), queue, state, cancelTask)
 	if !available {

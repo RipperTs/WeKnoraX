@@ -60,12 +60,12 @@ func TestRuntimePurgePreservesRequiredCleanup(t *testing.T) {
 	for _, taskType := range []string{types.TypeKBDelete, types.TypeIndexDelete} {
 		plan, err := svc.CancelBatch()(context.Background(), taskType, nil)
 		require.ErrorIs(t, err, types.ErrRuntimeTaskCleanupRequired)
-		require.Nil(t, plan.BeforeDelete)
-		require.Nil(t, plan.AfterDelete)
+		require.Nil(t, plan.Cancel)
+		require.Nil(t, plan.Finalize)
 	}
 }
 
-func TestRuntimeFAQCancellationReleasesImportOnlyAfterDelete(t *testing.T) {
+func TestRuntimeFAQCancellationReleasesImportDuringFinalize(t *testing.T) {
 	ctx := context.Background()
 	// No document dependencies: cancelling an import must not cancel its
 	// shared, completed FAQ container or require document queue inspection.
@@ -86,26 +86,26 @@ func TestRuntimeFAQCancellationReleasesImportOnlyAfterDelete(t *testing.T) {
 	svc := &RuntimeTaskCancellationService{knowledge: knowledge}
 	plan, err := svc.CancelBatch()(ctx, types.TypeFAQImport, payload)
 	require.NoError(t, err)
-	require.Nil(t, plan.BeforeDelete)
-	require.NotNil(t, plan.AfterDelete)
+	require.Nil(t, plan.Cancel)
+	require.NotNil(t, plan.Finalize)
 	require.Equal(t, types.FAQImportStatusPending, progress.Status)
 	running, err := knowledge.getRunningFAQImportInfo(ctx, "kb-1")
 	require.NoError(t, err)
 	require.NotNil(t, running)
 
-	require.NoError(t, plan.AfterDelete(ctx))
+	require.NoError(t, plan.Finalize(ctx))
 	require.Equal(t, types.FAQImportStatusFailed, progress.Status)
 	running, err = knowledge.getRunningFAQImportInfo(ctx, "kb-1")
 	require.NoError(t, err)
 	require.Nil(t, running)
 }
 
-func TestRuntimeFAQCancellationRejectsMalformedPayloadBeforeDelete(t *testing.T) {
+func TestRuntimeFAQCancellationRejectsMalformedPayloadBeforeFinalize(t *testing.T) {
 	plan, err := new(RuntimeTaskCancellationService).CancelBatch()(
 		context.Background(), types.TypeFAQImport, []byte(`{"tenant_id":`),
 	)
 	require.Error(t, err)
-	require.Nil(t, plan.AfterDelete)
+	require.Nil(t, plan.Finalize)
 }
 
 func TestRuntimePurgePreservesCompletedParseStates(t *testing.T) {
@@ -144,7 +144,7 @@ func TestRuntimePurgePreservesCompletedParseStates(t *testing.T) {
 			svc := &RuntimeTaskCancellationService{knowledge: knowledge}
 			plan, err := svc.CancelBatch()(context.Background(), test.taskType, []byte(test.payload))
 			require.NoError(t, err)
-			require.NoError(t, plan.BeforeDelete(context.Background()))
+			require.NoError(t, plan.Cancel(context.Background()))
 			require.Equal(t, types.ParseStatusCompleted, repo.rows["completed"].ParseStatus)
 			require.Equal(t, types.ParseStatusFailed, repo.rows["failed"].ParseStatus)
 			if test.summary {

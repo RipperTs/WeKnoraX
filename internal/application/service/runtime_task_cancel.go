@@ -112,8 +112,8 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			if !ok {
 				return plan, errors.New("wiki trigger finalization is unavailable")
 			}
-			plan.AfterDeleteKey = fmt.Sprintf("wiki:%d:%s:%s", p.TenantID, p.KnowledgeBaseID, taskType)
-			plan.AfterDelete = func(finishCtx context.Context) error {
+			plan.FinalizeKey = fmt.Sprintf("wiki:%d:%s:%s", p.TenantID, p.KnowledgeBaseID, taskType)
+			plan.Finalize = func(finishCtx context.Context) error {
 				return finalizer.finishRuntimeTaskCancellation(finishCtx, taskType, payload)
 			}
 		}
@@ -127,9 +127,9 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			}
 			// Keep the import slot while its trigger can still retry. The FAQ
 			// container is shared by imports and has no parse attempt to cancel.
-			plan.AfterDelete = cancel
+			plan.Finalize = cancel
 		} else {
-			plan.BeforeDelete = cancel
+			plan.Cancel = cancel
 		}
 		return plan, nil
 	}
@@ -425,8 +425,9 @@ func (s *wikiIngestService) finishRuntimeTaskCancellation(ctx context.Context, t
 	if err := json.Unmarshal(data, &p); err != nil {
 		return err
 	}
-	// Rearm this task type only after all of its selected triggers are gone.
-	// A failed deletion of the other Wiki task type keeps its own trigger.
+	// Rearm this task type only after all selected triggers are quarantined
+	// and their captured operations are cancelled. Other Wiki task types are
+	// finalized independently.
 	count, err := s.pendingRepo.PendingCount(ctx, taskType, types.TaskScopeKnowledgeBase, p.KnowledgeBaseID)
 	if err != nil || count == 0 {
 		return err

@@ -113,14 +113,15 @@ type RuntimeTaskInspector interface {
 // Returning types.ErrRuntimeTaskCleanupRequired preserves a task without signalling its handler.
 type RuntimeTaskCancellationPreparer func(context.Context, string, []byte) (RuntimeTaskCancellationPlan, error)
 
-// RuntimeTaskCancellationPlan orders domain changes around queue deletion.
-// Both callbacks are optional and run only after confirmed handler exit.
+// RuntimeTaskCancellationPlan runs after the task is stopped and quarantined.
+// Both callbacks are optional. Finalize runs once every task sharing its key
+// has completed Cancel, before the quarantined records are physically deleted.
 type RuntimeTaskCancellationPlan struct {
-	BeforeDelete RuntimeTaskCancellation
-	AfterDelete  RuntimeTaskCancellation
-	// A shared key runs AfterDelete once, only when every task with that key
-	// was deleted. An empty key makes the callback depend on this task alone.
-	AfterDeleteKey string
+	Cancel   RuntimeTaskCancellation
+	Finalize RuntimeTaskCancellation
+	// A shared key runs Finalize once for the group. An empty key scopes it
+	// to the current task.
+	FinalizeKey string
 }
 
 // RuntimeTaskCancellation updates domain state after confirmed worker exit.

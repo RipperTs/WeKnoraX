@@ -33,11 +33,11 @@ func (s *Service) PrepareRuntimeTaskCancellation(
 	if subject != nil && subject.ExtractScheduledAt != nil && subject.ExtractScheduledAt.Equal(payload.ScheduledAt) {
 		snapshotUpdatedAt = subject.UpdatedAt
 	}
-	plan.AfterDeleteKey = fmt.Sprintf("memory:%d:%s:%s",
+	plan.FinalizeKey = fmt.Sprintf("memory:%d:%s:%s",
 		payload.TenantID, payload.SubjectID, payload.ScheduledAt.UTC().Format(time.RFC3339Nano))
-	plan.AfterDelete = func(finishCtx context.Context) error {
-		// Keep the slot and pending sessions intact if deleting the trigger
-		// fails. Only a confirmed deletion permits releasing its business work.
+	plan.Finalize = func(finishCtx context.Context) error {
+		// Quarantine prevents this trigger from running while its scheduling
+		// slot is released and any newly arrived work is rearmed.
 		if err := s.repo.CancelPendingExtraction(finishCtx, scope, payload.ScheduledAt, snapshotUpdatedAt); err != nil {
 			return err
 		}

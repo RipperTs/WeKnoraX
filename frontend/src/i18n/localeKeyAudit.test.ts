@@ -113,6 +113,15 @@ const RUNTIME_TASK_TYPE_KEYS = [
   'wikiFinalize',
 ] as const
 
+const SYSTEM_AUDIT_OUTCOMES = ['success', 'denied', 'failed', 'partial'] as const
+const RUNTIME_PURGE_FAILURE_REASONS = [
+  'cleanup_required',
+  'queue_quarantine_failed',
+  'worker_not_stopped',
+  'business_cancel_failed',
+  'queue_delete_failed',
+] as const
+
 test('registered audit action labels exist as flat keys in every locale', () => {
   const failures: string[] = []
 
@@ -253,6 +262,20 @@ test('runtime queue worker pool and queue labels exist in every locale', () => {
       if (!keys.has(`system.globalSettings.runtime.tasks.taskTypes.${taskType}`)) {
         failures.push(`${localeName}: missing system.globalSettings.runtime.tasks.taskTypes.${taskType}`)
       }
+    }
+  }
+
+  for (const outcome of SYSTEM_AUDIT_OUTCOMES) {
+    for (const [localeName, keys] of Object.entries(localeKeysByName) as Array<[LocaleName, Set<string>]>) {
+      const key = `system.globalSettings.audit.outcome.${outcome}`
+      if (!keys.has(key)) failures.push(`${localeName}: missing ${key}`)
+    }
+  }
+
+  for (const reason of RUNTIME_PURGE_FAILURE_REASONS) {
+    for (const [localeName, keys] of Object.entries(localeKeysByName) as Array<[LocaleName, Set<string>]>) {
+      const key = `system.globalSettings.runtime.purge.failures.${reason}`
+      if (!keys.has(key)) failures.push(`${localeName}: missing ${key}`)
     }
   }
 
