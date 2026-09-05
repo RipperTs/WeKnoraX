@@ -101,6 +101,7 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 		snapshot json.RawMessage,
 	) (interfaces.RuntimeTaskCancellationPlan, error) {
 		var plan interfaces.RuntimeTaskCancellationPlan
+		recovering := snapshot != nil
 		// Business deletion has already happened. These tasks must retain their
 		// cleanup snapshots and finish, including when their handlers are active.
 		if taskType == types.TypeKBDelete || taskType == types.TypeIndexDelete {
@@ -115,8 +116,6 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			if err := json.Unmarshal(snapshot, &taskBatch.wikiOps); err != nil {
 				return plan, err
 			}
-			// Recovery records may originate from different requests and snapshots.
-			taskBatch.knowledges = make(map[string]error)
 		}
 		if taskType == types.TypeWikiIngest || taskType == types.TypeWikiFinalize {
 			var p WikiIngestPayload
@@ -164,6 +163,22 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			}
 		}
 		plan.Snapshot = snapshot
+		if recovering && taskType != types.TypeFAQImport {
+			// A document may have been reparsed since cleanup failed. Recovery
+			// owns only the captured operations, never its current parse or tasks.
+			plan.Cancel = func(cancelCtx context.Context) error {
+				var ids []int64
+				for _, rows := range taskBatch.wikiOps {
+					for _, row := range rows {
+						if row.TaskType == types.TypeWikiIngest || row.TaskType == types.TypeWikiFinalize {
+							ids = append(ids, row.ID)
+						}
+					}
+				}
+				return deleteRuntimePendingOps(cancelCtx, s.pendingOps, ids)
+			}
+			return plan, nil
+		}
 		cancel := func(cancelCtx context.Context) error {
 			return s.cancel(context.WithValue(cancelCtx, runtimeCancelledKnowledgeKey{}, taskBatch), taskType, payload)
 		}
@@ -205,6 +220,17 @@ func runtimePendingSnapshot(ctx context.Context, tenantID uint64, kbID string) (
 		return nil, errors.New("runtime cancellation scope is absent from the original snapshot")
 	}
 	return rows, nil
+}
+
+func deleteRuntimePendingOps(ctx context.Context, repo interfaces.TaskPendingOpsRepository, ids []int64) error {
+	for len(ids) > 0 {
+		size := min(100, len(ids))
+		if err := repo.DeleteByIDs(ctx, ids[:size]); err != nil {
+			return err
+		}
+		ids = ids[size:]
+	}
+	return nil
 }
 
 func (s *knowledgeService) snapshotRuntimeTaskCancellation(
@@ -521,14 +547,7 @@ func (s *wikiIngestService) CancelRuntimeTask(ctx context.Context, _ string, dat
 		}
 		ids = append(ids, row.ID)
 	}
-	for len(ids) > 0 {
-		size := min(100, len(ids))
-		if err := s.pendingRepo.DeleteByIDs(ctx, ids[:size]); err != nil {
-			return err
-		}
-		ids = ids[size:]
-	}
-	return nil
+	return deleteRuntimePendingOps(ctx, s.pendingRepo, ids)
 }
 
 func (s *wikiIngestService) finishRuntimeTaskCancellation(ctx context.Context, taskType string, data []byte) error {

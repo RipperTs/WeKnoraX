@@ -157,10 +157,16 @@ func TestRuntimePurgeRecoversCancellationFromDurableRecord(t *testing.T) {
 		return interfaces.RuntimeTaskCancellationPlan{
 			Snapshot: json.RawMessage(`{}`),
 			Cancel: func(cancelCtx context.Context) error {
-				require.NotNil(t, cancelCtx.Value(runtimeKnowledgeTasksKey{}))
 				calls++
 				if calls <= 3 {
+					require.NotNil(t, cancelCtx.Value(runtimeKnowledgeTasksKey{}))
 					return errors.New("temporary cancellation failure")
+				}
+				require.Nil(t, cancelCtx.Value(runtimeKnowledgeTasksKey{}), "recovery must not inspect current parses")
+				for _, queue := range runtimeKnowledgeQueues() {
+					if queue != types.QueueDefault {
+						require.Zero(t, inspector.redis.Exists(cancelCtx, "asynq:{"+queue+"}:paused").Val())
+					}
 				}
 				return nil
 			},
@@ -402,22 +408,49 @@ func (h runtimePurgeRedisHook) ProcessHook(next redis.ProcessHook) redis.Process
 
 func TestRuntimeHeartbeatFailurePreservesBusinessResult(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		err  error
+		name   string
+		script *redis.Script
+		err    error
 	}{
-		{name: "success"},
-		{name: "business failure", err: errors.New("business failure")},
+		{name: "renewal failure with success", script: renewRuntimeExecution},
+		{
+			name: "renewal failure with business failure", script: renewRuntimeExecution,
+			err: errors.New("business failure"),
+		},
+		{name: "registration failure with success", script: startRuntimeExecution},
+		{
+			name: "registration failure with business failure", script: startRuntimeExecution,
+			err: errors.New("business failure"),
+		},
+		{name: "delayed acknowledgement with success"},
+		{name: "delayed acknowledgement with business failure", err: errors.New("business failure")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			inspector, _ := newRuntimePurgeTestQueue(t)
 			client := inspector.redis.(*redis.Client)
 			failed := make(chan struct{})
+			release := make(chan struct{})
+			defer func() {
+				select {
+				case <-release:
+				default:
+					close(release)
+				}
+			}()
 			var once sync.Once
 			client.AddHook(runtimePurgeRedisHook{process: func(ctx context.Context, cmd redis.Cmder,
 				next redis.ProcessHook,
 			) error {
-				if cmd.Name() == "evalsha" && cmd.Args()[1] == renewRuntimeExecution.Hash() {
+				if test.script == nil && cmd.Name() == "zrem" {
+					close(failed)
+					select {
+					case <-release:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				if test.script != nil && cmd.Name() == "evalsha" && cmd.Args()[1] == test.script.Hash() {
 					once.Do(func() { close(failed) })
 					return errors.New("injected heartbeat failure")
 				}
@@ -425,20 +458,34 @@ func TestRuntimeHeartbeatFailurePreservesBusinessResult(t *testing.T) {
 			}})
 			handler := runtimeTaskExecutionMiddleware(client)(asynq.HandlerFunc(
 				func(ctx context.Context, _ *asynq.Task) error {
-					select {
-					case <-failed:
-					case <-ctx.Done():
-						return ctx.Err()
+					if test.script != nil {
+						select {
+						case <-failed:
+						case <-ctx.Done():
+							return ctx.Err()
+						}
 					}
 					require.NoError(t, ctx.Err(), "monitoring must not cancel the business context")
 					return test.err
 				}))
 			ctx, cancel := context.WithTimeout(context.Background(), runtimeTaskLeaseRenew+5*time.Second)
 			defer cancel()
+			startedAt := time.Now()
 			err := handler.ProcessTask(ctx, asynq.NewTask("purge:test", nil))
 			require.Equal(t, test.err, err, "monitoring must not replace or wrap the business result")
+			if test.script == nil {
+				require.Less(t, time.Since(startedAt), time.Second, "exit recording must not delay the business result")
+				select {
+				case <-failed:
+				case <-time.After(time.Second):
+					t.Fatal("exit recording did not start")
+				}
+				close(release)
+			}
 			// Direct invocation has no Asynq ID; its execution entry still must be acknowledged.
-			require.Zero(t, client.ZCard(ctx, types.RuntimeTaskExecutionKey("", "")).Val())
+			require.Eventually(t, func() bool {
+				return client.ZCard(ctx, types.RuntimeTaskExecutionKey("", "")).Val() == 0
+			}, time.Second, 10*time.Millisecond)
 		})
 	}
 }

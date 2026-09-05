@@ -195,15 +195,23 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 			started, err := startRuntimeExecution.Run(ctx, client,
 				[]string{key, runtimePurgeRecoveryKey(queue, id)}, execution, runtimeTaskLease.Milliseconds()).Int64()
 			if err != nil {
-				return err
+				logger.Errorf(ctx, "register runtime execution %s: %v", id, err)
+				return next.ProcessTask(ctx, task)
 			}
 			if started == 0 {
 				return fmt.Errorf("runtime task %s is awaiting purge cleanup: %w", id, asynq.SkipRetry)
 			}
 			renewCtx, stopRenewal := context.WithCancel(context.WithoutCancel(ctx))
-			renewDone := make(chan struct{})
+			defer stopRenewal()
+			// Record exit in this goroutine so Redis cannot delay the business result.
 			go func() {
-				defer close(renewDone)
+				defer func() {
+					cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+					defer cancel()
+					if err := client.ZRem(cleanupCtx, key, execution).Err(); err != nil {
+						logger.Errorf(cleanupCtx, "release runtime execution %s: %v", id, err)
+					}
+				}()
 				ticker := time.NewTicker(runtimeTaskLeaseRenew)
 				defer ticker.Stop()
 				loggedFailure := false
@@ -224,17 +232,6 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 							logger.Errorf(renewCtx, "renew runtime execution %s: %v", id, err)
 						}
 					}
-				}
-			}()
-			defer func() {
-				stopRenewal()
-				<-renewDone
-				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-				defer cancel()
-				if err := client.ZRem(cleanupCtx, key, execution).Err(); err != nil {
-					// Keep an unconfirmed execution visible if exit recording
-					// fails; never infer handler exit from heartbeat expiry.
-					logger.Errorf(cleanupCtx, "release runtime execution %s: %v", id, err)
 				}
 			}()
 			if err := ctx.Err(); err != nil {

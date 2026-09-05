@@ -12924,7 +12924,7 @@ const docTemplate = `{
         },
         "/system/admin/runtime/queues/{queue}/states/{state}": {
             "delete": {
-                "description": "Stops unfinished tasks before clearing them. A successful response includes any per-task failures.",
+                "description": "Stops unfinished tasks; reports per-task cleanup failures.",
                 "produces": [
                     "application/json"
                 ],
@@ -19376,7 +19376,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "purge_pending": {
-                    "description": "PurgePending counts unfinished purge recoveries, including records evicted from Asynq's archive.",
+                    "description": "PurgePending counts unfinished cleanups, including evicted archived records.",
                     "type": "integer"
                 },
                 "retry": {

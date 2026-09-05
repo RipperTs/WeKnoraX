@@ -2830,8 +2830,7 @@ definitions:
         description: Processed / Failed are today's counters (reset daily).
         type: integer
       purge_pending:
-        description: PurgePending counts unfinished purge recoveries, including records
-          evicted from Asynq's archive.
+        description: PurgePending counts unfinished cleanups, including evicted archived records.
         type: integer
       retry:
         type: integer
@@ -14462,8 +14461,7 @@ paths:
       - 系统管理
   /system/admin/runtime/queues/{queue}/states/{state}:
     delete:
-      description: Stops unfinished tasks before clearing them. A successful response
-        includes any per-task failures.
+      description: Stops unfinished tasks; reports per-task cleanup failures.
       parameters:
       - description: Queue name
         in: path

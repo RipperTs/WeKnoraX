@@ -2310,7 +2310,7 @@ func (h *SystemHandler) MutateRuntimeTask(c *gin.Context) {
 
 // PurgeRuntimeTasks clears one state and reports partial failures explicitly.
 // @Summary      Clear a queue task state
-// @Description  Stops unfinished tasks before clearing them. A successful response includes any per-task failures.
+// @Description  Stops unfinished tasks; reports per-task cleanup failures.
 // @Tags         System Admin
 // @Produce      json
 // @Param        queue path string true "Queue name"

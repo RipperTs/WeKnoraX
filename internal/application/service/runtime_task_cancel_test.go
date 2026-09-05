@@ -209,11 +209,21 @@ func TestRuntimePurgeStillCleansCancelledParseSiblings(t *testing.T) {
 
 func TestRuntimeWikiRecoveryKeepsOriginalPendingOps(t *testing.T) {
 	ctx := context.Background()
-	original := &types.TaskPendingOp{ID: 1, TaskType: types.TypeWikiIngest, Op: WikiOpRetract}
-	later := &types.TaskPendingOp{ID: 2, TaskType: types.TypeWikiIngest, Op: WikiOpRetract}
+	original := &types.TaskPendingOp{
+		ID: 1, TaskType: types.TypeWikiIngest, Op: WikiOpIngest, DedupKey: "doc-1",
+		Payload: json.RawMessage(`{"knowledge_id":"doc-1"}`),
+	}
+	later := &types.TaskPendingOp{ID: 2, TaskType: types.TypeWikiIngest, Op: WikiOpIngest, DedupKey: "doc-1"}
 	pending := &runtimeCancellationPendingRepo{rows: []*types.TaskPendingOp{original}}
 	enqueuer := &metadataUpdateTaskEnqueuer{}
-	knowledge := &knowledgeService{}
+	document := &types.Knowledge{
+		ID: "doc-1", TenantID: 1, KnowledgeBaseID: "kb-1", ParseStatus: types.ParseStatusCancelled,
+	}
+	inspector := &runtimeCancellationInspector{}
+	knowledge := &knowledgeService{
+		repo:          &runtimeCancellationKnowledgeRepo{rows: map[string]*types.Knowledge{"doc-1": document}},
+		taskInspector: inspector, taskPendingRepo: pending,
+	}
 	wiki := &wikiIngestService{pendingRepo: pending, knowledgeSvc: knowledge, task: enqueuer}
 	svc := &RuntimeTaskCancellationService{knowledge: knowledge, wiki: wiki, pendingOps: pending}
 	payload := []byte(`{"tenant_id":1,"knowledge_base_id":"kb-1"}`)
@@ -223,12 +233,15 @@ func TestRuntimeWikiRecoveryKeepsOriginalPendingOps(t *testing.T) {
 	require.Error(t, plan.Cancel(ctx))
 	pending.rows = append(pending.rows, later)
 	pending.deleteErr = nil
+	document.ParseStatus = types.ParseStatusProcessing
 
 	recovered, err := svc.CancelBatch()(ctx, types.TypeWikiIngest, payload, plan.Snapshot)
 	require.NoError(t, err)
 	require.NoError(t, recovered.Cancel(ctx))
 	require.Equal(t, []*types.TaskPendingOp{later}, pending.rows)
 	require.Equal(t, 1, pending.snapshotCalls, "recovery must not reload the current operation set")
+	require.Equal(t, types.ParseStatusProcessing, document.ParseStatus)
+	require.Equal(t, []string{"doc-1"}, inspector.stopped, "recovery must not stop the new parse")
 	require.JSONEq(t, string(plan.Snapshot), string(recovered.Snapshot))
 	require.NoError(t, recovered.Finalize(ctx))
 	require.Len(t, enqueuer.tasks, 1, "the later operation must retain an executable trigger")
@@ -261,27 +274,41 @@ func TestRuntimeRecoveryKeepsSeparateSnapshotsForSameScope(t *testing.T) {
 }
 
 func TestRuntimeDocumentRecoveryPreservesLaterWikiOps(t *testing.T) {
-	ctx := context.Background()
-	original := &types.TaskPendingOp{ID: 1, TaskType: types.TypeWikiIngest, Op: WikiOpIngest, DedupKey: "doc-1"}
-	later := &types.TaskPendingOp{ID: 2, TaskType: types.TypeWikiIngest, Op: WikiOpIngest, DedupKey: "doc-1"}
-	pending := &runtimeCancellationPendingRepo{rows: []*types.TaskPendingOp{original}}
-	knowledge := &knowledgeService{
-		repo: &runtimeCancellationKnowledgeRepo{rows: map[string]*types.Knowledge{
-			"doc-1": {ID: "doc-1", TenantID: 1, KnowledgeBaseID: "kb-1", ParseStatus: types.ParseStatusCancelled},
-		}},
-		taskInspector: &runtimeCancellationInspector{}, taskPendingRepo: pending,
+	for _, taskType := range []string{
+		types.TypeDocumentProcess, types.TypeQuestionGeneration,
+		types.TypeSummaryGeneration, types.TypeKnowledgeListReparse,
+	} {
+		t.Run(taskType, func(t *testing.T) {
+			ctx := context.Background()
+			original := &types.TaskPendingOp{ID: 1, TaskType: types.TypeWikiIngest, Op: WikiOpIngest, DedupKey: "doc-1"}
+			later := &types.TaskPendingOp{ID: 2, TaskType: types.TypeWikiIngest, Op: WikiOpIngest, DedupKey: "doc-1"}
+			pending := &runtimeCancellationPendingRepo{rows: []*types.TaskPendingOp{original}}
+			document := &types.Knowledge{
+				ID: "doc-1", TenantID: 1, KnowledgeBaseID: "kb-1", ParseStatus: types.ParseStatusCancelled,
+				SummaryStatus: types.SummaryStatusPending,
+			}
+			repo := &runtimeCancellationKnowledgeRepo{
+				rows: map[string]*types.Knowledge{"doc-1": document}, updates: make(map[string]map[string]interface{}),
+			}
+			inspector := &runtimeCancellationInspector{}
+			knowledge := &knowledgeService{repo: repo, taskInspector: inspector, taskPendingRepo: pending}
+			svc := &RuntimeTaskCancellationService{knowledge: knowledge, pendingOps: pending}
+			payload := []byte(`{"tenant_id":1,"knowledge_id":"doc-1","knowledge_ids":["doc-1"]}`)
+			plan, err := svc.CancelBatch()(ctx, taskType, payload, nil)
+			require.NoError(t, err)
+			pending.deleteErr = errors.New("temporary storage failure")
+			require.Error(t, plan.Cancel(ctx))
+			pending.rows = append(pending.rows, later)
+			pending.deleteErr = nil
+			document.ParseStatus = types.ParseStatusProcessing
+			recovered, err := svc.CancelBatch()(ctx, taskType, payload, plan.Snapshot)
+			require.NoError(t, err)
+			require.NoError(t, recovered.Cancel(ctx))
+			require.Equal(t, []*types.TaskPendingOp{later}, pending.rows)
+			require.Equal(t, 1, pending.snapshotCalls)
+			require.Equal(t, types.ParseStatusProcessing, document.ParseStatus)
+			require.Empty(t, repo.updates, "recovery must not update the new parse or summary")
+			require.Equal(t, []string{"doc-1"}, inspector.stopped, "recovery must not stop the new parse")
+		})
 	}
-	svc := &RuntimeTaskCancellationService{knowledge: knowledge}
-	payload := []byte(`{"tenant_id":1,"knowledge_id":"doc-1"}`)
-	plan, err := svc.CancelBatch()(ctx, types.TypeQuestionGeneration, payload, nil)
-	require.NoError(t, err)
-	pending.deleteErr = errors.New("temporary storage failure")
-	require.Error(t, plan.Cancel(ctx))
-	pending.rows = append(pending.rows, later)
-	pending.deleteErr = nil
-	recovered, err := svc.CancelBatch()(ctx, types.TypeQuestionGeneration, payload, plan.Snapshot)
-	require.NoError(t, err)
-	require.NoError(t, recovered.Cancel(ctx))
-	require.Equal(t, []*types.TaskPendingOp{later}, pending.rows)
-	require.Equal(t, 1, pending.snapshotCalls)
 }

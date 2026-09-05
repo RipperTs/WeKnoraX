@@ -549,19 +549,8 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTasks(
 	if err != nil {
 		return result, err
 	}
-	for _, recovery := range recoveries {
-		if recovery.Phase == runtimePurgeCancel && runtimeTaskCancelsKnowledge(recovery.TaskType) {
-			ctx = context.WithValue(ctx, runtimeKnowledgeTasksKey{}, newRuntimeKnowledgeTasks())
-			err = a.withRuntimeKnowledgeQueuesPaused(ctx, func(batchCtx context.Context) error {
-				var purgeErr error
-				result, purgeErr = a.purgeArchivedRuntimeTaskRecords(
-					batchCtx, queue, tasks, recoveries, prepare,
-				)
-				return purgeErr
-			})
-			return result, err
-		}
-	}
+	// Recovery only consumes the original snapshot. Other document queues
+	// keep processing work submitted after the failed cleanup.
 	return a.purgeArchivedRuntimeTaskRecords(ctx, queue, tasks, recoveries, prepare)
 }
 
