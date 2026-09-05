@@ -55,7 +55,7 @@ func NewCmd(f *cmdutil.Factory) *cobra.Command {
 	opts := &Options{}
 	cmd := &cobra.Command{
 		Use:   "api <path>",
-		Short: "Make a raw API request to the WeKnora server",
+		Short: "Make a raw API request to the knowledge base server",
 		Long: `Raw HTTP API access. JSON body via -d/--data (inline) or --input <file>/- (stdin).
 
 The default method is GET; supplying a body (-d or --input) auto-promotes it

@@ -10,10 +10,10 @@
   },
   "info": {
     "companyName": "Tencent",
-    "productName": "WeKnora Lite",
+    "productName": "知识库",
     "productVersion": "1.0.0",
     "copyright": "Copyright 2026 Tencent",
-    "comments": "WeKnora Desktop Edition"
+    "comments": "知识库桌面版"
   },
   "mac": {
     "category": "public.app-category.productivity",

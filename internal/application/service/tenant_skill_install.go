@@ -1015,7 +1015,7 @@ func buildInstallPrompt(skillDir string, bundle *SkillBundle, uvAvailable bool) 
 	if bundle != nil {
 		skillMD = string(bundle.Files["SKILL.md"])
 	}
-	return fmt.Sprintf(`Install this WeKnora skill into the sandbox image.
+	return fmt.Sprintf(`Install this skill into the sandbox image.
 
 Skill directory: %s
 uv available: %t

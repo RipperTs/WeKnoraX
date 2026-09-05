@@ -205,7 +205,7 @@ type kbListOutput struct {
 func addKBList(server *mcpsdk.Server, svc knowledgeBaseService) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "kb_list",
-		Description: "List all knowledge bases visible to the active WeKnora tenant. No arguments. Returns items[]: each item carries id, name, description, knowledge_count, is_pinned, updated_at - useful for selecting a kb_id to pass to other tools.",
+		Description: "List all knowledge bases visible to the active tenant. No arguments. Returns items[]: each item carries id, name, description, knowledge_count, is_pinned, updated_at - useful for selecting a kb_id to pass to other tools.",
 		Annotations: &mcpsdk.ToolAnnotations{
 			Title:           "List Knowledge Bases",
 			DestructiveHint: bptr(false),

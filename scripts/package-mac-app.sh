@@ -17,7 +17,7 @@ APP_NAME="WeKnora Lite"
 APP_BUNDLE="${APP_NAME}.app"
 DIST_DIR="dist/${APP_BUNDLE}"
 
-echo "=== WeKnora Mac App Packager ==="
+echo "=== Knowledge Base Mac App Packager ==="
 echo "  Output: dist/${APP_BUNDLE}"
 echo ""
 

@@ -30,7 +30,7 @@ log_warning() {
 
 echo ""
 printf "%b\n" "${GREEN}========================================${NC}"
-printf "%b\n" "${GREEN}  WeKnora 开发环境配置检查${NC}"
+printf "%b\n" "${GREEN}  知识库开发环境配置检查${NC}"
 printf "%b\n" "${GREEN}========================================${NC}"
 echo ""
 

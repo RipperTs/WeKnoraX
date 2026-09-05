@@ -1,12 +1,12 @@
 <view class="page">
   <view class="card hero">
-    <view class="title">WeKnora Knowledge</view>
+    <view class="title">Knowledge Base</view>
     <view class="muted">Import a web page into a selected knowledge base from WeChat.</view>
   </view>
 
   <view class="card section">
     <view wx:if="{{needsSettings}}" class="notice">
-      Configure the WeKnora API base URL and API key before loading knowledge bases.
+      Configure the knowledge base API base URL and API key before loading knowledge bases.
       <button bindtap="openSettings" class="secondary">Open Settings</button>
     </view>
 
@@ -35,7 +35,7 @@
   <view class="card section">
     <view class="field">
       <text class="label">URL</text>
-      <input value="{{url}}" placeholder="https://github.com/Tencent/WeKnora" bindinput="onUrlInput" />
+      <input value="{{url}}" placeholder="https://example.com/document" bindinput="onUrlInput" />
     </view>
 
     <button bindtap="importURL" loading="{{importing}}" disabled="{{!selectedKnowledgeBaseId || !url}}">Import URL</button>

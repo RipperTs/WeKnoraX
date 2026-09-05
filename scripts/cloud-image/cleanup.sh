@@ -17,7 +17,7 @@ if [[ "${ans}" != "YES" ]]; then
   exit 0
 fi
 
-echo "[cleanup] 1/8 停止 WeKnora 容器"
+echo "[cleanup] 1/8 停止知识库容器"
 COMPOSE_PROJECT=""
 if [[ -d "${WEKNORA_DIR}" ]]; then
   cd "${WEKNORA_DIR}"
@@ -27,7 +27,7 @@ if [[ -d "${WEKNORA_DIR}" ]]; then
   docker compose down -v --remove-orphans || true
 fi
 
-echo "[cleanup] 2/8 清空 WeKnora 业务数据 + 首启 marker / 日志"
+echo "[cleanup] 2/8 清空知识库业务数据 + 首启 marker / 日志"
 if [[ -d "${WEKNORA_DIR}" ]]; then
   rm -rf "${WEKNORA_DIR}/data"/* "${WEKNORA_DIR}/logs"/* 2>/dev/null || true
   # 故意不在这里重建 .env: 让镜像里 .env 缺失, 任何在 firstboot 之前

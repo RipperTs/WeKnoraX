@@ -231,7 +231,7 @@ export function saveWeKnoraCloudCredentials(data: InitializeWeKnoraCloudRequest)
         }
       })
       .catch((error: any) => {
-        console.error('Failed to save WeKnoraCloud credentials:', error)
+        console.error('Failed to save cloud service credentials:', error)
         reject(error)
       })
   })

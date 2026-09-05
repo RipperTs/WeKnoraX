@@ -1,7 +1,7 @@
 use_default_settings: true
 
 general:
-  instance_name: "WeKnora SearXNG"
+  instance_name: "知识库搜索"
   privacypolicy_url: false
   donation_url: false
   contact_url: false

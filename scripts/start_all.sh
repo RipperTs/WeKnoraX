@@ -18,7 +18,7 @@ SCRIPT_NAME=$(basename "$0")
 
 # 显示帮助信息
 show_help() {
-    printf "%b\n" "${GREEN}WeKnora 启动脚本 v${VERSION}${NC}"
+    printf "%b\n" "${GREEN}知识库启动脚本 v${VERSION}${NC}"
     printf "%b\n" "${GREEN}用法:${NC} $0 [选项]"
     echo "选项:"
     echo "  -h, --help     显示帮助信息"
@@ -37,7 +37,7 @@ show_help() {
 
 # 显示版本信息
 show_version() {
-    printf "%b\n" "${GREEN}WeKnora 启动脚本 v${VERSION}${NC}"
+    printf "%b\n" "${GREEN}知识库启动脚本 v${VERSION}${NC}"
     exit 0
 }
 

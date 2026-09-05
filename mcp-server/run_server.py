@@ -26,13 +26,13 @@ def check_environment():
     if not api_key:
         print("警告: WEKNORA_API_KEY 环境变量未设置", file=sys.stderr)
 
-    print(f"WeKnora Base URL: {base_url or 'http://localhost:8080/api/v1'}", file=sys.stderr)
+    print(f"Knowledge Base URL: {base_url or 'http://localhost:8080/api/v1'}", file=sys.stderr)
     print(f"API Key: {'已设置' if api_key else '未设置'}", file=sys.stderr)
 
 
 def main():
     """主函数"""
-    print("启动 WeKnora MCP Server...", file=sys.stderr)
+    print("启动知识库 MCP 服务...", file=sys.stderr)
     check_environment()
 
     try:

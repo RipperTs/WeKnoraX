@@ -71,7 +71,7 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(context.Context, *LoginOptions, *
 	opts := &LoginOptions{}
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate the active profile against its WeKnora server",
+		Short: "Authenticate the active profile against its knowledge base server",
 		Long: `Authenticate the active profile by email + password (interactive prompt) or
 pipe an API key with --with-token.
 

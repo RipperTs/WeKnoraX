@@ -91,10 +91,10 @@ func NewRemoteAPIChat(chatConfig *ChatConfig) (*RemoteAPIChat, error) {
 	}
 	if providerName == provider.ProviderWeKnoraCloud {
 		if chatConfig.AppID == "" {
-			return nil, fmt.Errorf("WeKnoraCloud provider: AppID is required")
+			return nil, fmt.Errorf("Cloud service provider: AppID is required")
 		}
 		if chatConfig.AppSecret == "" {
-			return nil, fmt.Errorf("WeKnoraCloud provider: AppSecret is required")
+			return nil, fmt.Errorf("Cloud service provider: AppSecret is required")
 		}
 	}
 

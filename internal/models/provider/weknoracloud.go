@@ -18,8 +18,8 @@ func init() {
 func (p *WeKnoraCloudProvider) Info() ProviderInfo {
 	return ProviderInfo{
 		Name:        ProviderWeKnoraCloud,
-		DisplayName: "WeKnoraCloud",
-		Description: "WeKnora云服务，模型：chat, embedding, rerank, vlm",
+		DisplayName: "云模型服务",
+		Description: "云模型服务，支持：chat, embedding, rerank, vlm",
 		DefaultURLs: map[types.ModelType]string{
 			types.ModelTypeKnowledgeQA: WeKnoraCloudBaseURL,
 			types.ModelTypeEmbedding:   WeKnoraCloudBaseURL,

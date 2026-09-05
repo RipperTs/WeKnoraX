@@ -70,7 +70,7 @@ func NewCmd(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   `chat "<text>"`,
 		Short: "Ask a streaming RAG question against a knowledge base",
-		Long: `Send a query to the WeKnora knowledge-chat endpoint and stream the
+		Long: `Send a query to the knowledge-chat endpoint and stream the
 answer back. By default a fresh session is created on first invocation; pass
 --session to continue an existing conversation.
 

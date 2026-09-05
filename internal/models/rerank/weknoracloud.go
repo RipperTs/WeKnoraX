@@ -30,10 +30,10 @@ type WeKnoraCloudReranker struct {
 // NewWeKnoraCloudReranker 构造 WeKnoraCloudReranker
 func NewWeKnoraCloudReranker(config *RerankerConfig) (*WeKnoraCloudReranker, error) {
 	if config.AppID == "" {
-		return nil, fmt.Errorf("WeKnoraCloud reranker: AppID is required")
+		return nil, fmt.Errorf("Cloud service reranker: AppID is required")
 	}
 	if config.AppSecret == "" {
-		return nil, fmt.Errorf("WeKnoraCloud reranker: AppSecret is required")
+		return nil, fmt.Errorf("Cloud service reranker: AppSecret is required")
 	}
 	baseURL := strings.TrimRight(config.BaseURL, "/")
 	if err := validateRerankBaseURL(baseURL); err != nil {
@@ -78,7 +78,7 @@ func (r *WeKnoraCloudReranker) Rerank(ctx context.Context, query string, documen
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud reranker: marshal: %w", err)
+		return nil, fmt.Errorf("cloud reranker: marshal: %w", err)
 	}
 
 	requestID := uuid.New().String()
@@ -86,7 +86,7 @@ func (r *WeKnoraCloudReranker) Rerank(ctx context.Context, query string, documen
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.baseURL+weKnoraCloudRerankPath, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud reranker: create request: %w", err)
+		return nil, fmt.Errorf("cloud reranker: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
@@ -95,21 +95,21 @@ func (r *WeKnoraCloudReranker) Rerank(ctx context.Context, query string, documen
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud reranker: do request: %w", err)
+		return nil, fmt.Errorf("cloud reranker: do request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud reranker: read response: %w", err)
+		return nil, fmt.Errorf("cloud reranker: read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("weknoracloud reranker: status %d: %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("cloud reranker: status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
 	var rerankResp weKnoraCloudRerankResponse
 	if err := json.Unmarshal(respBytes, &rerankResp); err != nil {
-		return nil, fmt.Errorf("weknoracloud reranker: unmarshal: %w", err)
+		return nil, fmt.Errorf("cloud reranker: unmarshal: %w", err)
 	}
 
 	results := make([]RankResult, 0, len(rerankResp.Results))

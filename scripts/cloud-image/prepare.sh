@@ -120,7 +120,7 @@ EOF
   done
 fi
 
-echo "[prepare] 2/6 拉取 WeKnora 运行时文件 (ref=${WEKNORA_REF})"
+echo "[prepare] 2/6 拉取知识库运行时文件 (ref=${WEKNORA_REF})"
 # 只下载实际需要的 4 个文件, 不 clone 整个仓库 (~MB 级 -> ~KB 级)
 mkdir -p "${WEKNORA_DIR}/config" "${WEKNORA_DIR}/skills"
 
@@ -227,7 +227,7 @@ systemctl enable weknora-firstboot.service
 
 echo "[prepare] 6/6 完成"
 echo
-echo "  WeKnora 运行时已部署到 ${WEKNORA_DIR}"
+echo "  知识库运行时已部署到 ${WEKNORA_DIR}"
 echo "    docker-compose.yml / config/config.yaml / skills/preloaded / .env"
 echo "  版本: ${WEKNORA_REF}  (见 ${WEKNORA_DIR}/.cloud-image-meta)"
 echo

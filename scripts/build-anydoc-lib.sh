@@ -100,7 +100,7 @@ prepare_patched_anydoc() {
 go_version=$(sed -n 's/^const Version = "\([^"]*\)".*/\1/p' "$crate_dir/version.go" | head -1)
 if [ "$go_version" != "$anydoc_version" ]; then
   echo "error: version.go says '$go_version' but Cargo.toml pins anydoc '$anydoc_version'." >&2
-  echo "Bump both: the Go constant is the version WeKnora records for parsed documents." >&2
+  echo "Bump both: the Go constant is the version the system records for parsed documents." >&2
   exit 1
 fi
 
@@ -117,4 +117,4 @@ mkdir -p "$dest"
 cp "$crate_dir/target/$target/release/$lib_name" "$dest/$lib_name"
 
 echo "Wrote $dest/$lib_name"
-echo "Build WeKnora with the archive: go build -tags anydoc ./cmd/server"
+echo "Build the knowledge base server with the archive: go build -tags anydoc ./cmd/server"

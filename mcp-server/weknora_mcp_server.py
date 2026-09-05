@@ -1126,7 +1126,7 @@ def main():
       2. MCP_TRANSPORT environment variable
       3. Default: stdio
     """
-    parser = argparse.ArgumentParser(description="WeKnora MCP Server")
+    parser = argparse.ArgumentParser(description="Knowledge Base MCP Server")
     parser.add_argument(
         "--transport",
         choices=["stdio", "sse", "http"],

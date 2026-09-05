@@ -28,7 +28,7 @@ GOARCH=$(go env GOARCH)
 ARCHIVE="WeKnora-lite_${VERSION}_${GOOS}_${GOARCH}"
 DIST_DIR="dist/${ARCHIVE}"
 
-echo "=== WeKnora Lite Packager ==="
+echo "=== Knowledge Base Packager ==="
 echo "  Version : ${VERSION}"
 echo "  Platform: ${GOOS}/${GOARCH}"
 echo "  Output  : dist/${ARCHIVE}.tar.gz"

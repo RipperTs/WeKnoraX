@@ -383,7 +383,7 @@ async function assembleStream(
   // cut short, and handing the model the partial text would present a truncated
   // answer as a whole one.
   if (!completed) {
-    throw new WeknoraApiError(`POST ${path} ended before WeKnora completed the answer; `
+    throw new WeknoraApiError(`POST ${path} ended before the knowledge base completed the answer; `
       + `${answer.join('').length} character(s) had streamed`)
   }
 

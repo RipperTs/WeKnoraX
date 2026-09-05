@@ -175,7 +175,7 @@ type weKnoraCloudEngine struct{}
 
 func (e *weKnoraCloudEngine) Name() string { return WeKnoraCloudEngineName }
 
-func (e *weKnoraCloudEngine) Description() string { return "WeKnoraCloud document reader" }
+func (e *weKnoraCloudEngine) Description() string { return "Cloud document reader" }
 
 func (e *weKnoraCloudEngine) FileTypes(_ bool) []string {
 	return []string{"docx", "doc", "pdf", "md", "markdown", "xlsx", "xls", "pptx", "ppt"}
@@ -185,7 +185,7 @@ func (e *weKnoraCloudEngine) CheckAvailable(_ bool, overrides map[string]string)
 	if overrides["weknoracloud_app_id"] != "" {
 		return true, ""
 	}
-	return false, "WeKnora Cloud credentials not configured. Go to Settings → WeKnora Cloud to set up."
+	return false, "Cloud service credentials not configured. Go to Settings → Cloud Service to set up."
 }
 
 func (e *weKnoraCloudEngine) NewReader(

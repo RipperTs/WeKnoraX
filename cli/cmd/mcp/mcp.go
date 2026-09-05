@@ -23,8 +23,8 @@ import (
 func NewCmd(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
-		Short: "Run weknora as a Model Context Protocol server",
-		Long: `Exposes weknora's tool surface as MCP tools so any
+		Short: "Run the CLI as a Model Context Protocol server",
+		Long: `Exposes the CLI tool surface as MCP tools so any
 MCP-compatible client can call them over JSON-RPC.
 
 Curated 11-tool surface: kb_list / kb_view / doc_list / doc_view /

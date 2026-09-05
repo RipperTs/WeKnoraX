@@ -292,7 +292,7 @@
           </template>
           <!--
             Docker has no provider-side timeout at all: an abandoned container
-            keeps its memory and CPU share on the daemon host until WeKnora
+            keeps its memory and CPU share on the daemon host until the system
             reclaims it, so the idle TTL and the resource caps are the only
             things bounding what one workspace can hold.
           -->

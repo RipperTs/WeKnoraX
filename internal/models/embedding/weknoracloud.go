@@ -34,10 +34,10 @@ type WeKnoraCloudEmbedder struct {
 // NewWeKnoraCloudEmbedder 构造 WeKnoraCloudEmbedder
 func NewWeKnoraCloudEmbedder(config Config) (*WeKnoraCloudEmbedder, error) {
 	if config.AppID == "" {
-		return nil, fmt.Errorf("WeKnoraCloud embedder: AppID is required")
+		return nil, fmt.Errorf("Cloud service embedder: AppID is required")
 	}
 	if config.AppSecret == "" {
-		return nil, fmt.Errorf("WeKnoraCloud embedder: AppSecret is required")
+		return nil, fmt.Errorf("Cloud service embedder: AppSecret is required")
 	}
 	remoteModelName := ""
 	if config.ExtraConfig != nil {
@@ -83,7 +83,7 @@ func (e *WeKnoraCloudEmbedder) Embed(ctx context.Context, text string) ([]float3
 		return nil, err
 	}
 	if len(results) == 0 {
-		return nil, fmt.Errorf("weknoracloud embedder: empty response")
+		return nil, fmt.Errorf("cloud embedder: empty response")
 	}
 	return results[0], nil
 }
@@ -95,7 +95,7 @@ func (e *WeKnoraCloudEmbedder) BatchEmbed(ctx context.Context, texts []string) (
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud embedder: marshal: %w", err)
+		return nil, fmt.Errorf("cloud embedder: marshal: %w", err)
 	}
 
 	requestID := uuid.New().String()
@@ -103,7 +103,7 @@ func (e *WeKnoraCloudEmbedder) BatchEmbed(ctx context.Context, texts []string) (
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+weKnoraCloudEmbedPath, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud embedder: create request: %w", err)
+		return nil, fmt.Errorf("cloud embedder: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
@@ -112,21 +112,21 @@ func (e *WeKnoraCloudEmbedder) BatchEmbed(ctx context.Context, texts []string) (
 
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud embedder: do request: %w", err)
+		return nil, fmt.Errorf("cloud embedder: do request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("weknoracloud embedder: read response: %w", err)
+		return nil, fmt.Errorf("cloud embedder: read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("weknoracloud embedder: status %d: %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("cloud embedder: status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
 	var embedResp weKnoraCloudEmbedResponse
 	if err := json.Unmarshal(respBytes, &embedResp); err != nil {
-		return nil, fmt.Errorf("weknoracloud embedder: unmarshal: %w", err)
+		return nil, fmt.Errorf("cloud embedder: unmarshal: %w", err)
 	}
 
 	result := make([][]float32, len(texts))
@@ -134,20 +134,20 @@ func (e *WeKnoraCloudEmbedder) BatchEmbed(ctx context.Context, texts []string) (
 	for _, item := range embedResp.Data {
 		if item.Index < 0 || item.Index >= len(result) {
 			return nil, fmt.Errorf(
-				"weknoracloud embedder: response index %d out of range for %d inputs",
+				"cloud embedder: response index %d out of range for %d inputs",
 				item.Index,
 				len(texts),
 			)
 		}
 		if seen[item.Index] {
-			return nil, fmt.Errorf("weknoracloud embedder: duplicate response index %d", item.Index)
+			return nil, fmt.Errorf("cloud embedder: duplicate response index %d", item.Index)
 		}
 		result[item.Index] = item.Embedding
 		seen[item.Index] = true
 	}
 	for index, found := range seen {
 		if !found {
-			return nil, fmt.Errorf("weknoracloud embedder: missing embedding for input index %d", index)
+			return nil, fmt.Errorf("cloud embedder: missing embedding for input index %d", index)
 		}
 	}
 	return result, nil

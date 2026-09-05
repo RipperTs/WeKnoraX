@@ -28,7 +28,7 @@
   <circle cx="90" cy="172" r="5" fill="#85A9FF"/>
   <circle cx="108" cy="172" r="5" fill="#ADC6FF"/>
   <circle cx="126" cy="172" r="5" fill="#ADC6FF"/>
-  <text x="400" y="177" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="12" fill="#5C8DFF" text-anchor="middle">WeKnora &#183; 知识检索</text>
+  <text x="400" y="177" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="12" fill="#5C8DFF" text-anchor="middle">知识库 &#183; 知识检索</text>
 
   <g transform="translate(96, 224)">
     <rect width="608" height="52" rx="12" fill="#F8FBFF" stroke="#ADC6FF" stroke-width="1.5"/>

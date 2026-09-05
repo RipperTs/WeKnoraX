@@ -103,7 +103,7 @@ test('a stream that ends before completing becomes a failed call', async () => {
       { sessionId: 's1', query: '默认的检索阈值是多少', knowledgeBaseIds: ['kb-product'], agentId: undefined, webSearch: false },
       never,
     ),
-    /ended before WeKnora completed the answer/,
+    /ended before the knowledge base completed the answer/,
   )
 })
 

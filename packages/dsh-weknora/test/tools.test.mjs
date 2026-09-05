@@ -86,7 +86,7 @@ test('an empty result set tells the model what to try next', async () => {
   const { byName } = await toolset({ knowledgeBaseIds: ['kb-product'] })
   const { value, text } = await call(byName.get('weknora_search'), { query: '量子纠缠咖啡机保修期' })
   assert.equal(value.count, 0)
-  assert.match(text, /Nothing in WeKnora matched/)
+  assert.match(text, /No knowledge base content matched/)
 })
 
 test('search rejects a missing query before touching the network', async () => {
@@ -313,7 +313,7 @@ test('a configured agent id switches ask to the agent pipeline', async () => {
   const { value, text } = await call(byName.get('weknora_ask'), { query: '部署方式有哪些' })
   assert.equal(value.pipeline, 'agent')
   assert.deepEqual(value.tool_calls, ['knowledge_search'])
-  assert.match(text, /WeKnora tools used: knowledge_search/)
+  assert.match(text, /Tools used: knowledge_search/)
 })
 
 test('apply registers into ctx.tools and honours the prefix and toggles', () => {
