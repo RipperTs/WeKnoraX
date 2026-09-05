@@ -3091,6 +3091,8 @@ export default {
           }
         },
         purge: {
+          pendingRecovery: '정리 대기 {count}개',
+          recoveryNotice: '{count}개 작업의 정리가 완료되지 않았습니다. 최종 실패 작업을 다시 정리하여 계속 진행하세요.',
           options: {
             active: '실행 중 작업 중지',
             pending: '대기 중 작업 비우기',
@@ -3107,6 +3109,7 @@ export default {
           partial: '{count}개 정리, {failed}개 미완료: {reasons}',
           error: '큐 작업 정리에 실패했습니다',
           failures: {
+            snapshot_missing: '{count}개 작업에 원본 정리 스냅샷이 없어 보존되었습니다. 운영자에게 문의하세요',
             cleanup_required: '리소스 정리를 완료해야 하므로 지식 베이스 또는 인덱스 삭제 작업 {count}개를 유지함',
             queue_quarantine_failed: '작업 {count}개를 안전한 격리 상태로 이동하지 못함',
             worker_not_stopped: '작업 {count}개의 종료가 확인되지 않음',

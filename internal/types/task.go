@@ -211,6 +211,8 @@ type QueueStat struct {
 	Retry     int `json:"retry"`
 	Archived  int `json:"archived"`
 	Completed int `json:"completed"`
+	// PurgePending counts unfinished purge recoveries, including records evicted from Asynq's archive.
+	PurgePending int `json:"purge_pending"`
 	// Processed / Failed are today's counters (reset daily).
 	Processed int `json:"processed"`
 	Failed    int `json:"failed"`

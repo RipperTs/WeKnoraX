@@ -205,6 +205,11 @@ func (a *asynqTaskInspector) QueueStats(
 			Pool:   definition.Pool,
 			Weight: definition.Weight,
 		}
+		recoveries, err := a.redis.ZCard(ctx, runtimePurgeRecoveryIndex(queue)).Result()
+		if err != nil {
+			return nil, true, err
+		}
+		stat.PurgePending = int(recoveries)
 		info, err := a.inspector.GetQueueInfo(queue)
 		if err != nil {
 			if !isAsynqQueueNotFound(err) {
@@ -606,7 +611,7 @@ func (a *asynqTaskInspector) ListRuntimeTasks(
 				return types.RuntimeTaskPage{}, true, recoveryErr
 			}
 			if recovery != nil {
-				info.AllowedActions = nil
+				info.AllowedActions = []types.RuntimeTaskAction{}
 			}
 			result = append(result, info)
 			if len(result) == pageSize {
@@ -654,7 +659,7 @@ func (a *asynqTaskInspector) GetRuntimeTask(
 		return nil, true, err
 	}
 	if recovery != nil {
-		info.AllowedActions = nil
+		info.AllowedActions = []types.RuntimeTaskAction{}
 	}
 	return &info, true, nil
 }

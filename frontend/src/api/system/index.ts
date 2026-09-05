@@ -659,6 +659,7 @@ export interface QueueStat {
   retry: number
   archived: number
   completed: number
+  purge_pending: number
   processed: number
   failed: number
   paused: boolean

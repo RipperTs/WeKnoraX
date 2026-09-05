@@ -171,6 +171,14 @@
               <div class="rq-queue-cell">
                 <span class="rq-queue-name">{{ queueLabel(row.name) }}</span>
                 <span class="rq-queue-meta">{{ queueMeta(row) }}</span>
+                <t-button
+                  v-if="row.purge_pending > 0"
+                  variant="text"
+                  theme="danger"
+                  size="small"
+                  class="rq-task-count"
+                  @click="openRuntimeTasks(row, 'archived')"
+                >{{ t('system.globalSettings.runtime.purge.pendingRecovery', { count: row.purge_pending }) }}<t-icon name="chevron-right" /></t-button>
               </div>
             </template>
             <template #active="{ row }">
@@ -351,6 +359,9 @@
           </button>
         </div>
         <p class="rq-failed-guide-desc">{{ taskStateGuide }}</p>
+        <p v-if="taskState === 'archived' && taskQueue && taskQueue.purge_pending > 0" class="rq-failed-guide-desc" role="status">
+          {{ t('system.globalSettings.runtime.purge.recoveryNotice', { count: taskQueue.purge_pending }) }}
+        </p>
       </section>
 
       <section class="setting-drawer__section">
@@ -360,7 +371,7 @@
           </h4>
           <div class="rq-failed-section-actions">
             <t-button
-              v-if="taskState === 'archived' && tasks.length > 0"
+              v-if="taskState === 'archived' && (tasks.length > 0 || (taskQueue && taskQueue.purge_pending > 0))"
               variant="text"
               size="small"
               theme="danger"
@@ -772,7 +783,7 @@ function queueState(row: QueueStat): { label: string; tone: string } {
   if (row.paused) {
     return { label: t('system.globalSettings.runtime.status.paused'), tone: 'paused' }
   }
-  if (row.archived > 0) {
+  if (row.archived > 0 || row.purge_pending > 0) {
     return { label: t('system.globalSettings.runtime.status.actionRequired'), tone: 'danger' }
   }
   if (row.retry > 0) {
@@ -901,18 +912,22 @@ function queueActionOptions(row: QueueStat) {
   return taskStates.map((state) => ({
     value: state,
     content: t(`system.globalSettings.runtime.purge.options.${state}`),
-    disabled: taskStateCount(row, state) === 0 || Boolean(purgingQueue.value) || Boolean(taskActionID.value),
+    disabled: (taskStateCount(row, state) === 0 && !(state === 'archived' && row.purge_pending > 0))
+      || Boolean(purgingQueue.value) || Boolean(taskActionID.value),
   }))
 }
 
 function confirmQueuePurge(row: QueueStat, state: RuntimeTaskState) {
   if (purgingQueue.value || taskActionID.value) return
   const live = state !== 'archived' && state !== 'completed'
+  const recoveryNotice = state === 'archived' && row.purge_pending > 0
+    ? ' ' + t('system.globalSettings.runtime.purge.recoveryNotice', { count: row.purge_pending })
+    : ''
   const dialog = DialogPlugin.confirm({
     header: t(`system.globalSettings.runtime.purge.options.${state}`),
     body: t('system.globalSettings.runtime.purge.confirm', {
       queue: queueLabel(row.name), state: taskStateLabel(state), count: taskStateCount(row, state),
-    }) + ' ' + t(`system.globalSettings.runtime.purge.${live ? 'liveWarning' : 'historyWarning'}`),
+    }) + ' ' + t(`system.globalSettings.runtime.purge.${live ? 'liveWarning' : 'historyWarning'}`) + recoveryNotice,
     confirmBtn: { content: t('system.globalSettings.runtime.purge.confirmButton'), theme: 'danger' },
     cancelBtn: t('common.cancel'),
     onConfirm: () => {

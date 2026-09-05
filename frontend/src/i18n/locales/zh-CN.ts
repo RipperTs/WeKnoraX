@@ -3147,6 +3147,8 @@ export default {
           }
         },
         purge: {
+          pendingRecovery: '{count} 个待恢复',
+          recoveryNotice: '有 {count} 个任务清理未完成，可再次清空最终失败以继续处理。',
           options: {
             active: '终止运行中任务',
             pending: '清空排队中任务',
@@ -3163,6 +3165,7 @@ export default {
           partial: '已清理 {count} 个任务，{failed} 个未完成：{reasons}',
           error: '清理队列任务失败',
           failures: {
+            snapshot_missing: '{count} 个任务缺少原始清理快照，已保留，请联系运维处理',
             cleanup_required: '{count} 个知识库或索引删除任务已保留，需继续完成资源清理',
             queue_quarantine_failed: '{count} 个任务无法移入安全隔离状态',
             worker_not_stopped: '{count} 个任务未确认停止',

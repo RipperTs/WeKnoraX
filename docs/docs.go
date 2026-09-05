@@ -19375,6 +19375,10 @@ const docTemplate = `{
                     "description": "Processed / Failed are today's counters (reset daily).",
                     "type": "integer"
                 },
+                "purge_pending": {
+                    "description": "PurgePending counts unfinished purge recoveries, including records evicted from Asynq's archive.",
+                    "type": "integer"
+                },
                 "retry": {
                     "type": "integer"
                 },

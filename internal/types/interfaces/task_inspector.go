@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -109,14 +110,19 @@ type RuntimeTaskInspector interface {
 }
 
 // RuntimeTaskCancellationPreparer snapshots domain work without changing it.
+// A nil snapshot captures new work; a saved snapshot restores the original scope.
 // The returned cancellation runs only after the queue handlers have exited.
 // Returning types.ErrRuntimeTaskCleanupRequired preserves a task without signalling its handler.
-type RuntimeTaskCancellationPreparer func(context.Context, string, []byte) (RuntimeTaskCancellationPlan, error)
+type RuntimeTaskCancellationPreparer func(
+	context.Context, string, []byte, json.RawMessage,
+) (RuntimeTaskCancellationPlan, error)
 
 // RuntimeTaskCancellationPlan runs after the task is stopped and quarantined.
 // Both callbacks are optional. Finalize runs once every task sharing its key
 // has completed Cancel, before the quarantined records are physically deleted.
 type RuntimeTaskCancellationPlan struct {
+	// Snapshot is persisted before quarantine and reused verbatim on recovery.
+	Snapshot json.RawMessage
 	Cancel   RuntimeTaskCancellation
 	Finalize RuntimeTaskCancellation
 	// A shared key runs Finalize once for the group. An empty key scopes it

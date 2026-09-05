@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,33 @@ func extractTask(t *testing.T, payload types.MemoryExtractPayload) *asynq.Task {
 	body, err := json.Marshal(payload)
 	require.NoError(t, err)
 	return asynq.NewTask(types.TypeMemoryExtract, body)
+}
+
+func TestRuntimeMemoryPurgeRecoveryPreservesLaterTurns(t *testing.T) {
+	svc, tenantRepo, _, _, enqueuer := newExtractionHarness(t)
+	ctx := enabledCtx(t, tenantRepo, 7, "alice")
+	svc.ScheduleExtraction(ctx, "old-session", "old-message", "model")
+	oldTask := enqueuer.pop()
+	require.NotNil(t, oldTask)
+	plan, err := svc.PrepareRuntimeTaskCancellation(ctx, oldTask.Payload(), nil)
+	require.NoError(t, err)
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.Error(t, plan.Finalize(canceled))
+	svc.ScheduleExtraction(ctx, "new-session", "new-message", "model")
+	require.Nil(t, enqueuer.pop(), "new turns share the original scheduled slot")
+
+	// Rebuild the plan as a later request does, using only persisted data.
+	recovered, err := svc.PrepareRuntimeTaskCancellation(ctx, oldTask.Payload(), plan.Snapshot)
+	require.NoError(t, err)
+	require.Equal(t, plan.Snapshot, recovered.Snapshot)
+	require.NoError(t, recovered.Finalize(ctx))
+	followUp := enqueuer.pop()
+	require.NotNil(t, followUp, "turns after the original snapshot must still be scheduled")
+	// The successor drains the preserved pending list, including the later session.
+	subject, err := svc.repo.GetSubject(ctx, interfaces.MemoryScope{TenantID: 7, SubjectID: "web_user:alice"})
+	require.NoError(t, err)
+	require.Contains(t, subject.PendingSessions, "new-session")
 }
 
 // TestExtractionRebuildsScopeFromPayload is the regression this whole payload

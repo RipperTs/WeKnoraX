@@ -3792,6 +3792,8 @@ export default {
           paused: 'Paused'
         },
         purge: {
+          pendingRecovery: '{count} awaiting cleanup',
+          recoveryNotice: '{count} tasks have unfinished cleanup. Clear finally failed tasks again to continue.',
           options: {
             active: 'Stop running tasks',
             pending: 'Clear pending tasks',
@@ -3808,6 +3810,7 @@ export default {
           partial: 'Cleared {count} tasks; {failed} remain unresolved: {reasons}',
           error: 'Failed to clear queue tasks',
           failures: {
+            snapshot_missing: '{count} tasks lack the original cleanup snapshot and were retained for operator recovery',
             cleanup_required: '{count} knowledge base or index deletion tasks retained to finish resource cleanup',
             queue_quarantine_failed: '{count} tasks could not be moved into a safe quarantine state',
             worker_not_stopped: '{count} tasks have not confirmed exit',

@@ -115,6 +115,7 @@ const RUNTIME_TASK_TYPE_KEYS = [
 
 const SYSTEM_AUDIT_OUTCOMES = ['success', 'denied', 'failed', 'partial'] as const
 const RUNTIME_PURGE_FAILURE_REASONS = [
+  'snapshot_missing',
   'cleanup_required',
   'queue_quarantine_failed',
   'worker_not_stopped',

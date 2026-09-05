@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -36,13 +37,16 @@ func TestRuntimePurgeQuarantinesBeforeCancellation(t *testing.T) {
 		tasks = append(tasks, info)
 	}
 	finished := make(map[string]int)
-	prepare := func(_ context.Context, _ string, payload []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+	prepare := func(_ context.Context, _ string, payload []byte,
+		_ json.RawMessage,
+	) (interfaces.RuntimeTaskCancellationPlan, error) {
 		id := string(payload)
 		key := "shared"
 		if id == "independent" {
 			key = id
 		}
 		return interfaces.RuntimeTaskCancellationPlan{
+			Snapshot: json.RawMessage(`{}`),
 			Cancel: func(ctx context.Context) error {
 				if id == "failed" {
 					current, err := inspector.inspector.GetTaskInfo(types.QueueDefault, id)
@@ -102,8 +106,9 @@ func TestRuntimePurgeRecoversFinalizerFromArchivedTask(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, inspector.inspector.ArchiveTask(types.QueueDefault, ordinary.ID))
 	calls := 0
-	prepare := func(context.Context, string, []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+	prepare := func(context.Context, string, []byte, json.RawMessage) (interfaces.RuntimeTaskCancellationPlan, error) {
 		return interfaces.RuntimeTaskCancellationPlan{
+			Snapshot: json.RawMessage(`{}`),
 			Finalize: func(context.Context) error {
 				calls++
 				if calls <= 3 {
@@ -148,8 +153,9 @@ func TestRuntimePurgeRecoversCancellationFromDurableRecord(t *testing.T) {
 	))
 	require.NoError(t, err)
 	calls := 0
-	prepare := func(context.Context, string, []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+	prepare := func(context.Context, string, []byte, json.RawMessage) (interfaces.RuntimeTaskCancellationPlan, error) {
 		return interfaces.RuntimeTaskCancellationPlan{
+			Snapshot: json.RawMessage(`{}`),
 			Cancel: func(cancelCtx context.Context) error {
 				require.NotNil(t, cancelCtx.Value(runtimeKnowledgeTasksKey{}))
 				calls++
@@ -226,9 +232,12 @@ func TestRuntimePurgeRecoversTaskBeforeQuarantineCompleted(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, inspector.saveRuntimePurgeRecovery(ctx, types.QueueDefault, &runtimePurgeRecovery{
 		TaskID: info.ID, TaskType: "purge:test", Payload: []byte("payload"), Phase: runtimePurgeCancel,
+		Snapshot: json.RawMessage(`{}`),
 	}))
 	cancelled := 0
-	prepare := func(_ context.Context, _ string, payload []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+	prepare := func(_ context.Context, _ string, payload []byte,
+		_ json.RawMessage,
+	) (interfaces.RuntimeTaskCancellationPlan, error) {
 		require.Equal(t, []byte("payload"), payload)
 		return interfaces.RuntimeTaskCancellationPlan{
 			Cancel: func(context.Context) error {
@@ -441,7 +450,7 @@ func TestRuntimePurgeAtomicDeleteAllowsTaskIDReuse(t *testing.T) {
 	info, err := client.Enqueue(asynq.NewTask("purge:test", []byte("old")),
 		asynq.TaskID(taskID), asynq.Unique(time.Hour))
 	require.NoError(t, err)
-	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeDelete))
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeDelete, nil))
 	redisClient := inspector.redis.(*redis.Client)
 	observer := redis.NewClient(redisClient.Options())
 	t.Cleanup(func() { _ = observer.Close() })
@@ -488,7 +497,7 @@ func TestRuntimePurgePreservesUnfinishedRecovery(t *testing.T) {
 	ctx := context.Background()
 	info, err := client.Enqueue(asynq.NewTask("purge:test", nil))
 	require.NoError(t, err)
-	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeCancel))
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeCancel, nil))
 	require.Error(t, inspector.deleteRuntimePurgeTask(ctx, types.QueueDefault, info.ID))
 	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
 	require.NoError(t, err)
@@ -532,4 +541,108 @@ func TestRuntimePurgeStopsHistoryDeletionWhenRequestEnds(t *testing.T) {
 		require.NoError(t, getErr)
 		require.EqualValues(t, 1, exists)
 	}
+}
+
+func TestRuntimePurgeQuarantinedActionsSerializeAsArrays(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	info, err := client.Enqueue(asynq.NewTask("purge:test", nil))
+	require.NoError(t, err)
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeDelete, nil))
+	task, _, err := inspector.GetRuntimeTask(ctx, types.QueueDefault, info.ID)
+	require.NoError(t, err)
+	page, _, err := inspector.ListRuntimeTasks(ctx, types.QueueDefault, types.RuntimeTaskArchived, "", 20)
+	require.NoError(t, err)
+	require.Len(t, page.Tasks, 1)
+	for _, result := range []types.RuntimeTaskInfo{*task, page.Tasks[0]} {
+		body, marshalErr := json.Marshal(result)
+		require.NoError(t, marshalErr)
+		require.Contains(t, string(body), `"allowed_actions":[]`)
+	}
+}
+
+func TestRuntimePurgeRecoveryCountSurvivesArchiveEviction(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	info, err := client.Enqueue(asynq.NewTask("purge:test", nil))
+	require.NoError(t, err)
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeDelete, nil))
+	archivedKey, _ := runtimeTaskStateKey(types.QueueDefault, types.RuntimeTaskArchived)
+	require.NoError(t, inspector.redis.ZRem(ctx, archivedKey, info.ID).Err())
+	stats, _, err := inspector.QueueStats(ctx)
+	require.NoError(t, err)
+	for _, stat := range stats {
+		if stat.Name == types.QueueDefault {
+			require.Zero(t, stat.Archived)
+			require.Equal(t, 1, stat.PurgePending, "the UI must retain its recovery entry when the archive is empty")
+		}
+	}
+	result, _, err := inspector.PurgeRuntimeTasks(ctx, types.QueueDefault, types.RuntimeTaskArchived, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Deleted)
+	stats, _, err = inspector.QueueStats(ctx)
+	require.NoError(t, err)
+	for _, stat := range stats {
+		require.Zero(t, stat.PurgePending)
+	}
+}
+
+func TestRuntimePurgePersistsOriginalCancellationSnapshot(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	_, err := client.Enqueue(asynq.NewTask("purge:test", nil))
+	require.NoError(t, err)
+	original := json.RawMessage(`{"operations":[1]}`)
+	current := original
+	failed := true
+	captures := 0
+	prepare := func(_ context.Context, _ string, _ []byte,
+		snapshot json.RawMessage,
+	) (interfaces.RuntimeTaskCancellationPlan, error) {
+		if snapshot == nil {
+			captures++
+			snapshot = current
+		}
+		return interfaces.RuntimeTaskCancellationPlan{
+			Snapshot: snapshot,
+			Cancel: func(context.Context) error {
+				if failed {
+					return errors.New("business temporarily unavailable")
+				}
+				require.JSONEq(t, string(original), string(snapshot))
+				return nil
+			},
+		}, nil
+	}
+	result, _, err := inspector.PurgeRuntimeTasks(ctx, types.QueueDefault, types.RuntimeTaskPending, prepare)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Failed)
+	current = json.RawMessage(`{"operations":[1,2]}`)
+	failed = false
+	restarted := &asynqTaskInspector{
+		inspector: asynq.NewInspectorFromRedisClient(inspector.redis), redis: inspector.redis,
+	}
+	result, _, err = restarted.PurgeRuntimeTasks(ctx, types.QueueDefault, types.RuntimeTaskArchived, prepare)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Deleted)
+	require.Zero(t, result.Failed)
+	require.Equal(t, 1, captures)
+}
+
+func TestRuntimePurgeBlocksRecoveryWithoutOriginalSnapshot(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	info, err := client.Enqueue(asynq.NewTask("purge:test", nil))
+	require.NoError(t, err)
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeCancel, nil))
+	prepare := func(context.Context, string, []byte, json.RawMessage) (interfaces.RuntimeTaskCancellationPlan, error) {
+		t.Fatal("missing recovery data must not capture current business work")
+		return interfaces.RuntimeTaskCancellationPlan{}, nil
+	}
+	result, _, err := inspector.PurgeRuntimeTasks(ctx, types.QueueDefault, types.RuntimeTaskArchived, prepare)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Failed)
+	require.Equal(t, 1, result.FailureReasons["snapshot_missing"])
+	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
+	require.NoError(t, err)
 }

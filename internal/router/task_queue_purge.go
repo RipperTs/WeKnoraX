@@ -133,10 +133,11 @@ const (
 )
 
 type runtimePurgeRecovery struct {
-	TaskID   string `json:"task_id"`
-	TaskType string `json:"task_type"`
-	Payload  []byte `json:"payload"`
-	Phase    string `json:"phase"`
+	TaskID   string          `json:"task_id"`
+	TaskType string          `json:"task_type"`
+	Payload  []byte          `json:"payload"`
+	Snapshot json.RawMessage `json:"snapshot"`
+	Phase    string          `json:"phase"`
 }
 
 func runtimePurgeRecoveryKey(queue, taskID string) string {
@@ -298,12 +299,12 @@ func (a *asynqTaskInspector) deleteRuntimePurgeTask(
 }
 
 func (a *asynqTaskInspector) quarantineRuntimeTask(
-	ctx context.Context, queue string, task *asynq.TaskInfo, phase string,
+	ctx context.Context, queue string, task *asynq.TaskInfo, phase string, snapshot json.RawMessage,
 ) error {
 	// Mark first so concurrent runtime actions cannot requeue or delete the
 	// record between its state transition and business cancellation.
 	recovery := &runtimePurgeRecovery{
-		TaskID: task.ID, TaskType: task.Type, Payload: task.Payload, Phase: phase,
+		TaskID: task.ID, TaskType: task.Type, Payload: task.Payload, Phase: phase, Snapshot: snapshot,
 	}
 	if err := a.saveRuntimePurgeRecovery(ctx, queue, recovery); err != nil {
 		return err
@@ -365,7 +366,7 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 	cancellableTasks := make([]*asynq.TaskInfo, 0, len(tasks))
 	result.FailureReasons = make(map[string]int)
 	for _, task := range tasks {
-		cancel, prepareErr := prepare(ctx, task.Type, task.Payload)
+		cancel, prepareErr := prepare(ctx, task.Type, task.Payload, nil)
 		if errors.Is(prepareErr, types.ErrRuntimeTaskCleanupRequired) {
 			result.Failed++
 			result.FailureReasons["cleanup_required"]++
@@ -430,7 +431,7 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 		} else if cancellations[task.ID].Finalize != nil {
 			phase = runtimePurgeFinalize
 		}
-		quarantineErrors[task.ID] = a.quarantineRuntimeTask(ctx, queue, task, phase)
+		quarantineErrors[task.ID] = a.quarantineRuntimeTask(ctx, queue, task, phase, cancellations[task.ID].Snapshot)
 		if quarantineErrors[task.ID] != nil {
 			if kbID := runtimeWikiScope(task); kbID != "" {
 				wikiFailures[kbID] = true
@@ -642,7 +643,12 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 			taskReasons[task.ID] = "business_cancel_failed"
 			continue
 		}
-		plan, prepareErr := prepare(ctx, recovery.TaskType, recovery.Payload)
+		if len(recovery.Snapshot) == 0 || string(recovery.Snapshot) == "null" {
+			taskErrors[task.ID] = errors.New("original runtime cancellation snapshot is missing")
+			taskReasons[task.ID] = "snapshot_missing"
+			continue
+		}
+		plan, prepareErr := prepare(ctx, recovery.TaskType, recovery.Payload, recovery.Snapshot)
 		if prepareErr != nil {
 			reason := "business_cancel_failed"
 			if errors.Is(prepareErr, types.ErrRuntimeTaskCleanupRequired) {

@@ -23,7 +23,14 @@ type runtimeTaskCanceller interface {
 }
 
 type runtimeMemoryTaskCanceller interface {
-	PrepareRuntimeTaskCancellation(context.Context, []byte) (interfaces.RuntimeTaskCancellationPlan, error)
+	PrepareRuntimeTaskCancellation(
+		context.Context, []byte, json.RawMessage,
+	) (interfaces.RuntimeTaskCancellationPlan, error)
+}
+
+type runtimeKnowledgeTaskCanceller interface {
+	runtimeTaskCanceller
+	snapshotRuntimeTaskCancellation(context.Context, string, []byte) (map[string][]*types.TaskPendingOp, error)
 }
 
 // RuntimeTaskCancellationParams supplies the domains that own queued work.
@@ -40,7 +47,7 @@ type RuntimeTaskCancellationParams struct {
 // RuntimeTaskCancellationService routes stopped tasks to their owning domain.
 // The queue backend invokes this before deleting any live task record.
 type RuntimeTaskCancellationService struct {
-	knowledge         runtimeTaskCanceller
+	knowledge         runtimeKnowledgeTaskCanceller
 	dataSource        runtimeTaskCanceller
 	temporaryDocument runtimeTaskCanceller
 	wiki              runtimeTaskCanceller
@@ -54,13 +61,16 @@ func NewRuntimeTaskCancellationService(p RuntimeTaskCancellationParams) (*Runtim
 	if !ok {
 		return nil, errors.New("memory service does not implement runtime task cancellation")
 	}
-	s := &RuntimeTaskCancellationService{memory: memory, pendingOps: p.PendingOps}
+	knowledge, ok := p.Knowledge.(runtimeKnowledgeTaskCanceller)
+	if !ok {
+		return nil, errors.New("knowledge service does not implement runtime task cancellation snapshots")
+	}
+	s := &RuntimeTaskCancellationService{knowledge: knowledge, memory: memory, pendingOps: p.PendingOps}
 	for _, binding := range []struct {
 		name    string
 		service any
 		target  *runtimeTaskCanceller
 	}{
-		{"knowledge", p.Knowledge, &s.knowledge},
 		{"data source", p.DataSource, &s.dataSource},
 		{"temporary document", p.TemporaryDocument, &s.temporaryDocument},
 		{"wiki", p.Wiki, &s.wiki},
@@ -87,7 +97,9 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 	batch := &runtimeCancellationBatch{
 		knowledges: make(map[string]error), wikiOps: make(map[string][]*types.TaskPendingOp),
 	}
-	return func(ctx context.Context, taskType string, payload []byte) (interfaces.RuntimeTaskCancellationPlan, error) {
+	return func(ctx context.Context, taskType string, payload []byte,
+		snapshot json.RawMessage,
+	) (interfaces.RuntimeTaskCancellationPlan, error) {
 		var plan interfaces.RuntimeTaskCancellationPlan
 		// Business deletion has already happened. These tasks must retain their
 		// cleanup snapshots and finish, including when their handlers are active.
@@ -95,16 +107,30 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			return plan, types.ErrRuntimeTaskCleanupRequired
 		}
 		if taskType == types.TypeMemoryExtract {
-			return s.memory.PrepareRuntimeTaskCancellation(ctx, payload)
+			return s.memory.PrepareRuntimeTaskCancellation(ctx, payload, snapshot)
 		}
 		ctx = context.WithValue(ctx, runtimeCancelledKnowledgeKey{}, batch)
+		taskBatch := &runtimeCancellationBatch{knowledges: batch.knowledges}
+		if snapshot != nil {
+			if err := json.Unmarshal(snapshot, &taskBatch.wikiOps); err != nil {
+				return plan, err
+			}
+			// Recovery records may originate from different requests and snapshots.
+			taskBatch.knowledges = make(map[string]error)
+		}
 		if taskType == types.TypeWikiIngest || taskType == types.TypeWikiFinalize {
 			var p WikiIngestPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
 				return plan, err
 			}
-			if _, err := runtimePendingSnapshot(ctx, s.pendingOps, p.TenantID, p.KnowledgeBaseID); err != nil {
-				return plan, err
+			if snapshot == nil {
+				rows, err := loadRuntimePendingSnapshot(ctx, s.pendingOps, p.TenantID, p.KnowledgeBaseID)
+				if err != nil {
+					return plan, err
+				}
+				taskBatch.wikiOps = map[string][]*types.TaskPendingOp{
+					fmt.Sprintf("%d:%s", p.TenantID, p.KnowledgeBaseID): rows,
+				}
 			}
 			finalizer, ok := s.wiki.(interface {
 				finishRuntimeTaskCancellation(context.Context, string, []byte) error
@@ -116,15 +142,32 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			plan.Finalize = func(finishCtx context.Context) error {
 				return finalizer.finishRuntimeTaskCancellation(finishCtx, taskType, payload)
 			}
-		}
-		cancel := func(cancelCtx context.Context) error {
-			return s.cancel(context.WithValue(cancelCtx, runtimeCancelledKnowledgeKey{}, batch), taskType, payload)
-		}
-		if taskType == types.TypeFAQImport {
-			var faq types.FAQImportPayload
-			if err := json.Unmarshal(payload, &faq); err != nil {
+		} else if snapshot == nil {
+			// Validate FAQ payloads before accessing any business dependencies.
+			if taskType == types.TypeFAQImport {
+				var faq types.FAQImportPayload
+				if err := json.Unmarshal(payload, &faq); err != nil {
+					return plan, err
+				}
+			}
+			var err error
+			taskBatch.wikiOps, err = s.knowledge.snapshotRuntimeTaskCancellation(ctx, taskType, payload)
+			if err != nil {
 				return plan, err
 			}
+		}
+		if snapshot == nil {
+			var err error
+			snapshot, err = json.Marshal(taskBatch.wikiOps)
+			if err != nil {
+				return plan, err
+			}
+		}
+		plan.Snapshot = snapshot
+		cancel := func(cancelCtx context.Context) error {
+			return s.cancel(context.WithValue(cancelCtx, runtimeCancelledKnowledgeKey{}, taskBatch), taskType, payload)
+		}
+		if taskType == types.TypeFAQImport {
 			// Keep the import slot while its trigger can still retry. The FAQ
 			// container is shared by imports and has no parse attempt to cancel.
 			plan.Finalize = cancel
@@ -135,7 +178,7 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 	}
 }
 
-func runtimePendingSnapshot(
+func loadRuntimePendingSnapshot(
 	ctx context.Context, repo interfaces.TaskPendingOpsRepository, tenantID uint64, kbID string,
 ) ([]*types.TaskPendingOp, error) {
 	batch := ctx.Value(runtimeCancelledKnowledgeKey{}).(*runtimeCancellationBatch)
@@ -153,6 +196,69 @@ func runtimePendingSnapshot(
 	}
 	batch.wikiOps[key] = rows
 	return rows, nil
+}
+
+func runtimePendingSnapshot(ctx context.Context, tenantID uint64, kbID string) ([]*types.TaskPendingOp, error) {
+	batch := ctx.Value(runtimeCancelledKnowledgeKey{}).(*runtimeCancellationBatch)
+	rows, ok := batch.wikiOps[fmt.Sprintf("%d:%s", tenantID, kbID)]
+	if !ok {
+		return nil, errors.New("runtime cancellation scope is absent from the original snapshot")
+	}
+	return rows, nil
+}
+
+func (s *knowledgeService) snapshotRuntimeTaskCancellation(
+	ctx context.Context, taskType string, data []byte,
+) (map[string][]*types.TaskPendingOp, error) {
+	snapshot := make(map[string][]*types.TaskPendingOp)
+	switch taskType {
+	case types.TypeDocumentProcess, types.TypeManualProcess, types.TypeKnowledgePostProcess,
+		types.TypeImageMultimodal, types.TypeChunkExtract, types.TypeQuestionGeneration,
+		types.TypeSummaryGeneration, types.TypeDataTableSummary, types.TypeKnowledgeAutoTag,
+		types.TypeKnowledgeListReparse:
+	default:
+		return snapshot, nil
+	}
+	var p struct {
+		TenantID     uint64   `json:"tenant_id"`
+		KnowledgeID  string   `json:"knowledge_id"`
+		KnowledgeIDs []string `json:"knowledge_ids"`
+	}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, err
+	}
+	ids := p.KnowledgeIDs
+	if taskType != types.TypeKnowledgeListReparse {
+		ids = []string{p.KnowledgeID}
+	}
+	for _, id := range ids {
+		knowledge, err := s.repo.GetKnowledgeByID(ctx, p.TenantID, id)
+		if runtimeBusinessObjectGone(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if knowledge == nil || knowledge.ParseStatus == types.ParseStatusCompleted ||
+			knowledge.ParseStatus == types.ParseStatusFailed {
+			continue
+		}
+		rows, err := loadRuntimePendingSnapshot(ctx, s.taskPendingRepo, p.TenantID, knowledge.KnowledgeBaseID)
+		if err != nil {
+			return nil, err
+		}
+		key := fmt.Sprintf("%d:%s", p.TenantID, knowledge.KnowledgeBaseID)
+		if _, exists := snapshot[key]; !exists {
+			snapshot[key] = nil
+		}
+		// A document owns only its ingest rows, not the entire KB's operation set.
+		for _, row := range rows {
+			if row.TaskType == types.TypeWikiIngest && row.Op == WikiOpIngest && row.DedupKey == id {
+				snapshot[key] = append(snapshot[key], row)
+			}
+		}
+	}
+	return snapshot, nil
 }
 
 func (s *RuntimeTaskCancellationService) cancel(ctx context.Context, taskType string, payload []byte) error {
@@ -200,7 +306,7 @@ func (s *knowledgeService) cancelRuntimeKnowledge(ctx context.Context, id string
 	if !ok {
 		return errors.New("confirmed document task cancellation is unavailable")
 	}
-	rows, err := runtimePendingSnapshot(ctx, s.taskPendingRepo, tenantID, knowledge.KnowledgeBaseID)
+	rows, err := runtimePendingSnapshot(ctx, tenantID, knowledge.KnowledgeBaseID)
 	if err != nil {
 		return err
 	}
@@ -389,7 +495,7 @@ func (s *wikiIngestService) CancelRuntimeTask(ctx context.Context, _ string, dat
 		return err
 	}
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, p.TenantID)
-	rows, err := runtimePendingSnapshot(ctx, s.pendingRepo, p.TenantID, p.KnowledgeBaseID)
+	rows, err := runtimePendingSnapshot(ctx, p.TenantID, p.KnowledgeBaseID)
 	if err != nil {
 		return err
 	}
