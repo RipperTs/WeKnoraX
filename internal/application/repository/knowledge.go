@@ -536,6 +536,17 @@ func (r *knowledgeRepository) UpdateKnowledgeColumns(
 	return r.db.WithContext(ctx).Model(&types.Knowledge{}).Where("id = ?", id).Updates(values).Error
 }
 
+// UpdateKnowledgeColumnsIfUnchanged leaves any later parse or status update intact.
+func (r *knowledgeRepository) UpdateKnowledgeColumnsIfUnchanged(
+	ctx context.Context, snapshot *types.Knowledge, values map[string]interface{},
+) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&types.Knowledge{}).
+		Where("tenant_id = ? AND id = ? AND updated_at = ? AND parse_status = ?",
+			snapshot.TenantID, snapshot.ID, snapshot.UpdatedAt, snapshot.ParseStatus).
+		Updates(values)
+	return result.RowsAffected > 0, result.Error
+}
+
 // UpdateActiveDeletingKnowledgeColumns only touches rows that are still visible
 // to normal queries and have not moved out of the transient deleting state.
 func (r *knowledgeRepository) UpdateActiveDeletingKnowledgeColumns(

@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
 type runtimeCancellationKnowledgeRepo struct {
 	interfaces.KnowledgeRepository
-	rows    map[string]*types.Knowledge
-	updates map[string]map[string]interface{}
+	rows         map[string]*types.Knowledge
+	updates      map[string]map[string]interface{}
+	beforeUpdate func()
 }
 
 func (r *runtimeCancellationKnowledgeRepo) GetKnowledgeByID(
@@ -28,6 +32,34 @@ func (r *runtimeCancellationKnowledgeRepo) UpdateKnowledgeColumns(
 ) error {
 	r.updates[id] = columns
 	return nil
+}
+
+func (r *runtimeCancellationKnowledgeRepo) UpdateKnowledgeColumnsIfUnchanged(
+	ctx context.Context, snapshot *types.Knowledge, columns map[string]interface{},
+) (bool, error) {
+	if r.beforeUpdate != nil {
+		r.beforeUpdate()
+	}
+	current := r.rows[snapshot.ID]
+	if current.TenantID != snapshot.TenantID || !current.UpdatedAt.Equal(snapshot.UpdatedAt) ||
+		current.ParseStatus != snapshot.ParseStatus {
+		return false, nil
+	}
+	return true, r.UpdateKnowledgeColumns(ctx, snapshot.ID, columns)
+}
+
+type runtimeCancellationTracker struct {
+	noopSpanTracker
+	attempt int
+	aborted []int
+}
+
+func (t *runtimeCancellationTracker) LatestAttempt(context.Context, string) int {
+	return t.attempt
+}
+
+func (t *runtimeCancellationTracker) AbortAttempt(_ context.Context, _ string, attempt int, _, _, _ string) {
+	t.aborted = append(t.aborted, attempt)
 }
 
 type runtimeCancellationInspector struct {
@@ -137,7 +169,7 @@ func TestRuntimePurgePreservesCompletedParseStates(t *testing.T) {
 	}{
 		{
 			name: "summary refresh", taskType: types.TypeSummaryGeneration,
-			payload: `{"tenant_id":1,"knowledge_id":"completed","refresh":true}`, summary: true,
+			payload: `{"tenant_id":1,"knowledge_id":"completed","refresh":true,"attempt":1}`, summary: true,
 		},
 		{
 			name: "questions after completion", taskType: types.TypeQuestionGeneration,
@@ -168,6 +200,7 @@ func TestRuntimePurgePreservesCompletedParseStates(t *testing.T) {
 			inspector := &runtimeCancellationInspector{}
 			knowledge := &knowledgeService{
 				repo: repo, taskInspector: inspector, taskPendingRepo: &runtimeCancellationPendingRepo{},
+				spanTracker: &runtimeCancellationTracker{attempt: 1},
 			}
 			svc := &RuntimeTaskCancellationService{knowledge: knowledge}
 			plan, err := svc.CancelBatch()(context.Background(), test.taskType, []byte(test.payload), nil)
@@ -309,6 +342,138 @@ func TestRuntimeDocumentRecoveryPreservesLaterWikiOps(t *testing.T) {
 			require.Equal(t, types.ParseStatusProcessing, document.ParseStatus)
 			require.Empty(t, repo.updates, "recovery must not update the new parse or summary")
 			require.Equal(t, []string{"doc-1"}, inspector.stopped, "recovery must not stop the new parse")
+		})
+	}
+}
+
+func TestRuntimeDocumentCancellationKeepsLaterParseState(t *testing.T) {
+	for _, change := range []string{"unchanged", "before snapshot", "after snapshot", "during update", "no attempt"} {
+		t.Run(change, func(t *testing.T) {
+			ctx := context.Background()
+			document := &types.Knowledge{
+				ID: "doc-1", TenantID: 1, KnowledgeBaseID: "kb-1",
+				ParseStatus: types.ParseStatusProcessing, SummaryStatus: types.SummaryStatusPending,
+				UpdatedAt: time.Now(),
+			}
+			repo := &runtimeCancellationKnowledgeRepo{
+				rows: map[string]*types.Knowledge{"doc-1": document}, updates: make(map[string]map[string]interface{}),
+			}
+			tracker := &runtimeCancellationTracker{attempt: 1}
+			knowledge := &knowledgeService{
+				repo: repo, spanTracker: tracker, taskInspector: &runtimeCancellationInspector{},
+				taskPendingRepo: &runtimeCancellationPendingRepo{},
+			}
+			startNewParse := func() {
+				tracker.attempt = 2
+				document.UpdatedAt = document.UpdatedAt.Add(time.Second)
+			}
+			if change == "before snapshot" {
+				startNewParse()
+			}
+			payload := []byte(`{"tenant_id":1,"knowledge_id":"doc-1","attempt":1}`)
+			if change == "no attempt" {
+				payload = []byte(`{"tenant_id":1,"knowledge_id":"doc-1"}`)
+			}
+			svc := &RuntimeTaskCancellationService{knowledge: knowledge}
+			plan, err := svc.CancelBatch()(ctx, types.TypeSummaryGeneration, payload, nil)
+			require.NoError(t, err)
+			switch change {
+			case "after snapshot":
+				startNewParse()
+			case "during update":
+				repo.beforeUpdate = startNewParse
+			}
+			require.NoError(t, plan.Cancel(ctx))
+			if change == "unchanged" {
+				require.Equal(t, types.ParseStatusCancelled, repo.updates["doc-1"]["parse_status"])
+				require.Equal(t, types.SummaryStatusFailed, repo.updates["doc-1"]["summary_status"])
+				require.Equal(t, []int{1}, tracker.aborted)
+			} else {
+				require.Empty(t, repo.updates, "a later or unidentified parse must retain its state")
+				require.Empty(t, tracker.aborted, "cleanup must not close another attempt's spans")
+			}
+		})
+	}
+}
+
+type runtimeCancellationSyncLogRepo struct {
+	processSyncSyncLogRepo
+	readErr error
+}
+
+func (r *runtimeCancellationSyncLogRepo) FindByID(ctx context.Context, id string) (*types.SyncLog, error) {
+	if r.readErr != nil {
+		return nil, r.readErr
+	}
+	return r.processSyncSyncLogRepo.FindByID(ctx, id)
+}
+
+func TestRuntimeSyncRecoveryFinishesOriginalSync(t *testing.T) {
+	ctx := context.Background()
+	original := &types.SyncLog{ID: "original", Status: types.SyncLogStatusRunning}
+	later := &types.SyncLog{ID: "later", Status: types.SyncLogStatusRunning}
+	repo := &runtimeCancellationSyncLogRepo{
+		processSyncSyncLogRepo: processSyncSyncLogRepo{logs: map[string]*types.SyncLog{
+			original.ID: original, later.ID: later,
+		}},
+		readErr: errors.New("storage unavailable"),
+	}
+	svc := &RuntimeTaskCancellationService{
+		knowledge: &knowledgeService{}, dataSource: &DataSourceService{syncLogRepo: repo},
+	}
+	payload := []byte(`{"tenant_id":1,"data_source_id":"source-1","sync_log_id":"original"}`)
+	plan, err := svc.CancelBatch()(ctx, types.TypeDataSourceSync, payload, nil)
+	require.NoError(t, err)
+	for range 3 {
+		require.Error(t, plan.Cancel(ctx))
+	}
+	require.Equal(t, types.SyncLogStatusRunning, original.Status)
+	repo.readErr = nil
+	recovered, err := svc.CancelBatch()(ctx, types.TypeDataSourceSync, payload, plan.Snapshot)
+	require.NoError(t, err)
+	require.NoError(t, recovered.Cancel(ctx))
+	require.Equal(t, types.SyncLogStatusCanceled, original.Status)
+	require.NotNil(t, original.FinishedAt)
+	require.Equal(t, types.SyncLogStatusRunning, later.Status)
+}
+
+func TestRuntimeTransferRecoveryFinishesOriginalProgress(t *testing.T) {
+	for _, taskType := range []string{types.TypeKBClone, types.TypeKnowledgeMove} {
+		t.Run(taskType, func(t *testing.T) {
+			ctx := context.Background()
+			server := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1})
+			t.Cleanup(func() { _ = client.Close() })
+			key := getKBCloneProgressKey
+			if taskType == types.TypeKnowledgeMove {
+				key = getKnowledgeMoveProgressKey
+			}
+			for _, id := range []string{"original", "later"} {
+				data, err := json.Marshal(types.KBCloneProgress{TaskID: id, Status: types.KBCloneStatusProcessing})
+				require.NoError(t, err)
+				require.NoError(t, client.Set(ctx, key(id), data, time.Hour).Err())
+			}
+			svc := &RuntimeTaskCancellationService{knowledge: &knowledgeService{redisClient: client}}
+			payload := []byte(`{"tenant_id":1,"task_id":"original"}`)
+			plan, err := svc.CancelBatch()(ctx, taskType, payload, nil)
+			require.NoError(t, err)
+			server.SetError("storage unavailable")
+			for range 3 {
+				require.Error(t, plan.Cancel(ctx))
+			}
+			server.SetError("")
+			recovered, err := svc.CancelBatch()(ctx, taskType, payload, plan.Snapshot)
+			require.NoError(t, err)
+			require.NoError(t, recovered.Cancel(ctx))
+			for id, status := range map[string]types.KBCloneTaskStatus{
+				"original": types.KBCloneStatusFailed, "later": types.KBCloneStatusProcessing,
+			} {
+				data, err := client.Get(ctx, key(id)).Bytes()
+				require.NoError(t, err)
+				var progress types.KBCloneProgress
+				require.NoError(t, json.Unmarshal(data, &progress))
+				require.Equal(t, status, progress.Status)
+			}
 		})
 	}
 }

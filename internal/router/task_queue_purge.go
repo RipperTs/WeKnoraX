@@ -95,7 +95,23 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 	ctx context.Context, queue string, state types.RuntimeTaskState,
 	prepare interfaces.RuntimeTaskCancellationPreparer,
 ) (result types.RuntimeQueuePurgeResult, err error) {
-	ctx = context.WithValue(ctx, runtimeKnowledgeTasksKey{}, newRuntimeKnowledgeTasks())
+	for _, definition := range types.QueueDefinitions() {
+		if definition.Name != queue {
+			continue
+		}
+		for _, taskType := range definition.TaskTypes {
+			if !runtimeTaskCancelsKnowledge(taskType) {
+				continue
+			}
+			index, snapshotErr := a.snapshotRuntimeKnowledgeTasks(ctx)
+			if snapshotErr != nil {
+				return result, snapshotErr
+			}
+			ctx = context.WithValue(ctx, runtimeKnowledgeTasksKey{}, index)
+			break
+		}
+		break
+	}
 	selected, err := a.snapshotRuntimeState(ctx, queue, state)
 	if err != nil {
 		return result, err

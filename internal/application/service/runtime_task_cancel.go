@@ -89,6 +89,12 @@ type runtimeCancelledKnowledgeKey struct{}
 type runtimeCancellationBatch struct {
 	knowledges map[string]error
 	wikiOps    map[string][]*types.TaskPendingOp
+	parses     map[string]runtimeParseSnapshot
+}
+
+type runtimeParseSnapshot struct {
+	knowledge types.Knowledge
+	attempt   int
 }
 
 // CancelBatch fixes Wiki operation IDs before stopping handlers and shares
@@ -96,6 +102,7 @@ type runtimeCancellationBatch struct {
 func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCancellationPreparer {
 	batch := &runtimeCancellationBatch{
 		knowledges: make(map[string]error), wikiOps: make(map[string][]*types.TaskPendingOp),
+		parses: make(map[string]runtimeParseSnapshot),
 	}
 	return func(ctx context.Context, taskType string, payload []byte,
 		snapshot json.RawMessage,
@@ -111,7 +118,7 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			return s.memory.PrepareRuntimeTaskCancellation(ctx, payload, snapshot)
 		}
 		ctx = context.WithValue(ctx, runtimeCancelledKnowledgeKey{}, batch)
-		taskBatch := &runtimeCancellationBatch{knowledges: batch.knowledges}
+		taskBatch := &runtimeCancellationBatch{knowledges: batch.knowledges, parses: batch.parses}
 		if snapshot != nil {
 			if err := json.Unmarshal(snapshot, &taskBatch.wikiOps); err != nil {
 				return plan, err
@@ -163,7 +170,7 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			}
 		}
 		plan.Snapshot = snapshot
-		if recovering && taskType != types.TypeFAQImport {
+		if recovering && runtimeSnapshotOnlyRecovery(taskType) {
 			// A document may have been reparsed since cleanup failed. Recovery
 			// owns only the captured operations, never its current parse or tasks.
 			plan.Cancel = func(cancelCtx context.Context) error {
@@ -190,6 +197,18 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 			plan.Cancel = cancel
 		}
 		return plan, nil
+	}
+}
+
+func runtimeSnapshotOnlyRecovery(taskType string) bool {
+	switch taskType {
+	case types.TypeDocumentProcess, types.TypeManualProcess, types.TypeKnowledgePostProcess,
+		types.TypeImageMultimodal, types.TypeChunkExtract, types.TypeQuestionGeneration,
+		types.TypeSummaryGeneration, types.TypeDataTableSummary, types.TypeKnowledgeAutoTag,
+		types.TypeKnowledgeListReparse, types.TypeWikiIngest, types.TypeWikiFinalize:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -249,6 +268,7 @@ func (s *knowledgeService) snapshotRuntimeTaskCancellation(
 		TenantID     uint64   `json:"tenant_id"`
 		KnowledgeID  string   `json:"knowledge_id"`
 		KnowledgeIDs []string `json:"knowledge_ids"`
+		Attempt      int      `json:"attempt"`
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, err
@@ -265,7 +285,19 @@ func (s *knowledgeService) snapshotRuntimeTaskCancellation(
 		if err != nil {
 			return nil, err
 		}
-		if knowledge == nil || knowledge.ParseStatus == types.ParseStatusCompleted ||
+		if knowledge == nil {
+			continue
+		}
+		batch := ctx.Value(runtimeCancelledKnowledgeKey{}).(*runtimeCancellationBatch)
+		parseKey := fmt.Sprintf("%d:%s", p.TenantID, id)
+		if _, exists := batch.parses[parseKey]; !exists {
+			parse := runtimeParseSnapshot{knowledge: *knowledge}
+			if p.Attempt > 0 && s.tracker().LatestAttempt(ctx, id) == p.Attempt {
+				parse.attempt = p.Attempt
+			}
+			batch.parses[parseKey] = parse
+		}
+		if knowledge.ParseStatus == types.ParseStatusCompleted ||
 			knowledge.ParseStatus == types.ParseStatusFailed {
 			continue
 		}
@@ -337,24 +369,6 @@ func (s *knowledgeService) cancelRuntimeKnowledge(ctx context.Context, id string
 		return err
 	}
 	return inspector.CancelRuntimeKnowledgeTasks(ctx, tenantID, id, func(stoppedCtx context.Context) error {
-		// Stopping a handler can finish/fail its parent. Re-read after all
-		// exits, keeping terminal business states while still clearing siblings.
-		current, err := s.repo.GetKnowledgeByID(stoppedCtx, tenantID, id)
-		if runtimeBusinessObjectGone(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if current != nil {
-			switch current.ParseStatus {
-			case types.ParseStatusPending, types.ParseStatusProcessing,
-				types.ParseStatusFinalizing, types.ParseStatusCancelled:
-				if _, err := s.cancelKnowledgeParse(stoppedCtx, id, false); err != nil {
-					return err
-				}
-			}
-		}
 		var ids []int64
 		for _, row := range rows {
 			if row.TaskType == types.TypeWikiIngest && row.Op == WikiOpIngest && row.DedupKey == id {
@@ -363,6 +377,39 @@ func (s *knowledgeService) cancelRuntimeKnowledge(ctx context.Context, id string
 		}
 		return s.taskPendingRepo.DeleteByIDs(stoppedCtx, ids)
 	})
+}
+
+// Only an identified, unchanged parse can receive business-state cleanup.
+// Missing attempt metadata leaves the interrupted state for manual handling.
+func (s *knowledgeService) finishRuntimeKnowledgeCancellation(ctx context.Context, id string, summary bool) error {
+	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
+	batch := ctx.Value(runtimeCancelledKnowledgeKey{}).(*runtimeCancellationBatch)
+	parse := batch.parses[fmt.Sprintf("%d:%s", tenantID, id)]
+	if parse.attempt == 0 || s.tracker().LatestAttempt(ctx, id) != parse.attempt {
+		return nil
+	}
+	columns := make(map[string]interface{})
+	switch parse.knowledge.ParseStatus {
+	case types.ParseStatusPending, types.ParseStatusProcessing, types.ParseStatusFinalizing:
+		columns["parse_status"] = types.ParseStatusCancelled
+		columns["error_message"] = runtimeTaskCancelledMessage
+		columns["pending_subtasks_count"] = 0
+	}
+	if summary && parse.knowledge.SummaryStatus != types.SummaryStatusCompleted {
+		columns["summary_status"] = types.SummaryStatusFailed
+	}
+	if len(columns) == 0 {
+		return nil
+	}
+	updated, err := s.repo.UpdateKnowledgeColumnsIfUnchanged(ctx, &parse.knowledge, columns)
+	if err != nil {
+		return err
+	}
+	if updated && columns["parse_status"] == types.ParseStatusCancelled {
+		s.tracker().AbortAttempt(ctx, id, parse.attempt,
+			"USER_CANCELLED", runtimeTaskCancelledMessage, runtimeTaskCancelledMessage)
+	}
+	return nil
 }
 
 func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType string, data []byte) error {
@@ -383,20 +430,7 @@ func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType strin
 		if err := s.cancelRuntimeKnowledge(ctx, p.KnowledgeID); err != nil {
 			return err
 		}
-		if taskType == types.TypeSummaryGeneration {
-			knowledge, err := s.repo.GetKnowledgeByID(ctx, p.TenantID, p.KnowledgeID)
-			if runtimeBusinessObjectGone(err) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if knowledge != nil && knowledge.SummaryStatus != types.SummaryStatusCompleted {
-				return s.repo.UpdateKnowledgeColumns(ctx, p.KnowledgeID,
-					map[string]interface{}{"summary_status": types.SummaryStatusFailed})
-			}
-		}
-		return nil
+		return s.finishRuntimeKnowledgeCancellation(ctx, p.KnowledgeID, taskType == types.TypeSummaryGeneration)
 	case types.TypeFAQImport:
 		var payload types.FAQImportPayload
 		if err := json.Unmarshal(data, &payload); err != nil {
@@ -462,7 +496,7 @@ func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType strin
 				return err
 			}
 			if knowledge != nil && knowledge.ParseStatus == types.ParseStatusDeleting {
-				if err := s.repo.UpdateKnowledgeColumns(ctx, id, map[string]interface{}{
+				if _, err := s.repo.UpdateActiveDeletingKnowledgeColumns(ctx, id, map[string]interface{}{
 					"parse_status": types.ParseStatusFailed, "error_message": runtimeTaskCancelledMessage,
 				}); err != nil {
 					return err

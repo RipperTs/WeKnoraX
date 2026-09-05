@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/google/uuid"
@@ -69,6 +70,39 @@ func setupKnowledgeTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.Exec(knowledgesTestDDL).Error)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	return db
+}
+
+func TestUpdateKnowledgeColumnsIfUnchangedPreservesLaterWork(t *testing.T) {
+	ctx := context.Background()
+	db := setupKnowledgeTestDB(t)
+	repo := NewKnowledgeRepository(db)
+	for _, changed := range []bool{false, true} {
+		id := insertProcessingKnowledge(t, db)
+		// Processing writes updated_at through GORM, just like the production path.
+		require.NoError(t, repo.UpdateKnowledgeColumns(ctx, id, map[string]interface{}{"updated_at": time.Now()}))
+		snapshot, err := repo.GetKnowledgeByID(ctx, 1, id)
+		require.NoError(t, err)
+		if changed {
+			require.NoError(t, repo.UpdateKnowledgeColumns(ctx, id, map[string]interface{}{
+				"updated_at":     snapshot.UpdatedAt.Add(time.Second),
+				"summary_status": types.SummaryStatusProcessing,
+			}))
+		}
+		updated, err := repo.UpdateKnowledgeColumnsIfUnchanged(ctx, snapshot, map[string]interface{}{
+			"parse_status": types.ParseStatusCancelled, "summary_status": types.SummaryStatusFailed,
+		})
+		require.NoError(t, err)
+		require.Equal(t, !changed, updated)
+		current, err := repo.GetKnowledgeByID(ctx, 1, id)
+		require.NoError(t, err)
+		if changed {
+			require.Equal(t, types.ParseStatusProcessing, current.ParseStatus)
+			require.Equal(t, types.SummaryStatusProcessing, current.SummaryStatus)
+		} else {
+			require.Equal(t, types.ParseStatusCancelled, current.ParseStatus)
+			require.Equal(t, types.SummaryStatusFailed, current.SummaryStatus)
+		}
+	}
 }
 
 // insertProcessingKnowledge seeds a row in `processing` state ready for a

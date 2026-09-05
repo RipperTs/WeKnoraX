@@ -693,3 +693,68 @@ func TestRuntimePurgeBlocksRecoveryWithoutOriginalSnapshot(t *testing.T) {
 	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
 	require.NoError(t, err)
 }
+
+func TestRuntimePurgePreservesDocumentTasksSubmittedAfterSnapshot(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	enqueue := func(queue, taskType, id string, attempt int) {
+		payload, err := json.Marshal(types.DocumentProcessPayload{TenantID: 1, KnowledgeID: "doc-1", Attempt: attempt})
+		require.NoError(t, err)
+		_, err = client.Enqueue(asynq.NewTask(taskType, payload), asynq.Queue(queue), asynq.TaskID(id))
+		require.NoError(t, err)
+	}
+	enqueue(types.QueueDefault, types.TypeDocumentProcess, "original", 1)
+	enqueue(types.QueueSummary, types.TypeSummaryGeneration, "original-summary", 1)
+	prepare := func(_ context.Context, _ string, _ []byte,
+		_ json.RawMessage,
+	) (interfaces.RuntimeTaskCancellationPlan, error) {
+		// A reparse arrives after task selection and before any cancel callback.
+		enqueue(types.QueueDefault, types.TypeDocumentProcess, "later", 2)
+		enqueue(types.QueueSummary, types.TypeSummaryGeneration, "later-summary", 2)
+		return interfaces.RuntimeTaskCancellationPlan{
+			Snapshot: json.RawMessage(`{}`),
+			Cancel: func(cancelCtx context.Context) error {
+				return inspector.CancelRuntimeKnowledgeTasks(cancelCtx, 1, "doc-1", func(context.Context) error {
+					return nil
+				})
+			},
+		}, nil
+	}
+	result, supported, err := inspector.PurgeRuntimeTasks(ctx, types.QueueDefault, types.RuntimeTaskPending, prepare)
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Equal(t, 1, result.Deleted)
+	require.Zero(t, result.Failed)
+	for queue, ids := range map[string][]string{
+		types.QueueDefault: {"original", "later"}, types.QueueSummary: {"original-summary", "later-summary"},
+	} {
+		_, err := inspector.inspector.GetTaskInfo(queue, ids[0])
+		require.ErrorIs(t, err, asynq.ErrTaskNotFound)
+		later, err := inspector.inspector.GetTaskInfo(queue, ids[1])
+		require.NoError(t, err)
+		require.Equal(t, asynq.TaskStatePending, later.State)
+	}
+}
+
+func TestRuntimePurgeNonDocumentTasksKeepsDocumentQueuesRunning(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	_, err := client.Enqueue(asynq.NewTask(types.TypeKBClone, []byte(`{"tenant_id":1,"task_id":"clone-1"}`)),
+		asynq.Queue(types.QueueMaintenance))
+	require.NoError(t, err)
+	prepare := func(ctx context.Context, _ string, _ []byte,
+		_ json.RawMessage,
+	) (interfaces.RuntimeTaskCancellationPlan, error) {
+		for _, queue := range runtimeKnowledgeQueues() {
+			paused, err := inspector.redis.Exists(ctx, "asynq:{"+queue+"}:paused").Result()
+			require.NoError(t, err)
+			require.Zero(t, paused, "non-document cleanup must not pause document queues")
+		}
+		return interfaces.RuntimeTaskCancellationPlan{Snapshot: json.RawMessage(`{}`)}, nil
+	}
+	result, supported, err := inspector.PurgeRuntimeTasks(
+		context.Background(), types.QueueMaintenance, types.RuntimeTaskPending, prepare,
+	)
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Equal(t, 1, result.Deleted)
+}
