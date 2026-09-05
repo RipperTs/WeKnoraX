@@ -92,6 +92,12 @@ type TaskPendingOpsScopeCleaner interface {
 	DeleteByScope(ctx context.Context, scope, scopeID string) error
 }
 
+// TaskPendingOpsSnapshotter fixes the IDs owned by a runtime cleanup before
+// stopping workers. Later enqueues must not become part of that cleanup.
+type TaskPendingOpsSnapshotter interface {
+	SnapshotByScope(ctx context.Context, tenantID uint64, scope, scopeID string) ([]*types.TaskPendingOp, error)
+}
+
 // TaskPendingOpsKnowledgeBaseGuard atomically persists a KB-scoped operation
 // only while its knowledge base is still active. Implementations must
 // serialize the active-KB check with soft deletion so a detached worker cannot

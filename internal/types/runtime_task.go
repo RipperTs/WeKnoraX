@@ -13,6 +13,9 @@ var (
 	// cursor has left the selected live state. The caller should refresh from
 	// the first page rather than falling back to offset pagination.
 	ErrExpiredRuntimeTaskCursor = errors.New("expired runtime task cursor")
+	// ErrRuntimeTaskNotStopped prevents deleting records whose handler exit
+	// has not been confirmed, including related tasks in other queues.
+	ErrRuntimeTaskNotStopped = errors.New("runtime task handler has not stopped")
 )
 
 // RuntimeTaskState is the stable operator-facing task lifecycle. It mirrors
@@ -98,9 +101,9 @@ type RuntimeQueuePurgeResult struct {
 }
 
 // RuntimeTaskExecutionKey tracks handler goroutines, which can outlive asynq's
-// active state after context cancellation. Members are individual executions.
+// active state after cancellation. Sorted-set scores are execution lease expiries.
 func RuntimeTaskExecutionKey(queue, taskID string) string {
-	return "runtime:task:executions:" + queue + ":" + taskID
+	return "runtime:task:execution-leases:" + queue + ":" + taskID
 }
 
 func (t RuntimeTaskInfo) Allows(action RuntimeTaskAction) bool {

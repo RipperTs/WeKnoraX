@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/gin-gonic/gin"
 )
 
@@ -198,7 +199,7 @@ func (r *runtimeTaskTestInspector) ForceDeleteRuntimeTask(
 
 func (r *runtimeTaskTestInspector) PurgeRuntimeTasks(
 	_ context.Context, queue string, _ types.RuntimeTaskState,
-	_ func(context.Context, string, []byte) error,
+	_ interfaces.RuntimeTaskCancellationPreparer,
 ) (types.RuntimeQueuePurgeResult, bool, error) {
 	r.purgedQueue = queue
 	if r.purgeErr != nil {

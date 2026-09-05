@@ -104,6 +104,27 @@ type RuntimeTaskInspector interface {
 	// PurgeRuntimeTasks clears one state. Live tasks must stop executing and
 	// finish their domain cancellation before their queue records are removed.
 	PurgeRuntimeTasks(ctx context.Context, queue string, state types.RuntimeTaskState,
-		cancelTask func(context.Context, string, []byte) error,
+		prepare RuntimeTaskCancellationPreparer,
 	) (result types.RuntimeQueuePurgeResult, supported bool, err error)
+}
+
+// RuntimeTaskCancellationPreparer snapshots domain work without changing it.
+// The returned cancellation runs only after the queue handlers have exited.
+type RuntimeTaskCancellationPreparer func(context.Context, string, []byte) (RuntimeTaskCancellationPlan, error)
+
+// RuntimeTaskCancellationPlan separates domain cancellation from rearming
+// retained work after old, potentially coalesced queue triggers are deleted.
+type RuntimeTaskCancellationPlan struct {
+	Cancel      RuntimeTaskCancellation
+	AfterDelete RuntimeTaskCancellation
+}
+
+// RuntimeTaskCancellation updates domain state after confirmed worker exit.
+type RuntimeTaskCancellation func(context.Context) error
+
+// RuntimeKnowledgeTaskCanceller keeps related queues paused while confirming
+// every document handler's exit, applying domain cancellation and deleting records.
+type RuntimeKnowledgeTaskCanceller interface {
+	CancelRuntimeKnowledgeTasks(ctx context.Context, tenantID uint64, knowledgeID string,
+		cancel RuntimeTaskCancellation) error
 }

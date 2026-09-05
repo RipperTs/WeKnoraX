@@ -2715,6 +2715,14 @@ func resetKnowledgeForReparse(knowledge *types.Knowledge, kb *types.KnowledgeBas
 func (s *knowledgeService) CancelKnowledgeParse(
 	ctx context.Context, knowledgeID string,
 ) (*types.Knowledge, error) {
+	return s.cancelKnowledgeParse(ctx, knowledgeID, true)
+}
+
+// Runtime cleanup owns queue deletion after confirmed handler exit. The normal
+// interactive cancellation still performs its existing best-effort dequeue.
+func (s *knowledgeService) cancelKnowledgeParse(
+	ctx context.Context, knowledgeID string, cleanupQueues bool,
+) (*types.Knowledge, error) {
 	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
 	existing, err := s.repo.GetKnowledgeByID(ctx, tenantID, knowledgeID)
 	if err != nil {
@@ -2729,7 +2737,9 @@ func (s *knowledgeService) CancelKnowledgeParse(
 	case types.ParseStatusCancelled:
 		// Idempotent — still attempt the dequeue in case earlier calls
 		// raced an enqueue, but skip the row update / span close path.
-		s.dequeueKnowledgeTasks(ctx, knowledgeID)
+		if cleanupQueues {
+			s.dequeueKnowledgeTasks(ctx, knowledgeID)
+		}
 		return existing, nil
 	case types.ParseStatusCompleted, types.ParseStatusFailed:
 		return nil, werrors.NewBadRequestError("解析已结束，无法取消")
@@ -2781,7 +2791,9 @@ func (s *knowledgeService) CancelKnowledgeParse(
 
 	// Best-effort dequeue. Failures here don't block the cancel — the
 	// downstream tasks will still self-abort at their entry guards.
-	s.dequeueKnowledgeTasks(ctx, knowledgeID)
+	if cleanupQueues {
+		s.dequeueKnowledgeTasks(ctx, knowledgeID)
+	}
 	// Wiki ingest lives in its own per-KB pending queue (task_pending_ops)
 	// rather than asynq, so dequeueKnowledgeTasks above can't see it.
 	// Mirror the deletion path's scrub so a cancelled knowledge doesn't
@@ -2789,7 +2801,9 @@ func (s *knowledgeService) CancelKnowledgeParse(
 	// doc the user already abandoned. The in-flight worker would skip it
 	// at isWikiKnowledgeAborted anyway, but scrubbing avoids waking the
 	// batch in the first place.
-	s.scrubWikiPendingIngest(ctx, existing.KnowledgeBaseID, knowledgeID, "cancel")
+	if cleanupQueues {
+		s.scrubWikiPendingIngest(ctx, existing.KnowledgeBaseID, knowledgeID, "cancel")
+	}
 	recordKBActivity(ctx, s.audit, tenantID, existing.KnowledgeBaseID, types.AuditActionKnowledgeParseCanceled,
 		"knowledge", existing.ID, types.AuditOutcomeCanceled,
 		map[string]any{"title": existing.Title, "type": existing.Type})

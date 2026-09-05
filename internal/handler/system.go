@@ -2328,7 +2328,7 @@ func (h *SystemHandler) PurgeRuntimeTasks(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
 		return
 	}
-	var cancelTask func(context.Context, string, []byte) error
+	var cancelTask interfaces.RuntimeTaskCancellationPreparer
 	if state != types.RuntimeTaskArchived && state != types.RuntimeTaskCompleted {
 		if h.runtimeTaskCancellation == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Business cancellation is unavailable"})

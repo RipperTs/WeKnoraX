@@ -23,6 +23,17 @@ func NewTaskPendingOpsRepository(db *gorm.DB) interfaces.TaskPendingOpsRepositor
 	return &taskPendingOpsRepository{db: db}
 }
 
+// SnapshotByScope returns the currently committed operations in one scope.
+func (r *taskPendingOpsRepository) SnapshotByScope(
+	ctx context.Context, tenantID uint64, scope, scopeID string,
+) ([]*types.TaskPendingOp, error) {
+	var rows []*types.TaskPendingOp
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND scope = ? AND scope_id = ?", tenantID, scope, scopeID).
+		Order("id ASC").Find(&rows).Error
+	return rows, err
+}
+
 // Enqueue inserts a single op. Callers must populate TenantID/TaskType/
 // Scope/ScopeID/Op (Payload optional). ID, FailCount default to zero;
 // EnqueuedAt is filled with the DB-side default if left zero.
