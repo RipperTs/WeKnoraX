@@ -89,6 +89,10 @@ func TestPlatformControlPlaneRoutesDeclarePlatformCapabilities(t *testing.T) {
 			[]types.APIKeyCapability{types.APIKeyCapabilitySystemRuntimeManage},
 		},
 		{
+			http.MethodDelete, "/api/v1/system/admin/runtime/queues/:queue/pending",
+			[]types.APIKeyCapability{types.APIKeyCapabilitySystemRuntimeManage},
+		},
+		{
 			http.MethodGet, "/api/v1/system/admin/tenants",
 			[]types.APIKeyCapability{
 				types.APIKeyCapabilitySystemTenantsRead,

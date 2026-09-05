@@ -2370,6 +2370,8 @@ func (h *SystemHandler) PurgePendingRuntimeTasks(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "Pending tasks could not be purged"})
 		return
 	}
+	h.emitQueueTaskAudit(c.Request.Context(), types.AuditActionSystemQueuePendingPurged, queue, "",
+		map[string]string{"deleted": strconv.Itoa(deleted)})
 	c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
 }
 

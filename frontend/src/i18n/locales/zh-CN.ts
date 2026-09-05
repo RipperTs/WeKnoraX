@@ -2833,7 +2833,8 @@ export default {
           'system.queue_task_deleted': '清除失败任务记录',
           'system.queue_task_run_now': '立即执行队列任务',
           'system.queue_task_cancelled': '终止队列任务',
-          'system.queue_archived_purged': '清除全部失败任务'
+          'system.queue_archived_purged': '清除全部失败任务',
+          'system.queue_pending_purged': '清空排队任务'
         },
         columns: {
           time: '时间',

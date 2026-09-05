@@ -86,6 +86,8 @@ type runtimeTaskTestInspector struct {
 	purgedQueue         string
 	purgedCount         int
 	purgeErr            error
+	pendingPurgedQueue  string
+	pendingPurgedCount  int
 	cancelKnowledge     string
 	cancelDeleted       int
 	mutatedQueue        string
@@ -204,6 +206,13 @@ func (r *runtimeTaskTestInspector) PurgeArchivedRuntimeTasks(
 		return 0, true, r.purgeErr
 	}
 	return r.purgedCount, true, nil
+}
+
+func (r *runtimeTaskTestInspector) PurgePendingRuntimeTasks(
+	_ context.Context, queue string,
+) (int, bool, error) {
+	r.pendingPurgedQueue = queue
+	return r.pendingPurgedCount, true, nil
 }
 
 func TestGetRuntimeQueuesReportsIsolatedPoolCapacity(t *testing.T) {
@@ -447,6 +456,64 @@ func TestPurgeArchivedRuntimeTasksRejectsUnknownQueue(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodDelete, "/archived", nil)
 
 	handler.PurgeArchivedRuntimeTasks(ctx)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
+func TestPurgePendingRuntimeTasksDelegatesToInspectorAndAudits(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	inspector := &runtimeTaskTestInspector{pendingPurgedCount: 9}
+	audits := &capturingAuditService{}
+	handler := &SystemHandler{taskInspector: inspector, auditSvc: audits}
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "queue", Value: types.QueueQuestion}}
+	ctx.Request = httptest.NewRequest(http.MethodDelete, "/pending", nil)
+
+	handler.PurgePendingRuntimeTasks(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if inspector.pendingPurgedQueue != types.QueueQuestion {
+		t.Fatalf("purged queue = %q, want %q", inspector.pendingPurgedQueue, types.QueueQuestion)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["deleted"] != float64(9) {
+		t.Fatalf("deleted = %v, want 9", response["deleted"])
+	}
+	if len(audits.entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1", len(audits.entries))
+	}
+	audit := audits.entries[0]
+	if audit.Action != types.AuditActionSystemQueuePendingPurged {
+		t.Fatalf("audit action = %q, want %q", audit.Action, types.AuditActionSystemQueuePendingPurged)
+	}
+	if audit.TargetType != "task_queue" || audit.TargetID != types.QueueQuestion {
+		t.Fatalf("audit target = %s:%s, want task_queue:%s", audit.TargetType, audit.TargetID, types.QueueQuestion)
+	}
+	var details map[string]string
+	if err := json.Unmarshal([]byte(audit.Details), &details); err != nil {
+		t.Fatalf("decode audit details: %v", err)
+	}
+	if details["queue"] != types.QueueQuestion || details["deleted"] != "9" {
+		t.Fatalf("audit details = %#v", details)
+	}
+}
+
+func TestPurgePendingRuntimeTasksRejectsUnknownQueue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := &SystemHandler{taskInspector: &runtimeTaskTestInspector{}}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "queue", Value: "unknown"}}
+	ctx.Request = httptest.NewRequest(http.MethodDelete, "/pending", nil)
+
+	handler.PurgePendingRuntimeTasks(ctx)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
 	}

@@ -2778,7 +2778,8 @@ export default {
           'system.queue_task_deleted': 'Удалена запись о сбойной задаче',
           'system.queue_task_run_now': 'Задача очереди запущена сейчас',
           'system.queue_task_cancelled': 'Задача очереди отменена',
-          'system.queue_archived_purged': 'Очищены все сбойные задачи'
+          'system.queue_archived_purged': 'Очищены все сбойные задачи',
+          'system.queue_pending_purged': 'Очищены все ожидающие задачи'
         },
         columns: {
           time: 'Время',

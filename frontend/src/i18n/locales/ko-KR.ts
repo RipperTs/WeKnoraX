@@ -2777,7 +2777,8 @@ export default {
           'system.queue_task_deleted': '실패 작업 기록 삭제',
           'system.queue_task_run_now': '큐 작업 즉시 실행',
           'system.queue_task_cancelled': '큐 작업 취소',
-          'system.queue_archived_purged': '실패 작업 모두 지우기'
+          'system.queue_archived_purged': '실패 작업 모두 지우기',
+          'system.queue_pending_purged': '대기 작업 모두 지우기'
         },
         columns: {
           time: '시간',
