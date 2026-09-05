@@ -791,6 +791,19 @@ export async function purgeArchivedRuntimeTasks(
   return response as unknown as { success: boolean; deleted: number }
 }
 
+/**
+ * Clear every pending task waiting in one queue.
+ * Backend: DELETE /api/v1/system/admin/runtime/queues/{queue}/pending.
+ */
+export async function purgePendingRuntimeTasks(
+  queue: string,
+): Promise<{ success: boolean; deleted: number }> {
+  const response = await del(
+    `/api/v1/system/admin/runtime/queues/${encodeURIComponent(queue)}/pending`,
+  )
+  return response as unknown as { success: boolean; deleted: number }
+}
+
 // --- Sandbox backend configuration (per workspace) ---
 
 export interface SandboxVolumeMountConfig {

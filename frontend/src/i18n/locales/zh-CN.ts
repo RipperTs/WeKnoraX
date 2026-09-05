@@ -3099,6 +3099,10 @@ export default {
           purgeArchivedConfirm: '将从当前队列一次性移除全部 {count} 条失败记录，仅清理队列里的失败任务，不影响运行中或排队中的任务，也不会回滚已失败文档的业务状态。确认清除？',
           purgeArchivedSuccess: '已清除 {count} 条失败任务',
           purgeArchivedError: '清除失败任务失败',
+          purgePending: '清空排队',
+          purgePendingConfirm: '将直接从当前队列移除全部 {count} 个排队任务，仅清理 Redis/Asynq 中尚未执行的任务，不会修改文档等业务状态。确认清空？',
+          purgePendingSuccess: '已清空 {count} 个排队任务',
+          purgePendingError: '清空排队任务失败',
           stateFilter: '按任务状态筛选',
           actionError: {
             cancel: '终止任务失败',
@@ -3112,7 +3116,7 @@ export default {
           },
           guides: {
             active: '运行中任务可查看执行实例、开始时间和截止时间。只有具备完整业务取消语义的任务才允许终止。',
-            pending: '排队任务尚未被 worker 领取。终止操作会同步更新业务状态，而不是只删除 Redis 记录。',
+            pending: '排队任务尚未被 worker 领取。单条终止会同步更新业务状态；“清空排队”只删除 Redis/Asynq 任务。',
             scheduled: '定时任务可提前立即执行；支持业务取消的文档任务也可以安全终止。',
             retry: '请结合最后错误、重试次数和下次执行时间判断是否立即执行或终止。',
             archived: '请先修复失败原因再立即执行。清除记录不会完成原业务任务。',

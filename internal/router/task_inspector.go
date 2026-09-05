@@ -696,6 +696,19 @@ func (a *asynqTaskInspector) PurgeArchivedRuntimeTasks(ctx context.Context, queu
 	return deleted, true, nil
 }
 
+// PurgePendingRuntimeTasks clears tasks waiting to be claimed from one queue.
+// asynq removes both the pending-list entries and the corresponding task data.
+func (a *asynqTaskInspector) PurgePendingRuntimeTasks(ctx context.Context, queue string) (int, bool, error) {
+	if a == nil || a.inspector == nil {
+		return 0, false, nil
+	}
+	deleted, err := a.inspector.DeleteAllPendingTasks(queue)
+	if err != nil {
+		return 0, true, err
+	}
+	return deleted, true, nil
+}
+
 func (a *asynqTaskInspector) WorkerServerStats(
 	ctx context.Context,
 ) ([]types.WorkerServerStat, bool, error) {

@@ -3838,6 +3838,10 @@ export default {
           purgeArchivedConfirm: 'Remove all {count} failed records from this queue at once. This only clears failed tasks in the queue — it does not affect running or pending tasks, nor does it roll back the business status of documents that already failed. Clear them?',
           purgeArchivedSuccess: 'Cleared {count} failed tasks',
           purgeArchivedError: 'Failed to clear failed tasks',
+          purgePending: 'Clear pending',
+          purgePendingConfirm: 'Remove all {count} pending tasks directly from this queue. This only clears tasks waiting in Redis/Asynq and does not update document or other business state. Clear them?',
+          purgePendingSuccess: 'Cleared {count} pending tasks',
+          purgePendingError: 'Failed to clear pending tasks',
           stateFilter: 'Filter by task state',
           states: {
             active: 'Active',
@@ -3849,7 +3853,7 @@ export default {
           },
           guides: {
             active: 'Inspect the worker, start time, deadline, and orphan status. Cancel is offered only when the business state can be updated safely.',
-            pending: 'Pending tasks have not been claimed. Cancellation updates business state instead of only removing Redis data.',
+            pending: 'Pending tasks have not been claimed. Cancelling one updates business state; “Clear pending” only removes Redis/Asynq tasks.',
             scheduled: 'Scheduled tasks can run early; document pipeline tasks can also use safe business cancellation.',
             retry: 'Use the last error, attempt count, and next run time to decide whether to run now or cancel.',
             archived: 'Fix the root cause before running again. Clearing a record does not complete the original business task.',

@@ -2341,6 +2341,38 @@ func (h *SystemHandler) PurgeArchivedRuntimeTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
 }
 
+// PurgePendingRuntimeTasks clears every pending task in one queue directly
+// from asynq. Business records are intentionally left unchanged.
+// @Summary      Purge all pending tasks in a queue
+// @Tags         System Admin
+// @Produce      json
+// @Param        queue path string true "Queue name"
+// @Success      200 {object} map[string]interface{}
+// @Router       /system/admin/runtime/queues/{queue}/pending [delete]
+func (h *SystemHandler) PurgePendingRuntimeTasks(c *gin.Context) {
+	queue := c.Param("queue")
+	if !isKnownRuntimeQueue(queue) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue"})
+		return
+	}
+	purger, supported := h.taskInspector.(interfaces.RuntimePendingTaskPurger)
+	if !supported {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
+		return
+	}
+	deleted, available, err := purger.PurgePendingRuntimeTasks(c.Request.Context(), queue)
+	if !available {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
+		return
+	}
+	if err != nil {
+		logger.Errorf(c.Request.Context(), "purge pending queue tasks queue=%s: %v", queue, err)
+		c.JSON(http.StatusConflict, gin.H{"error": "Pending tasks could not be purged"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
+}
+
 func (h *SystemHandler) ListSystemSettings(c *gin.Context) {
 	ctx := logger.CloneContext(c.Request.Context())
 	rows, err := h.systemSettingSvc.List(ctx)

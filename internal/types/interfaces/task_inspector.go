@@ -110,3 +110,9 @@ type RuntimeTaskInspector interface {
 	// semantics of deleting archived records one by one.
 	PurgeArchivedRuntimeTasks(ctx context.Context, queue string) (deleted int, supported bool, err error)
 }
+
+// RuntimePendingTaskPurger is the optional bulk-delete surface for pending
+// queue tasks. It only removes tasks that have not been claimed by a worker.
+type RuntimePendingTaskPurger interface {
+	PurgePendingRuntimeTasks(ctx context.Context, queue string) (deleted int, supported bool, err error)
+}

@@ -303,6 +303,8 @@ func RegisterSystemAdminRoutes(
 			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.MutateRuntimeTask)
 		g.apiKeyRoute(adminRoutes, http.MethodDelete, "/runtime/queues/:queue/archived",
 			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.PurgeArchivedRuntimeTasks)
+		g.apiKeyRoute(adminRoutes, http.MethodDelete, "/runtime/queues/:queue/pending",
+			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.PurgePendingRuntimeTasks)
 
 		g.apiKeyRoute(adminRoutes, http.MethodGet, "/tenants",
 			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsRead, types.APIKeyCapabilitySystemTenantsManage),

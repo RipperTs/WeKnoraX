@@ -341,6 +341,23 @@
           </h4>
           <div class="rq-failed-section-actions">
             <t-popconfirm
+              v-if="taskState === 'pending' && taskStateCount(taskQueue, 'pending') > 0"
+              theme="danger"
+              :content="t('system.globalSettings.runtime.tasks.purgePendingConfirm', { count: taskStateCount(taskQueue, 'pending') })"
+              @confirm="purgePendingTasks"
+            >
+              <t-button
+                variant="text"
+                size="small"
+                theme="danger"
+                :loading="purging"
+                :disabled="Boolean(taskActionID)"
+              >
+                <template #icon><t-icon name="clear" /></template>
+                {{ t('system.globalSettings.runtime.tasks.purgePending') }}
+              </t-button>
+            </t-popconfirm>
+            <t-popconfirm
               v-if="taskState === 'archived' && tasks.length > 0"
               theme="danger"
               :content="t('system.globalSettings.runtime.tasks.purgeArchivedConfirm', { count: taskStateCount(taskQueue, 'archived') })"
@@ -517,6 +534,7 @@ import {
   getRuntimeQueues,
   mutateRuntimeTask,
   purgeArchivedRuntimeTasks,
+  purgePendingRuntimeTasks,
   type ModelRuntimeStat,
   type QueueStat,
   type RuntimeTask,
@@ -892,6 +910,22 @@ async function purgeArchivedTasks() {
     taskQueue.value = queues.value.find((item) => item.name === queue) ?? taskQueue.value
   } catch (err: any) {
     MessagePlugin.error(err?.message || t('system.globalSettings.runtime.tasks.purgeArchivedError'))
+  } finally {
+    purging.value = false
+  }
+}
+
+async function purgePendingTasks() {
+  const queue = taskQueue.value?.name
+  if (!queue || purging.value) return
+  purging.value = true
+  try {
+    const { deleted } = await purgePendingRuntimeTasks(queue)
+    MessagePlugin.success(t('system.globalSettings.runtime.tasks.purgePendingSuccess', { count: deleted }))
+    await Promise.all([reloadRuntimeTasks(), load(false)])
+    taskQueue.value = queues.value.find((item) => item.name === queue) ?? taskQueue.value
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('system.globalSettings.runtime.tasks.purgePendingError'))
   } finally {
     purging.value = false
   }
