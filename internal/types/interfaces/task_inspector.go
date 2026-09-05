@@ -101,8 +101,8 @@ type RuntimeTaskInspector interface {
 	// operator-facing AllowedActions. Used when the business row is already
 	// gone but a retry/pending task survived (orphan cleanup).
 	ForceDeleteRuntimeTask(ctx context.Context, queue, taskID string) (supported bool, err error)
-	// PurgeRuntimeTasks clears one state. Live tasks must stop executing and
-	// finish their domain cancellation before their queue records are removed.
+	// PurgeRuntimeTasks clears one state after confirming handler exit.
+	// The cancellation plan defines which domain updates require record deletion.
 	PurgeRuntimeTasks(ctx context.Context, queue string, state types.RuntimeTaskState,
 		prepare RuntimeTaskCancellationPreparer,
 	) (result types.RuntimeQueuePurgeResult, supported bool, err error)
@@ -112,11 +112,14 @@ type RuntimeTaskInspector interface {
 // The returned cancellation runs only after the queue handlers have exited.
 type RuntimeTaskCancellationPreparer func(context.Context, string, []byte) (RuntimeTaskCancellationPlan, error)
 
-// RuntimeTaskCancellationPlan separates domain cancellation from rearming
-// retained work after old, potentially coalesced queue triggers are deleted.
+// RuntimeTaskCancellationPlan orders domain changes around queue deletion.
+// Both callbacks are optional and run only after confirmed handler exit.
 type RuntimeTaskCancellationPlan struct {
-	Cancel      RuntimeTaskCancellation
-	AfterDelete RuntimeTaskCancellation
+	BeforeDelete RuntimeTaskCancellation
+	AfterDelete  RuntimeTaskCancellation
+	// A shared key runs AfterDelete once, only when every task with that key
+	// was deleted. An empty key makes the callback depend on this task alone.
+	AfterDeleteKey string
 }
 
 // RuntimeTaskCancellation updates domain state after confirmed worker exit.

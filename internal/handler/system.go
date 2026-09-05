@@ -2310,11 +2310,15 @@ func (h *SystemHandler) MutateRuntimeTask(c *gin.Context) {
 
 // PurgeRuntimeTasks clears one state and reports partial failures explicitly.
 // @Summary      Clear a queue task state
+// @Description  Stops unfinished tasks before clearing them. A successful response includes any per-task failures.
 // @Tags         System Admin
 // @Produce      json
 // @Param        queue path string true "Queue name"
 // @Param        state path string true "Task state" Enums(pending,active,scheduled,retry,archived,completed)
-// @Success      200 {object} map[string]interface{}
+// @Success      200 {object} types.RuntimeQueuePurgeResult
+// @Failure      400 {object} map[string]interface{} "Invalid queue or task state"
+// @Failure      409 {object} map[string]interface{} "Cleanup incomplete; includes deleted and failed counts"
+// @Failure      503 {object} map[string]interface{} "Task queue or business cancellation unavailable"
 // @Router       /system/admin/runtime/queues/{queue}/states/{state} [delete]
 func (h *SystemHandler) PurgeRuntimeTasks(c *gin.Context) {
 	queue := c.Param("queue")

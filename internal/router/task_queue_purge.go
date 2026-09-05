@@ -115,17 +115,37 @@ func (a *asynqTaskInspector) purgeLiveRuntimeTasks(
 	return a.purgeRuntimeTaskSnapshot(ctx, queue, tasks, prepare)
 }
 
+type runtimePurgeFinalizer struct {
+	remaining int
+	finish    interfaces.RuntimeTaskCancellation
+}
+
 func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 	ctx context.Context, queue string, tasks []*asynq.TaskInfo,
 	prepare interfaces.RuntimeTaskCancellationPreparer,
 ) (result types.RuntimeQueuePurgeResult, err error) {
 	cancellations := make(map[string]interfaces.RuntimeTaskCancellationPlan, len(tasks))
+	finalizers := make(map[string]*runtimePurgeFinalizer)
+	taskFinalizers := make(map[string]*runtimePurgeFinalizer)
 	for _, task := range tasks {
 		cancel, prepareErr := prepare(ctx, task.Type, task.Payload)
 		if prepareErr != nil {
 			return result, prepareErr
 		}
 		cancellations[task.ID] = cancel
+		if cancel.AfterDelete != nil {
+			key := cancel.AfterDeleteKey
+			if key == "" {
+				key = task.ID
+			}
+			group := finalizers[key]
+			if group == nil {
+				group = &runtimePurgeFinalizer{finish: cancel.AfterDelete}
+				finalizers[key] = group
+			}
+			group.remaining++
+			taskFinalizers[task.ID] = group
+		}
 	}
 	stopErrors := make(map[string]error)
 	for _, task := range tasks {
@@ -154,7 +174,6 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 	}
 	result.FailureReasons = make(map[string]int)
 	wikiCancellationErrors := make(map[string]error)
-	afterDelete := make(map[string]interfaces.RuntimeTaskCancellation)
 	for _, task := range tasks {
 		reason := "worker_not_stopped"
 		taskErr := stopErrors[task.ID]
@@ -172,16 +191,11 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 				taskErr, done = wikiCancellationErrors[kbID]
 			}
 			if !done {
-				taskErr = cancellations[task.ID].Cancel(ctx)
+				if cancel := cancellations[task.ID].BeforeDelete; cancel != nil {
+					taskErr = cancel(ctx)
+				}
 				if kbID != "" {
 					wikiCancellationErrors[kbID] = taskErr
-				}
-				if taskErr == nil && cancellations[task.ID].AfterDelete != nil {
-					key := task.ID
-					if kbID != "" {
-						key = "wiki:" + kbID
-					}
-					afterDelete[key] = cancellations[task.ID].AfterDelete
 				}
 			}
 			if errors.Is(taskErr, types.ErrRuntimeTaskNotStopped) {
@@ -201,13 +215,21 @@ func (a *asynqTaskInspector) purgeRuntimeTaskSnapshot(
 			logger.Errorf(ctx, "purge runtime task queue=%s id=%s: %v", queue, task.ID, taskErr)
 		} else {
 			result.Deleted++
+			if group := taskFinalizers[task.ID]; group != nil {
+				group.remaining--
+			}
 		}
 	}
-	for _, finish := range afterDelete {
-		// Even a disconnected caller must not strand work that shared one of
-		// the deleted triggers. No further deletion occurs in this phase.
+	for key, group := range finalizers {
+		if group.remaining != 0 {
+			continue
+		}
+		// Confirm every dependency was deleted before changing scheduling
+		// state. Finish successful groups even if the caller disconnected.
 		finishCtx, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		err = errors.Join(err, finish(finishCtx))
+		if finishErr := group.finish(finishCtx); finishErr != nil {
+			err = errors.Join(err, fmt.Errorf("finalize runtime task cleanup %s: %w", key, finishErr))
+		}
 		cancelFinish()
 	}
 	return result, err

@@ -300,7 +300,7 @@ definitions:
     - system.queue_task_deleted
     - system.queue_task_run_now
     - system.queue_task_cancelled
-    - system.queue_archived_purged
+    - system.queue_tasks_purged
     - kb.created
     - kb.updated
     - kb.deleted
@@ -363,7 +363,7 @@ definitions:
     - AuditActionSystemQueueTaskDeleted
     - AuditActionSystemQueueTaskRunNow
     - AuditActionSystemQueueTaskCancelled
-    - AuditActionSystemQueueArchivedPurged
+    - AuditActionSystemQueueTasksPurged
     - AuditActionKBCreated
     - AuditActionKBUpdated
     - AuditActionKBDeleted
@@ -3048,6 +3048,17 @@ definitions:
         - $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.OrgMemberRole'
         description: 'Optional: role to assign when approving; overrides applicant''s
           requested role'
+    type: object
+  github_com_Tencent_WeKnora_internal_types.RuntimeQueuePurgeResult:
+    properties:
+      deleted:
+        type: integer
+      failed:
+        type: integer
+      failure_reasons:
+        additionalProperties:
+          type: integer
+        type: object
     type: object
   github_com_Tencent_WeKnora_internal_types.RuntimeTaskAction:
     enum:
@@ -14445,12 +14456,26 @@ paths:
       summary: 获取解析任务队列运行时状态
       tags:
       - 系统管理
-  /system/admin/runtime/queues/{queue}/archived:
+  /system/admin/runtime/queues/{queue}/states/{state}:
     delete:
+      description: Stops unfinished tasks before clearing them. A successful response
+        includes any per-task failures.
       parameters:
       - description: Queue name
         in: path
         name: queue
+        required: true
+        type: string
+      - description: Task state
+        enum:
+        - pending
+        - active
+        - scheduled
+        - retry
+        - archived
+        - completed
+        in: path
+        name: state
         required: true
         type: string
       produces:
@@ -14459,9 +14484,23 @@ paths:
         "200":
           description: OK
           schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.RuntimeQueuePurgeResult'
+        "400":
+          description: Invalid queue or task state
+          schema:
             additionalProperties: true
             type: object
-      summary: Purge all archived tasks in a queue
+        "409":
+          description: Cleanup incomplete; includes deleted and failed counts
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: Task queue or business cancellation unavailable
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Clear a queue task state
       tags:
       - System Admin
   /system/admin/runtime/queues/{queue}/tasks:

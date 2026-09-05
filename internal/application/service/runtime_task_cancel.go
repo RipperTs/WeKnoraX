@@ -102,16 +102,17 @@ func (s *RuntimeTaskCancellationService) CancelBatch() interfaces.RuntimeTaskCan
 				return plan, err
 			}
 			finalizer, ok := s.wiki.(interface {
-				finishRuntimeTaskCancellation(context.Context, []byte) error
+				finishRuntimeTaskCancellation(context.Context, string, []byte) error
 			})
 			if !ok {
 				return plan, errors.New("wiki trigger finalization is unavailable")
 			}
+			plan.AfterDeleteKey = fmt.Sprintf("wiki:%d:%s:%s", p.TenantID, p.KnowledgeBaseID, taskType)
 			plan.AfterDelete = func(finishCtx context.Context) error {
-				return finalizer.finishRuntimeTaskCancellation(finishCtx, payload)
+				return finalizer.finishRuntimeTaskCancellation(finishCtx, taskType, payload)
 			}
 		}
-		plan.Cancel = func(cancelCtx context.Context) error {
+		plan.BeforeDelete = func(cancelCtx context.Context) error {
 			return s.cancel(context.WithValue(cancelCtx, runtimeCancelledKnowledgeKey{}, batch), taskType, payload)
 		}
 		return plan, nil
@@ -420,30 +421,23 @@ func (s *wikiIngestService) CancelRuntimeTask(ctx context.Context, _ string, dat
 	return nil
 }
 
-func (s *wikiIngestService) finishRuntimeTaskCancellation(ctx context.Context, data []byte) error {
+func (s *wikiIngestService) finishRuntimeTaskCancellation(ctx context.Context, taskType string, data []byte) error {
 	var p WikiIngestPayload
 	if err := json.Unmarshal(data, &p); err != nil {
 		return err
 	}
-	// Check after deleting old coalesced triggers: a concurrent enqueue before
-	// deletion is covered here; an enqueue afterwards creates its own trigger.
-	for _, taskType := range []string{types.TypeWikiIngest, types.TypeWikiFinalize} {
-		count, err := s.pendingRepo.PendingCount(ctx, taskType, types.TaskScopeKnowledgeBase, p.KnowledgeBaseID)
-		if err != nil {
-			return err
-		}
-		if count == 0 {
-			continue
-		}
-		timeout := 60 * time.Minute
-		if taskType == types.TypeWikiFinalize {
-			timeout = 30 * time.Minute
-		}
-		task := asynq.NewTask(taskType, data, asynq.Queue(types.QueueWiki),
-			asynq.MaxRetry(wikiIngestMaxRetry), asynq.Timeout(timeout), asynq.ProcessIn(wikiIngestDelay))
-		if _, err := s.task.Enqueue(task); err != nil {
-			return err
-		}
+	// Rearm this task type only after all of its selected triggers are gone.
+	// A failed deletion of the other Wiki task type keeps its own trigger.
+	count, err := s.pendingRepo.PendingCount(ctx, taskType, types.TaskScopeKnowledgeBase, p.KnowledgeBaseID)
+	if err != nil || count == 0 {
+		return err
 	}
-	return nil
+	timeout := 60 * time.Minute
+	if taskType == types.TypeWikiFinalize {
+		timeout = 30 * time.Minute
+	}
+	task := asynq.NewTask(taskType, data, asynq.Queue(types.QueueWiki),
+		asynq.MaxRetry(wikiIngestMaxRetry), asynq.Timeout(timeout), asynq.ProcessIn(wikiIngestDelay))
+	_, err = s.task.Enqueue(task)
+	return err
 }

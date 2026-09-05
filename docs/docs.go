@@ -12922,15 +12922,16 @@ const docTemplate = `{
                 }
             }
         },
-        "/system/admin/runtime/queues/{queue}/archived": {
+        "/system/admin/runtime/queues/{queue}/states/{state}": {
             "delete": {
+                "description": "Stops unfinished tasks before clearing them. A successful response includes any per-task failures.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "System Admin"
                 ],
-                "summary": "Purge all archived tasks in a queue",
+                "summary": "Clear a queue task state",
                 "parameters": [
                     {
                         "type": "string",
@@ -12938,11 +12939,46 @@ const docTemplate = `{
                         "name": "queue",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "enum": [
+                            "pending",
+                            "active",
+                            "scheduled",
+                            "retry",
+                            "archived",
+                            "completed"
+                        ],
+                        "type": "string",
+                        "description": "Task state",
+                        "name": "state",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.RuntimeQueuePurgeResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid queue or task state",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Cleanup incomplete; includes deleted and failed counts",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Task queue or business cancellation unavailable",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -16168,7 +16204,7 @@ const docTemplate = `{
                 "system.queue_task_deleted",
                 "system.queue_task_run_now",
                 "system.queue_task_cancelled",
-                "system.queue_archived_purged",
+                "system.queue_tasks_purged",
                 "kb.created",
                 "kb.updated",
                 "kb.deleted",
@@ -16231,7 +16267,7 @@ const docTemplate = `{
                 "AuditActionSystemQueueTaskDeleted",
                 "AuditActionSystemQueueTaskRunNow",
                 "AuditActionSystemQueueTaskCancelled",
-                "AuditActionSystemQueueArchivedPurged",
+                "AuditActionSystemQueueTasksPurged",
                 "AuditActionKBCreated",
                 "AuditActionKBUpdated",
                 "AuditActionKBDeleted",
@@ -19627,6 +19663,23 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.OrgMemberRole"
                         }
                     ]
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.RuntimeQueuePurgeResult": {
+            "type": "object",
+            "properties": {
+                "deleted": {
+                    "type": "integer"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "failure_reasons": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
                 }
             }
         },

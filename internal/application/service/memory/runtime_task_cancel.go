@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -32,10 +33,14 @@ func (s *Service) PrepareRuntimeTaskCancellation(
 	if subject != nil && subject.ExtractScheduledAt != nil && subject.ExtractScheduledAt.Equal(payload.ScheduledAt) {
 		snapshotUpdatedAt = subject.UpdatedAt
 	}
-	plan.Cancel = func(cancelCtx context.Context) error {
-		return s.repo.CancelPendingExtraction(cancelCtx, scope, payload.ScheduledAt, snapshotUpdatedAt)
-	}
+	plan.AfterDeleteKey = fmt.Sprintf("memory:%d:%s:%s",
+		payload.TenantID, payload.SubjectID, payload.ScheduledAt.UTC().Format(time.RFC3339Nano))
 	plan.AfterDelete = func(finishCtx context.Context) error {
+		// Keep the slot and pending sessions intact if deleting the trigger
+		// fails. Only a confirmed deletion permits releasing its business work.
+		if err := s.repo.CancelPendingExtraction(finishCtx, scope, payload.ScheduledAt, snapshotUpdatedAt); err != nil {
+			return err
+		}
 		return s.scheduleFollowUpIfNeeded(finishCtx, scope,
 			s.workspaceConfig(finishCtx, payload.TenantID), payload, false)
 	}
