@@ -519,6 +519,24 @@ func TestPurgePendingRuntimeTasksRejectsUnknownQueue(t *testing.T) {
 	}
 }
 
+func TestPurgePendingRuntimeTasksRejectsWikiQueue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	inspector := &runtimeTaskTestInspector{}
+	handler := &SystemHandler{taskInspector: inspector}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "queue", Value: types.QueueWiki}}
+	ctx.Request = httptest.NewRequest(http.MethodDelete, "/pending", nil)
+
+	handler.PurgePendingRuntimeTasks(ctx)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+	if inspector.pendingPurgedQueue != "" {
+		t.Fatalf("wiki queue purge reached inspector: %q", inspector.pendingPurgedQueue)
+	}
+}
+
 func TestListRuntimeTasksRejectsUnknownQueue(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &SystemHandler{taskInspector: &runtimeTaskTestInspector{}}

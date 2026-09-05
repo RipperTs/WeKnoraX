@@ -2355,6 +2355,10 @@ func (h *SystemHandler) PurgePendingRuntimeTasks(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue"})
 		return
 	}
+	if queue == types.QueueWiki {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Pending Wiki tasks cannot be purged"})
+		return
+	}
 	purger, supported := h.taskInspector.(interfaces.RuntimePendingTaskPurger)
 	if !supported {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Task queue is unavailable"})
