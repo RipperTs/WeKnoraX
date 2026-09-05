@@ -130,10 +130,10 @@ type Tenant struct {
 
 // SystemTenant is the storage-management projection of a workspace.
 type SystemTenant struct {
-	ID           uint64              `json:"id"`
+	ID           uint64              `json:"id" format:"int64"`
 	Name         string              `json:"name"`
-	StorageQuota int64               `json:"storage_quota"`
-	StorageUsed  int64               `json:"storage_used"`
+	StorageQuota int64               `json:"storage_quota" format:"int64"`
+	StorageUsed  int64               `json:"storage_used" format:"int64"`
 	Owners       []SystemTenantOwner `json:"owners" gorm:"-"`
 }
 

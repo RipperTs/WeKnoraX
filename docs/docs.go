@@ -13192,19 +13192,121 @@ const docTemplate = `{
                 }
             }
         },
-        "/system/admin/tenants/apply-default-storage-quota": {
-            "post": {
-                "description": "Reads the current value of ` + "`" + `tenant.default_storage_quota_gb` + "`" + `\n(3-tier resolver: DB \u003e ENV \u003e default) and writes that many\nGiB into storage_quota for every row in tenants. Bypasses\nthe per-workspace PUT whitelist, which forbids storage_quota\nedits by Owners. SystemAdmin only.\nIdempotent — running twice with the same setting is a no-op.",
+        "/system/admin/tenants": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Lists all non-deleted workspaces with their active owners, storage usage, and quotas in bytes.\nRequires a system administrator or a platform API key\nwith system_tenants_read or system_tenants_manage.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "System Admin"
                 ],
-                "summary": "Apply the default storage quota to every existing workspace",
+                "summary": "List workspaces and storage quotas",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace name, exact ID, owner username, or owner email",
+                        "name": "query",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "{ affected: int64, quota_bytes: int64 }",
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.ListSystemTenantsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid pagination parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Insufficient system administration permissions",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to list workspaces",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/admin/tenants/apply-default-storage-quota": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Reads the current value of ` + "`" + `tenant.default_storage_quota_gb` + "`" + `\nand raises smaller finite quotas to that many GiB.\nLarger and unlimited quotas remain unchanged. The affected count includes only raised quotas.\nRequires a system administrator or a platform API key with system_tenants_manage.\nIdempotent — running twice with the same setting is a no-op.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System Admin"
+                ],
+                "summary": "Raise existing workspace quotas to the default where needed",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.ApplyDefaultStorageQuotaResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Insufficient system administration permissions",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -13212,6 +13314,99 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "DB write failed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/admin/tenants/{tenant_id}/storage-quota/increase": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Adds a positive integer number of GiB (1 GB = 1024^3 bytes) to the latest finite quota atomically.\nReturns the resulting quota in bytes. Each successful request adds the capacity again.\nUnlimited quotas and additions exceeding the int64 byte limit are rejected with 409.\nRequires a system administrator or a platform API key with system_tenants_manage.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System Admin"
+                ],
+                "summary": "Increase a workspace storage quota",
+                "parameters": [
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Workspace ID",
+                        "name": "tenant_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Additional storage capacity",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.increaseTenantStorageQuotaRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.IncreaseTenantStorageQuotaResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid workspace ID or capacity increase",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Insufficient system administration permissions",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Workspace not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Quota is unlimited or the resulting quota exceeds the int64 limit",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to increase storage quota",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -20199,6 +20394,46 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types.SystemTenant": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owners": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.SystemTenantOwner"
+                    }
+                },
+                "storage_quota": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "storage_used": {
+                    "type": "integer",
+                    "format": "int64"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.SystemTenantOwner": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_types.TOSEngineConfig": {
             "type": "object",
             "properties": {
@@ -21622,6 +21857,23 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_handler.ApplyDefaultStorageQuotaResponse": {
+            "type": "object",
+            "properties": {
+                "affected": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "quota_bytes": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "quota_gb": {
+                    "type": "integer",
+                    "format": "int64"
+                }
+            }
+        },
         "internal_handler.BatchDeleteKnowledgeRequest": {
             "type": "object",
             "required": [
@@ -21850,6 +22102,15 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_handler.IncreaseTenantStorageQuotaResponse": {
+            "type": "object",
+            "properties": {
+                "storage_quota": {
+                    "type": "integer",
+                    "format": "int64"
                 }
             }
         },
@@ -22221,6 +22482,21 @@ const docTemplate = `{
                 },
                 "total": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_handler.ListSystemTenantsResponse": {
+            "type": "object",
+            "properties": {
+                "tenants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.SystemTenant"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "format": "int64"
                 }
             }
         },
@@ -23168,6 +23444,21 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 128,
                     "minLength": 1
+                }
+            }
+        },
+        "internal_handler.increaseTenantStorageQuotaRequest": {
+            "type": "object",
+            "required": [
+                "increase_gb"
+            ],
+            "properties": {
+                "increase_gb": {
+                    "description": "Additional capacity in GiB (1 GB = 1024^3 bytes), added to the latest quota.",
+                    "type": "integer",
+                    "format": "int64",
+                    "maximum": 8589934591,
+                    "minimum": 1
                 }
             }
         },

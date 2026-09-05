@@ -2501,7 +2501,30 @@ func (h *SystemHandler) UpdateSystemSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// ListSystemTenants lists workspaces and active owners for system administrators.
+// ListSystemTenantsResponse contains a page of workspaces and the total matching count.
+type ListSystemTenantsResponse struct {
+	Tenants []*types.SystemTenant `json:"tenants"`
+	Total   int64                 `json:"total" format:"int64"`
+}
+
+// ListSystemTenants godoc
+// @Summary      List workspaces and storage quotas
+// @Description  Lists all non-deleted workspaces with their active owners, storage usage, and quotas in bytes.
+// @Description  Requires a system administrator or a platform API key
+// @Description  with system_tenants_read or system_tenants_manage.
+// @Tags         System Admin
+// @Produce      json
+// @Param        query     query string false "Workspace name, exact ID, owner username, or owner email"
+// @Param        page      query int    false "Page number" default(1) minimum(1)
+// @Param        page_size query int    false "Page size" default(20) minimum(1) maximum(100)
+// @Success      200 {object} ListSystemTenantsResponse
+// @Failure      400 {object} map[string]interface{} "Invalid pagination parameters"
+// @Failure      401 {object} map[string]interface{} "Authentication required"
+// @Failure      403 {object} map[string]interface{} "Insufficient system administration permissions"
+// @Failure      500 {object} map[string]interface{} "Failed to list workspaces"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /system/admin/tenants [get]
 func (h *SystemHandler) ListSystemTenants(c *gin.Context) {
 	page, pageSize, ok := parseListPagination(c)
 	if !ok {
@@ -2514,10 +2537,40 @@ func (h *SystemHandler) ListSystemTenants(c *gin.Context) {
 		_ = c.Error(apperrors.NewInternalServerError("Failed to list workspaces").WithDetails(err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"tenants": tenants, "total": total})
+	c.JSON(http.StatusOK, ListSystemTenantsResponse{Tenants: tenants, Total: total})
 }
 
-// IncreaseTenantStorageQuota adds the requested capacity and records the resulting quota.
+type increaseTenantStorageQuotaRequest struct {
+	// Additional capacity in GiB (1 GB = 1024^3 bytes), added to the latest quota.
+	IncreaseGB int64 `json:"increase_gb" binding:"required,min=1" minimum:"1" maximum:"8589934591" format:"int64"`
+}
+
+// IncreaseTenantStorageQuotaResponse contains the resulting quota in bytes.
+type IncreaseTenantStorageQuotaResponse struct {
+	StorageQuota int64 `json:"storage_quota" format:"int64"`
+}
+
+// IncreaseTenantStorageQuota godoc
+// @Summary      Increase a workspace storage quota
+// @Description  Adds a positive integer number of GiB (1 GB = 1024^3 bytes) to the latest finite quota atomically.
+// @Description  Returns the resulting quota in bytes. Each successful request adds the capacity again.
+// @Description  Unlimited quotas and additions exceeding the int64 byte limit are rejected with 409.
+// @Description  Requires a system administrator or a platform API key with system_tenants_manage.
+// @Tags         System Admin
+// @Accept       json
+// @Produce      json
+// @Param        tenant_id path uint64 true "Workspace ID" minimum(1)
+// @Param        request body increaseTenantStorageQuotaRequest true "Additional storage capacity"
+// @Success      200 {object} IncreaseTenantStorageQuotaResponse
+// @Failure      400 {object} map[string]interface{} "Invalid workspace ID or capacity increase"
+// @Failure      401 {object} map[string]interface{} "Authentication required"
+// @Failure      403 {object} map[string]interface{} "Insufficient system administration permissions"
+// @Failure      404 {object} map[string]interface{} "Workspace not found"
+// @Failure      409 {object} map[string]interface{} "Quota is unlimited or the resulting quota exceeds the int64 limit"
+// @Failure      500 {object} map[string]interface{} "Failed to increase storage quota"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /system/admin/tenants/{tenant_id}/storage-quota/increase [post]
 func (h *SystemHandler) IncreaseTenantStorageQuota(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, err := strconv.ParseUint(c.Param("tenant_id"), 10, 64)
@@ -2525,9 +2578,7 @@ func (h *SystemHandler) IncreaseTenantStorageQuota(c *gin.Context) {
 		_ = c.Error(apperrors.NewBadRequestError("Invalid workspace ID"))
 		return
 	}
-	var req struct {
-		IncreaseGB int64 `json:"increase_gb" binding:"required,min=1"`
-	}
+	var req increaseTenantStorageQuotaRequest
 	const bytesPerGB int64 = 1024 * 1024 * 1024
 	if err := c.ShouldBindJSON(&req); err != nil {
 		_ = c.Error(apperrors.NewBadRequestError("Storage quota increase must be a positive integer in GB"))
@@ -2566,19 +2617,31 @@ func (h *SystemHandler) IncreaseTenantStorageQuota(c *gin.Context) {
 			Details:     types.JSON(details),
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{"storage_quota": tenant.StorageQuota})
+	c.JSON(http.StatusOK, IncreaseTenantStorageQuotaResponse{StorageQuota: tenant.StorageQuota})
+}
+
+// ApplyDefaultStorageQuotaResponse describes the quotas raised by the bulk operation.
+type ApplyDefaultStorageQuotaResponse struct {
+	Affected   int64 `json:"affected" format:"int64"`
+	QuotaBytes int64 `json:"quota_bytes" format:"int64"`
+	QuotaGB    int64 `json:"quota_gb" format:"int64"`
 }
 
 // ApplyDefaultStorageQuotaToAllTenants godoc
 // @Summary      Raise existing workspace quotas to the default where needed
 // @Description  Reads the current value of `tenant.default_storage_quota_gb`
 // @Description  and raises smaller finite quotas to that many GiB.
-// @Description  Larger and unlimited quotas remain unchanged. SystemAdmin only.
+// @Description  Larger and unlimited quotas remain unchanged. The affected count includes only raised quotas.
+// @Description  Requires a system administrator or a platform API key with system_tenants_manage.
 // @Description  Idempotent — running twice with the same setting is a no-op.
 // @Tags         System Admin
 // @Produce      json
-// @Success      200 {object} map[string]interface{} "{ affected: int64, quota_bytes: int64 }"
+// @Success      200 {object} ApplyDefaultStorageQuotaResponse
+// @Failure      401 {object} map[string]interface{} "Authentication required"
+// @Failure      403 {object} map[string]interface{} "Insufficient system administration permissions"
 // @Failure      500 {object} map[string]interface{} "DB write failed"
+// @Security     Bearer
+// @Security     ApiKeyAuth
 // @Router       /system/admin/tenants/apply-default-storage-quota [post]
 func (h *SystemHandler) ApplyDefaultStorageQuotaToAllTenants(c *gin.Context) {
 	ctx := logger.CloneContext(c.Request.Context())
@@ -2625,10 +2688,10 @@ func (h *SystemHandler) ApplyDefaultStorageQuotaToAllTenants(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"affected":    affected,
-		"quota_bytes": quotaBytes,
-		"quota_gb":    gb,
+	c.JSON(http.StatusOK, ApplyDefaultStorageQuotaResponse{
+		Affected:   affected,
+		QuotaBytes: quotaBytes,
+		QuotaGB:    gb,
 	})
 }
 

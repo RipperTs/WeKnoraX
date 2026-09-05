@@ -3636,6 +3636,33 @@ definitions:
           InputNumber vs Input vs Switch.
         type: string
     type: object
+  github_com_Tencent_WeKnora_internal_types.SystemTenant:
+    properties:
+      id:
+        format: int64
+        type: integer
+      name:
+        type: string
+      owners:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.SystemTenantOwner'
+        type: array
+      storage_quota:
+        format: int64
+        type: integer
+      storage_used:
+        format: int64
+        type: integer
+    type: object
+  github_com_Tencent_WeKnora_internal_types.SystemTenantOwner:
+    properties:
+      email:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
   github_com_Tencent_WeKnora_internal_types.TOSEngineConfig:
     properties:
       access_key:
@@ -4739,6 +4766,18 @@ definitions:
       type:
         type: string
     type: object
+  internal_handler.ApplyDefaultStorageQuotaResponse:
+    properties:
+      affected:
+        format: int64
+        type: integer
+      quota_bytes:
+        format: int64
+        type: integer
+      quota_gb:
+        format: int64
+        type: integer
+    type: object
   internal_handler.BatchDeleteKnowledgeRequest:
     properties:
       ids:
@@ -4897,6 +4936,12 @@ definitions:
         type: string
       version:
         type: string
+    type: object
+  internal_handler.IncreaseTenantStorageQuotaResponse:
+    properties:
+      storage_quota:
+        format: int64
+        type: integer
     type: object
   internal_handler.InitializationRequest:
     properties:
@@ -5148,6 +5193,16 @@ definitions:
           $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.UserInfo'
         type: array
       total:
+        type: integer
+    type: object
+  internal_handler.ListSystemTenantsResponse:
+    properties:
+      tenants:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.SystemTenant'
+        type: array
+      total:
+        format: int64
         type: integer
     type: object
   internal_handler.ModelTestRequest:
@@ -5815,6 +5870,18 @@ definitions:
         type: string
     required:
     - name
+    type: object
+  internal_handler.increaseTenantStorageQuotaRequest:
+    properties:
+      increase_gb:
+        description: Additional capacity in GiB (1 GB = 1024^3 bytes), added to the
+          latest quota.
+        format: int64
+        maximum: 8589934591
+        minimum: 1
+        type: integer
+    required:
+    - increase_gb
     type: object
   internal_handler.invitationLookupRequest:
     properties:
@@ -14572,20 +14639,85 @@ paths:
       summary: Update a system setting value
       tags:
       - System Admin
+  /system/admin/tenants:
+    get:
+      description: |-
+        Lists all non-deleted workspaces with their active owners, storage usage, and quotas in bytes.
+        Requires a system administrator or a platform API key
+        with system_tenants_read or system_tenants_manage.
+      parameters:
+      - description: Workspace name, exact ID, owner username, or owner email
+        in: query
+        name: query
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handler.ListSystemTenantsResponse'
+        "400":
+          description: Invalid pagination parameters
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Authentication required
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Insufficient system administration permissions
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to list workspaces
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: List workspaces and storage quotas
+      tags:
+      - System Admin
   /system/admin/tenants/apply-default-storage-quota:
     post:
       description: |-
         Reads the current value of `tenant.default_storage_quota_gb`
-        (3-tier resolver: DB > ENV > default) and writes that many
-        GiB into storage_quota for every row in tenants. Bypasses
-        the per-workspace PUT whitelist, which forbids storage_quota
-        edits by Owners. SystemAdmin only.
+        and raises smaller finite quotas to that many GiB.
+        Larger and unlimited quotas remain unchanged. The affected count includes only raised quotas.
+        Requires a system administrator or a platform API key with system_tenants_manage.
         Idempotent — running twice with the same setting is a no-op.
       produces:
       - application/json
       responses:
         "200":
-          description: '{ affected: int64, quota_bytes: int64 }'
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handler.ApplyDefaultStorageQuotaResponse'
+        "401":
+          description: Authentication required
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Insufficient system administration permissions
           schema:
             additionalProperties: true
             type: object
@@ -14594,7 +14726,77 @@ paths:
           schema:
             additionalProperties: true
             type: object
-      summary: Apply the default storage quota to every existing workspace
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: Raise existing workspace quotas to the default where needed
+      tags:
+      - System Admin
+  /system/admin/tenants/{tenant_id}/storage-quota/increase:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Adds a positive integer number of GiB (1 GB = 1024^3 bytes) to the latest finite quota atomically.
+        Returns the resulting quota in bytes. Each successful request adds the capacity again.
+        Unlimited quotas and additions exceeding the int64 byte limit are rejected with 409.
+        Requires a system administrator or a platform API key with system_tenants_manage.
+      parameters:
+      - description: Workspace ID
+        format: int64
+        in: path
+        minimum: 1
+        name: tenant_id
+        required: true
+        type: integer
+      - description: Additional storage capacity
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.increaseTenantStorageQuotaRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handler.IncreaseTenantStorageQuotaResponse'
+        "400":
+          description: Invalid workspace ID or capacity increase
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Authentication required
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Insufficient system administration permissions
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Workspace not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Quota is unlimited or the resulting quota exceeds the int64
+            limit
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to increase storage quota
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: Increase a workspace storage quota
       tags:
       - System Admin
   /system/admin/users/reset-password:
