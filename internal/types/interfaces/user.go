@@ -13,6 +13,9 @@ type UserService interface {
 	// Login authenticates a user and returns tokens
 	Login(ctx context.Context, req *types.LoginRequest) (*types.LoginResponse, error)
 	LoginWithFushunSSO(ctx context.Context, remoteToken string, provisioning types.TenantProvisioningMode) (*types.LoginResponse, error)
+	LoginWithJianlongSSO(
+		ctx context.Context, code string, provisioning types.TenantProvisioningMode,
+	) (*types.LoginResponse, error)
 	// GetOIDCAuthorizationURL builds the third-party OIDC authorization URL
 	GetOIDCAuthorizationURL(ctx context.Context, redirectURI string) (*types.OIDCAuthURLResponse, error)
 	// LoginWithOIDC exchanges the callback code, auto-provisions users if needed, and completes login.

@@ -46,7 +46,7 @@ var sensitiveFieldRegex = regexp.MustCompile(
 	`(?i)("(?:new[_-]?password|old[_-]?password|password|passwd|token|access[_-]?token|` +
 		`refresh[_-]?token|id[_-]?token|authorization|auth[_-]?token|api[_-]?key|` +
 		`api[_-]?secret|secret[_-]?key|client[_-]?secret|private[_-]?key|secret|` +
-		`authorization[_-]?url|authorization[_-]?attempt)")\s*:\s*"[^"]*"`,
+		`authorization[_-]?url|authorization[_-]?attempt|code)")\s*:\s*"[^"]*"`,
 )
 
 // sanitizeBody 清理敏感信息

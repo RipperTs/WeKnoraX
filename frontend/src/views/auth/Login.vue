@@ -152,15 +152,15 @@
     <!-- Right Form Section -->
     <div class="form-section">
       <div class="form-panel">
-        <div v-if="isFushunSSOCallback" class="form-card fushun-sso-callback">
+        <div v-if="isFushunSSOCallback || isJianlongSSOCallback" class="form-card sso-callback">
           <t-loading size="medium" />
           <p>{{ $t('auth.loggingIn') }}</p>
         </div>
 
         <!-- Login Card -->
         <div v-else-if="!isRegisterMode" class="form-card">
-          <t-tabs v-if="fushunSSOEnabled" v-model="loginMethod" class="login-card-tabs">
-            <t-tab-panel value="fushun-sso" :label="$t('auth.quickLogin')" />
+          <t-tabs v-if="quickSSOEnabled" v-model="loginMethod" class="login-card-tabs">
+            <t-tab-panel value="quick-sso" :label="$t('auth.quickLogin')" />
             <t-tab-panel value="password" :label="$t('auth.passwordLogin')" />
           </t-tabs>
 
@@ -179,13 +179,13 @@
           <div v-else-if="inviteLookupError" class="invite-banner invite-banner--error">
             {{ inviteLookupError }}
           </div>
-          <div v-if="!fushunSSOEnabled || loginMethod === 'password'" class="form-header">
+          <div v-if="!quickSSOEnabled || loginMethod === 'password'" class="form-header">
             <h2 class="form-title">{{ $t('auth.login') }}</h2>
             <p v-if="registrationEnabled" class="form-hint">{{ $t('auth.loginHint') }}</p>
           </div>
 
           <div class="form-content">
-            <template v-if="!fushunSSOEnabled || loginMethod === 'password'">
+            <template v-if="!quickSSOEnabled || loginMethod === 'password'">
               <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
                 label-align="top">
               <t-form-item :label="$t('auth.loginAccount')" name="account">
@@ -214,19 +214,59 @@
                 <span>{{ $t('auth.orContinueWith') }}</span>
               </div>
 
-              <t-button v-if="oidcEnabled" theme="default" size="large" block :loading="oidcLoading" :disabled="loading"
-                class="oidc-button" @click="handleOIDCLogin">
+              <t-button v-if="oidcEnabled" theme="default" size="large" block :loading="oidcLoading"
+                :disabled="loading" class="sso-button" @click="handleOIDCLogin">
                 {{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}
               </t-button>
               </t-form>
             </template>
 
-            <div v-else class="fushun-sso-login">
-              <img :src="xgtLogo" :alt="$t('auth.fushunSSOLogin')" class="fushun-sso-logo" />
-              <p>{{ $t('auth.fushunSSODescription') }}</p>
-              <t-button theme="primary" size="large" block :loading="fushunSSOLoading" @click="handleFushunSSOLogin">
-                {{ fushunSSOLoading ? $t('auth.loggingIn') : $t('auth.fushunSSOLogin') }}
-              </t-button>
+            <div v-else class="quick-sso-login">
+              <div class="quick-sso-header">
+                <span class="quick-sso-header__icon" aria-hidden="true">
+                  <t-icon name="secured" size="26px" />
+                </span>
+                <h2 class="form-title">{{ $t('auth.quickLogin') }}</h2>
+                <p class="quick-sso-header__description">{{ $t('auth.quickLoginDescription') }}</p>
+              </div>
+              <div class="sso-login-options">
+                <t-button v-if="fushunSSOEnabled" theme="default" variant="outline" block
+                  class="sso-provider-card" :class="{ 'is-loading': fushunSSOLoading }"
+                  :disabled="fushunSSOLoading || jianlongSSOLoading" :aria-busy="fushunSSOLoading"
+                  :aria-label="$t('auth.fushunSSOLogin')" @click="handleFushunSSOLogin">
+                  <span class="sso-provider-card__identity" aria-hidden="true">
+                    <img :src="xgtLogo" alt="" class="sso-provider-card__logo" />
+                  </span>
+                  <span class="sso-provider-card__content">
+                    <span class="sso-provider-card__name">{{ $t('auth.fushunSSOProvider') }}</span>
+                    <span class="sso-provider-card__description">
+                      {{ fushunSSOLoading ? $t('auth.redirectingToSSO') : $t('auth.fushunSSODescription') }}
+                    </span>
+                  </span>
+                  <span class="sso-provider-card__action" aria-hidden="true">
+                    <t-loading v-if="fushunSSOLoading" size="20px" />
+                    <t-icon v-else name="arrow-right" size="20px" />
+                  </span>
+                </t-button>
+                <t-button v-if="jianlongSSOEnabled" theme="default" variant="outline" block
+                  class="sso-provider-card" :class="{ 'is-loading': jianlongSSOLoading }"
+                  :disabled="fushunSSOLoading || jianlongSSOLoading" :aria-busy="jianlongSSOLoading"
+                  :aria-label="$t('auth.jianlongSSOLogin')" @click="handleJianlongSSOLogin">
+                  <span class="sso-provider-card__identity sso-provider-card__identity--jianlong" aria-hidden="true">
+                    <t-icon name="building" size="28px" />
+                  </span>
+                  <span class="sso-provider-card__content">
+                    <span class="sso-provider-card__name">{{ $t('auth.jianlongSSOProvider') }}</span>
+                    <span class="sso-provider-card__description">
+                      {{ jianlongSSOLoading ? $t('auth.redirectingToSSO') : $t('auth.jianlongSSODescription') }}
+                    </span>
+                  </span>
+                  <span class="sso-provider-card__action" aria-hidden="true">
+                    <t-loading v-if="jianlongSSOLoading" size="20px" />
+                    <t-icon v-else name="arrow-right" size="20px" />
+                  </span>
+                </t-button>
+              </div>
             </div>
           </div>
         </div>
@@ -341,12 +381,15 @@ import {
   getOIDCConfig,
   getFushunSSOConfig,
   loginWithFushunSSO,
+  getJianlongSSOConfig,
+  loginWithJianlongSSO,
   autoSetup,
   getAuthConfig,
   userInfoFromApi,
   getInvitationByToken,
   registerByInvite,
   type InviteLookup,
+  type LoginResponse,
 } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
@@ -399,6 +442,7 @@ const registerFormRef = ref()
 const loading = ref(false)
 const oidcLoading = ref(false)
 const fushunSSOLoading = ref(false)
+const jianlongSSOLoading = ref(false)
 const isRegisterMode = ref(false)
 const showLanguageMenu = ref(false)
 const oidcEnabled = ref(false)
@@ -406,10 +450,15 @@ const oidcProviderName = ref('')
 const fushunSSOEnabled = ref(false)
 const fushunSSOAuthURL = ref('')
 const fushunSSOStateStorageKey = 'weknora_fushun_sso_state'
+const jianlongSSOEnabled = ref(false)
+const jianlongSSOAuthURL = ref('')
+const jianlongSSOStateStorageKey = 'weknora_jianlong_sso_state'
 const isFushunSSOCallback = ref(
   route.query.sso === 'fsxgt' && !!String(route.query.token || '').trim()
 )
-const loginMethod = ref('fushun-sso')
+const isJianlongSSOCallback = ref(!!String(route.query.code || '').trim())
+const quickSSOEnabled = computed(() => fushunSSOEnabled.value || jianlongSSOEnabled.value)
+const loginMethod = ref('quick-sso')
 // registrationEnabled defaults to true so that on first paint the Register
 // link is visible; the actual mode is fetched from /auth/config in onMounted.
 // In invite_only mode the link/card are hidden.
@@ -627,6 +676,17 @@ const loadFushunSSOConfig = async () => {
   }
 }
 
+const loadJianlongSSOConfig = async () => {
+  try {
+    const response = await getJianlongSSOConfig()
+    jianlongSSOEnabled.value = !!response.success && !!response.enabled
+    jianlongSSOAuthURL.value = response.auth_url || ''
+  } catch {
+    jianlongSSOEnabled.value = false
+    jianlongSSOAuthURL.value = ''
+  }
+}
+
 // loadAuthConfig fetches /auth/config and caches whether self-service
 // registration is allowed. Failures fall back to "enabled" so a transient
 // network glitch doesn't lock new users out of an open deployment.
@@ -704,26 +764,76 @@ const handleFushunSSOCallback = async (token: string, state: string) => {
   }
   try {
     const response = await loginWithFushunSSO(token)
-    if (!response.success) {
-      MessagePlugin.error(response.message || t('auth.loginError'))
-      return
-    }
-
-    const pendingInviteToken = sessionStorage.getItem('weknora_pending_invite_token')
-    sessionStorage.removeItem('weknora_pending_invite_token')
-    if (pendingInviteToken) {
-      await persistLoginResponse(response, true)
-      await acceptAndEnter(pendingInviteToken)
-      return
-    }
-    await persistLoginResponse(response)
-    notifyLoginSuccess(response, t, tm, formatRole, roleIcon)
+    await completeSSOLogin(response)
   } catch (error: any) {
     console.error('抚顺新钢铁 SSO 登录错误:', error)
     MessagePlugin.error(error.message || t('auth.loginErrorRetry'))
   } finally {
     fushunSSOLoading.value = false
     isFushunSSOCallback.value = false
+  }
+}
+
+const completeSSOLogin = async (response: LoginResponse) => {
+  if (!response.success) {
+    MessagePlugin.error(response.message || t('auth.loginError'))
+    return
+  }
+
+  const pendingInviteToken = sessionStorage.getItem('weknora_pending_invite_token')
+  sessionStorage.removeItem('weknora_pending_invite_token')
+  if (pendingInviteToken) {
+    await persistLoginResponse(response, true)
+    await acceptAndEnter(pendingInviteToken)
+    return
+  }
+  await persistLoginResponse(response)
+  notifyLoginSuccess(response, t, tm, formatRole, roleIcon)
+}
+
+const handleJianlongSSOLogin = () => {
+  if (!jianlongSSOAuthURL.value) {
+    MessagePlugin.error(t('auth.loginError'))
+    return
+  }
+
+  if (inviteToken.value) {
+    sessionStorage.setItem('weknora_pending_invite_token', inviteToken.value)
+  }
+
+  jianlongSSOLoading.value = true
+  const stateBytes = crypto.getRandomValues(new Uint8Array(16))
+  const state = Array.from(stateBytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  sessionStorage.setItem(jianlongSSOStateStorageKey, state)
+  const redirectURL = new URL(window.location.href)
+  redirectURL.search = ''
+  redirectURL.searchParams.set('state', state)
+
+  const authorizationURL = new URL(jianlongSSOAuthURL.value)
+  authorizationURL.searchParams.set('redirectUri', redirectURL.toString())
+  window.location.replace(authorizationURL.toString())
+}
+
+const handleJianlongSSOCallback = async (code: string, state: string) => {
+  jianlongSSOLoading.value = true
+  window.history.replaceState({}, document.title, route.path)
+  const expectedState = sessionStorage.getItem(jianlongSSOStateStorageKey)
+  sessionStorage.removeItem(jianlongSSOStateStorageKey)
+  if (!expectedState || state !== expectedState) {
+    MessagePlugin.error(t('auth.loginErrorRetry'))
+    jianlongSSOLoading.value = false
+    isJianlongSSOCallback.value = false
+    return
+  }
+  try {
+    const response = await loginWithJianlongSSO(code)
+    await completeSSOLogin(response)
+  } catch (error: any) {
+    console.error('建龙集团 SSO 登录错误:', error)
+    MessagePlugin.error(error.message || t('auth.loginErrorRetry'))
+  } finally {
+    jianlongSSOLoading.value = false
+    isJianlongSSOCallback.value = false
   }
 }
 
@@ -842,11 +952,22 @@ onMounted(async () => {
   const ssoToken = String(route.query.token || '').trim()
   const ssoState = String(route.query.state || '').trim()
   if (route.query.sso === 'fsxgt' && ssoToken) {
-    loginMethod.value = 'fushun-sso'
+    loginMethod.value = 'quick-sso'
     loadOIDCConfig()
     loadFushunSSOConfig()
+    loadJianlongSSOConfig()
     loadAuthConfig()
     await handleFushunSSOCallback(ssoToken, ssoState)
+    return
+  }
+
+  const jianlongCode = String(route.query.code || '').trim()
+  if (jianlongCode) {
+    loadOIDCConfig()
+    loadFushunSSOConfig()
+    loadJianlongSSOConfig()
+    loadAuthConfig()
+    await handleJianlongSSOCallback(jianlongCode, ssoState)
     return
   }
 
@@ -871,6 +992,7 @@ onMounted(async () => {
         inviteLookupError.value = resp.message || t('inviteRegister.invalidBody')
         loadOIDCConfig()
         loadFushunSSOConfig()
+        loadJianlongSSOConfig()
         loadAuthConfig()
         return
       }
@@ -878,6 +1000,7 @@ onMounted(async () => {
       inviteLookupError.value = t('inviteRegister.invalidBody')
       loadOIDCConfig()
       loadFushunSSOConfig()
+      loadJianlongSSOConfig()
       loadAuthConfig()
       return
     } finally {
@@ -897,6 +1020,7 @@ onMounted(async () => {
     isRegisterMode.value = !inviteOnly
     loadOIDCConfig()
     loadFushunSSOConfig()
+    loadJianlongSSOConfig()
     return
   }
 
@@ -921,7 +1045,7 @@ onMounted(async () => {
     }
   }
 
-  await Promise.all([loadOIDCConfig(), loadFushunSSOConfig(), loadAuthConfig()])
+  await Promise.all([loadOIDCConfig(), loadFushunSSOConfig(), loadJianlongSSOConfig(), loadAuthConfig()])
   if (peekIntegrationLoginReturn() && oidcEnabled.value && !hasIntegrationOIDCAttempted()) {
     markIntegrationOIDCAttempted()
     await handleOIDCLogin()
@@ -1409,11 +1533,18 @@ onMounted(async () => {
 }
 
 .login-card-tabs {
-  margin: -40px -40px 32px;
+  margin-bottom: 28px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--td-bg-color-secondarycontainer);
 
   :deep(.t-tabs__header) {
-    background: var(--td-bg-color-secondarycontainer);
-    border-bottom: 1px solid var(--td-component-stroke);
+    background: transparent;
+    border: none;
+  }
+
+  :deep(.t-tabs__nav-container.t-is-top::after) {
+    display: none;
   }
 
   :deep(.t-tabs__nav-container),
@@ -1427,13 +1558,42 @@ onMounted(async () => {
   }
 
   :deep(.t-tabs__nav-item) {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     justify-content: center;
-    height: 58px;
+    height: auto;
+    min-height: 42px;
+    padding: 0;
+    border-radius: 8px;
+    color: var(--td-text-color-secondary);
     font-size: 14px;
     font-weight: 500;
+
+    &.t-is-active {
+      background: var(--td-bg-color-container);
+      color: var(--td-brand-color);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    }
   }
 
+  :deep(.t-tabs__nav-item-wrapper) {
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    margin: 0;
+    padding: 10px 8px;
+    box-sizing: border-box;
+    border-radius: 8px;
+  }
+
+  :deep(.t-tabs__nav-item-text-wrapper) {
+    white-space: normal;
+    text-align: center;
+    line-height: 20px;
+  }
+
+  :deep(.t-tabs__bar),
   :deep(.t-tabs__content) {
     display: none;
   }
@@ -1620,32 +1780,133 @@ onMounted(async () => {
   }
 }
 
-.fushun-sso-login {
-  padding: 8px 0 4px;
+.quick-sso-login {
+  padding: 4px 0;
+}
 
-  .fushun-sso-logo {
-    display: block;
-    width: 96px;
-    max-width: 50%;
-    height: auto;
-    margin: 0 auto 18px;
-    padding: 4px;
-    box-sizing: border-box;
-    background: #ffffff;
-    border: 1px solid rgba(2, 44, 34, 0.06);
-    border-radius: 12px;
-    box-shadow: 0 6px 18px rgba(2, 44, 34, 0.06);
+.quick-sso-header {
+  margin-bottom: 28px;
+  text-align: center;
+
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    border-radius: 14px;
+    background: var(--td-brand-color-light);
+    color: var(--td-brand-color);
   }
 
-  p {
-    margin: 0 0 16px;
+  &__description {
+    margin: 10px 0 0;
     color: var(--td-text-color-secondary);
-    font-size: 14px;
-    text-align: center;
+    font-size: 13px;
+    line-height: 1.7;
   }
 }
 
-.fushun-sso-callback {
+.sso-login-options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sso-provider-card {
+  height: auto;
+  min-height: 104px;
+  padding: 20px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 12px;
+  background: var(--td-bg-color-container);
+  text-align: left;
+  font-family: var(--app-font-family);
+  transition: border-color 0.2s, background-color 0.2s;
+
+  :deep(.t-button__text) {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  &:not(:disabled):hover,
+  &.is-loading {
+    border-color: var(--td-brand-color);
+    background: var(--td-brand-color-light);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: 3px;
+  }
+
+  &:disabled:not(.is-loading) {
+    opacity: 0.55;
+  }
+
+  &__identity {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    background: #ffffff;
+    overflow: hidden;
+
+    &--jianlong {
+      background: var(--td-brand-color-light);
+      color: var(--td-brand-color);
+    }
+  }
+
+  &__logo {
+    width: 100%;
+    height: 100%;
+    padding: 3px;
+    box-sizing: border-box;
+    object-fit: contain;
+  }
+
+  &__content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  &__name {
+    color: var(--td-text-color-primary);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  &__description {
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  &__action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 24px;
+    color: var(--td-brand-color);
+  }
+}
+
+.sso-callback {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1692,7 +1953,7 @@ onMounted(async () => {
   }
 }
 
-.oidc-button {
+.sso-button {
   height: 46px;
   border-radius: 8px;
   font-size: 15px;
@@ -1855,10 +2116,6 @@ onMounted(async () => {
     padding: 32px 24px;
   }
 
-  .login-card-tabs {
-    margin: -32px -24px 28px;
-  }
-
   .form-title {
     font-size: 22px;
   }
@@ -1903,11 +2160,31 @@ onMounted(async () => {
   }
 
   .login-card-tabs {
-    margin: -28px -20px 24px;
+    margin-bottom: 24px;
+  }
+
+  .sso-provider-card {
+    padding: 16px 12px;
+
+    :deep(.t-button__text) {
+      gap: 10px;
+    }
+
+    &__identity {
+      flex-basis: 40px;
+      width: 40px;
+      height: 40px;
+    }
   }
 
   .form-header {
     margin-bottom: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sso-provider-card {
+    transition: none;
   }
 }
 
