@@ -65,6 +65,7 @@ type runtimeTaskPayloadProbe struct {
 	KnowledgeIDs    []string `json:"knowledge_ids,omitempty"`
 	EnqueuedAt      int64    `json:"enqueued_at,omitempty"`
 	CreatedAt       int64    `json:"created_at,omitempty"`
+	Attempt         int      `json:"attempt,omitempty"`
 }
 
 // queuesScanned is the fixed set of queue names this codebase enqueues

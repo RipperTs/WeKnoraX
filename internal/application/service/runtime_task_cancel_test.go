@@ -50,11 +50,15 @@ func (r *runtimeCancellationKnowledgeRepo) UpdateKnowledgeColumnsIfUnchanged(
 
 type runtimeCancellationTracker struct {
 	noopSpanTracker
-	attempt int
-	aborted []int
+	attempt  int
+	attempts map[string]int
+	aborted  []int
 }
 
-func (t *runtimeCancellationTracker) LatestAttempt(context.Context, string) int {
+func (t *runtimeCancellationTracker) LatestAttempt(_ context.Context, id string) int {
+	if attempt, ok := t.attempts[id]; ok {
+		return attempt
+	}
 	return t.attempt
 }
 
@@ -64,7 +68,8 @@ func (t *runtimeCancellationTracker) AbortAttempt(_ context.Context, _ string, a
 
 type runtimeCancellationInspector struct {
 	interfaces.TaskInspector
-	stopped []string
+	stopped          []string
+	snapshotAttempts map[string]map[int]bool
 }
 
 func (i *runtimeCancellationInspector) CancelRuntimeKnowledgeTasks(
@@ -72,6 +77,12 @@ func (i *runtimeCancellationInspector) CancelRuntimeKnowledgeTasks(
 ) error {
 	i.stopped = append(i.stopped, id)
 	return cancel(ctx)
+}
+
+func (i *runtimeCancellationInspector) RuntimeKnowledgeAttemptSnapshotted(
+	_ context.Context, _ uint64, id string, attempt int,
+) bool {
+	return i.snapshotAttempts[id][attempt]
 }
 
 type runtimeCancellationPendingRepo struct {
@@ -238,6 +249,45 @@ func TestRuntimePurgeStillCleansCancelledParseSiblings(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, plan.Cancel(context.Background()))
 	require.Equal(t, []string{"cancelled"}, inspector.stopped)
+}
+
+func TestRuntimeBatchReparseFinalizesOnlySnapshottedAttempt(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	repo := &runtimeCancellationKnowledgeRepo{
+		rows: map[string]*types.Knowledge{
+			"submitted": {
+				ID: "submitted", TenantID: 1, KnowledgeBaseID: "kb-1",
+				ParseStatus: types.ParseStatusProcessing, UpdatedAt: now,
+			},
+			"later": {
+				ID: "later", TenantID: 1, KnowledgeBaseID: "kb-1",
+				ParseStatus: types.ParseStatusPending, UpdatedAt: now,
+			},
+		},
+		updates: make(map[string]map[string]interface{}),
+	}
+	inspector := &runtimeCancellationInspector{snapshotAttempts: map[string]map[int]bool{
+		"submitted": {3: true},
+		"later":     {3: true},
+	}}
+	tracker := &runtimeCancellationTracker{attempts: map[string]int{"submitted": 3, "later": 4}}
+	knowledge := &knowledgeService{
+		repo: repo, spanTracker: tracker, taskInspector: inspector,
+		taskPendingRepo: &runtimeCancellationPendingRepo{},
+	}
+	svc := &RuntimeTaskCancellationService{knowledge: knowledge}
+	payload := []byte(`{"tenant_id":1,"knowledge_ids":["submitted","later"]}`)
+	plan, err := svc.CancelBatch()(ctx, types.TypeKnowledgeListReparse, payload, nil)
+	require.NoError(t, err)
+	require.NoError(t, plan.Cancel(ctx))
+	require.Equal(t, []string{"submitted", "later"}, inspector.stopped)
+	require.Equal(t, map[string]interface{}{
+		"parse_status": types.ParseStatusCancelled, "error_message": runtimeTaskCancelledMessage,
+		"pending_subtasks_count": 0,
+	}, repo.updates["submitted"])
+	require.NotContains(t, repo.updates, "later", "a newer unsnapshotted attempt must retain its state")
+	require.Equal(t, []int{3}, tracker.aborted)
 }
 
 func TestRuntimeWikiRecoveryKeepsOriginalPendingOps(t *testing.T) {

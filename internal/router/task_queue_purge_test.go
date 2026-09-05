@@ -705,9 +705,11 @@ func TestRuntimePurgePreservesDocumentTasksSubmittedAfterSnapshot(t *testing.T) 
 	}
 	enqueue(types.QueueDefault, types.TypeDocumentProcess, "original", 1)
 	enqueue(types.QueueSummary, types.TypeSummaryGeneration, "original-summary", 1)
-	prepare := func(_ context.Context, _ string, _ []byte,
+	prepare := func(prepareCtx context.Context, _ string, _ []byte,
 		_ json.RawMessage,
 	) (interfaces.RuntimeTaskCancellationPlan, error) {
+		require.True(t, inspector.RuntimeKnowledgeAttemptSnapshotted(prepareCtx, 1, "doc-1", 1))
+		require.False(t, inspector.RuntimeKnowledgeAttemptSnapshotted(prepareCtx, 1, "doc-1", 2))
 		// A reparse arrives after task selection and before any cancel callback.
 		enqueue(types.QueueDefault, types.TypeDocumentProcess, "later", 2)
 		enqueue(types.QueueSummary, types.TypeSummaryGeneration, "later-summary", 2)

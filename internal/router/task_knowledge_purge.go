@@ -26,6 +26,7 @@ type runtimeKnowledgeScope struct {
 
 type runtimeKnowledgeTasks struct {
 	byKnowledge map[runtimeKnowledgeScope][]runtimeQueuedTask
+	attempts    map[runtimeKnowledgeScope]map[int]bool
 }
 
 func runtimeDocumentTask(taskType string) bool {
@@ -117,8 +118,24 @@ func (a *asynqTaskInspector) CancelRuntimeKnowledgeTasks(
 	return nil
 }
 
+func (a *asynqTaskInspector) RuntimeKnowledgeAttemptSnapshotted(
+	ctx context.Context, tenantID uint64, knowledgeID string, attempt int,
+) bool {
+	if attempt <= 0 {
+		return false
+	}
+	index, ok := ctx.Value(runtimeKnowledgeTasksKey{}).(*runtimeKnowledgeTasks)
+	if !ok || index == nil {
+		return false
+	}
+	return index.attempts[runtimeKnowledgeScope{tenantID: tenantID, knowledgeID: knowledgeID}][attempt]
+}
+
 func (a *asynqTaskInspector) snapshotRuntimeKnowledgeTasks(ctx context.Context) (*runtimeKnowledgeTasks, error) {
-	index := &runtimeKnowledgeTasks{byKnowledge: make(map[runtimeKnowledgeScope][]runtimeQueuedTask)}
+	index := &runtimeKnowledgeTasks{
+		byKnowledge: make(map[runtimeKnowledgeScope][]runtimeQueuedTask),
+		attempts:    make(map[runtimeKnowledgeScope]map[int]bool),
+	}
 	seen := make(map[queueTask]bool)
 	// Fix related task IDs before preparing any cancellation. Never rescan
 	// after signalling handlers: newly submitted work belongs to a later run.
@@ -159,6 +176,12 @@ func (a *asynqTaskInspector) snapshotRuntimeKnowledgeTasks(ctx context.Context) 
 				index.byKnowledge[scope] = append(index.byKnowledge[scope], runtimeQueuedTask{
 					queue: queue, info: task,
 				})
+				if payload.Attempt > 0 {
+					if index.attempts[scope] == nil {
+						index.attempts[scope] = make(map[int]bool)
+					}
+					index.attempts[scope][payload.Attempt] = true
+				}
 			}
 		}
 	}

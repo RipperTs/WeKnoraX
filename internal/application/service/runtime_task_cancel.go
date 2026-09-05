@@ -292,8 +292,14 @@ func (s *knowledgeService) snapshotRuntimeTaskCancellation(
 		parseKey := fmt.Sprintf("%d:%s", p.TenantID, id)
 		if _, exists := batch.parses[parseKey]; !exists {
 			parse := runtimeParseSnapshot{knowledge: *knowledge}
-			if p.Attempt > 0 && s.tracker().LatestAttempt(ctx, id) == p.Attempt {
+			latestAttempt := s.tracker().LatestAttempt(ctx, id)
+			if p.Attempt > 0 && latestAttempt == p.Attempt {
 				parse.attempt = p.Attempt
+			} else if taskType == types.TypeKnowledgeListReparse && latestAttempt > 0 {
+				if inspector, ok := s.taskInspector.(interfaces.RuntimeKnowledgeTaskCanceller); ok &&
+					inspector.RuntimeKnowledgeAttemptSnapshotted(ctx, p.TenantID, id, latestAttempt) {
+					parse.attempt = latestAttempt
+				}
 			}
 			batch.parses[parseKey] = parse
 		}
@@ -482,6 +488,9 @@ func (s *knowledgeService) CancelRuntimeTask(ctx context.Context, taskType strin
 	case types.TypeKnowledgeListReparse:
 		for _, id := range p.KnowledgeIDs {
 			if err := s.cancelRuntimeKnowledge(ctx, id); err != nil {
+				return err
+			}
+			if err := s.finishRuntimeKnowledgeCancellation(ctx, id, false); err != nil {
 				return err
 			}
 		}

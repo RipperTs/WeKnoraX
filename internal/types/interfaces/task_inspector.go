@@ -138,4 +138,9 @@ type RuntimeTaskCancellation func(context.Context) error
 type RuntimeKnowledgeTaskCanceller interface {
 	CancelRuntimeKnowledgeTasks(ctx context.Context, tenantID uint64, knowledgeID string,
 		cancel RuntimeTaskCancellation) error
+	// RuntimeKnowledgeAttemptSnapshotted reports whether this parse attempt
+	// was present in the task snapshot taken before cancellation began.
+	RuntimeKnowledgeAttemptSnapshotted(
+		ctx context.Context, tenantID uint64, knowledgeID string, attempt int,
+	) bool
 }
