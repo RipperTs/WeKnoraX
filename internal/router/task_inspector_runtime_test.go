@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -43,6 +44,50 @@ func TestQueueStatsDoesNotWarnForQueuesThatDoNotExist(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "[TaskInspector] queue info") {
 		t.Fatalf("missing queues should not emit warnings:\n%s", logs.String())
+	}
+}
+
+func TestQueueStatsPreservesRowsWhenRecoveryCountFails(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	queue := types.QueueDefault
+	client.AddHook(runtimePurgeRedisHook{process: func(ctx context.Context, cmd redis.Cmder,
+		next redis.ProcessHook,
+	) error {
+		if cmd.Name() == "zcard" && cmd.Args()[1] == runtimePurgeRecoveryIndex(queue) {
+			return errors.New("recovery count unavailable")
+		}
+		return next(ctx, cmd)
+	}})
+	asynqClient := asynq.NewClientFromRedisClient(client)
+	t.Cleanup(func() { _ = asynqClient.Close() })
+	if _, err := asynqClient.Enqueue(asynq.NewTask("queue:stats", nil), asynq.Queue(queue)); err != nil {
+		t.Fatal(err)
+	}
+	inspector := &asynqTaskInspector{
+		inspector: asynq.NewInspectorFromRedisClient(client),
+		redis:     client,
+	}
+
+	stats, supported, err := inspector.QueueStats(context.Background())
+	if err != nil || !supported {
+		t.Fatalf("QueueStats: supported=%v err=%v", supported, err)
+	}
+	if got, want := len(stats), len(types.QueueDefinitions()); got != want {
+		t.Fatalf("QueueStats returned %d rows, want %d", got, want)
+	}
+	found := false
+	for _, stat := range stats {
+		if stat.Name == queue {
+			found = true
+			if stat.Pending != 1 || stat.PurgePending != 0 {
+				t.Fatalf("queue %q should preserve its depth with a zero recovery count: %+v", queue, stat)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("QueueStats did not return queue %q", queue)
 	}
 }
 

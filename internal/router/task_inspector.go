@@ -208,9 +208,10 @@ func (a *asynqTaskInspector) QueueStats(
 		}
 		recoveries, err := a.redis.ZCard(ctx, runtimePurgeRecoveryIndex(queue)).Result()
 		if err != nil {
-			return nil, true, err
+			logger.Warnf(ctx, "[TaskInspector] purge recovery count queue=%s: %v", queue, err)
+		} else {
+			stat.PurgePending = int(recoveries)
 		}
-		stat.PurgePending = int(recoveries)
 		info, err := a.inspector.GetQueueInfo(queue)
 		if err != nil {
 			if !isAsynqQueueNotFound(err) {
