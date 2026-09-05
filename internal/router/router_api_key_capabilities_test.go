@@ -58,23 +58,64 @@ func TestPlatformControlPlaneRoutesDeclarePlatformCapabilities(t *testing.T) {
 	RegisterSystemAdminRoutes(v1, &handler.SystemHandler{}, nil, g)
 
 	cases := []struct {
-		method     string
-		path       string
-		capability types.APIKeyCapability
+		method       string
+		path         string
+		capabilities []types.APIKeyCapability
 	}{
-		{http.MethodGet, "/api/v1/system/admin/settings", types.APIKeyCapabilitySystemSettingsRead},
-		{http.MethodPut, "/api/v1/system/admin/settings/:key", types.APIKeyCapabilitySystemSettingsManage},
-		{http.MethodGet, "/api/v1/system/admin/runtime/queues", types.APIKeyCapabilitySystemRuntimeRead},
-		{http.MethodPost, "/api/v1/system/admin/runtime/queues/:queue/tasks/:task_id/actions/:action", types.APIKeyCapabilitySystemRuntimeManage},
-		{http.MethodDelete, "/api/v1/system/admin/runtime/queues/:queue/archived", types.APIKeyCapabilitySystemRuntimeManage},
+		{
+			http.MethodGet, "/api/v1/system/admin/settings",
+			[]types.APIKeyCapability{
+				types.APIKeyCapabilitySystemSettingsRead,
+				types.APIKeyCapabilitySystemSettingsManage,
+			},
+		},
+		{
+			http.MethodPut, "/api/v1/system/admin/settings/:key",
+			[]types.APIKeyCapability{types.APIKeyCapabilitySystemSettingsManage},
+		},
+		{
+			http.MethodGet, "/api/v1/system/admin/runtime/queues",
+			[]types.APIKeyCapability{
+				types.APIKeyCapabilitySystemRuntimeRead,
+				types.APIKeyCapabilitySystemRuntimeManage,
+			},
+		},
+		{
+			http.MethodPost, "/api/v1/system/admin/runtime/queues/:queue/tasks/:task_id/actions/:action",
+			[]types.APIKeyCapability{types.APIKeyCapabilitySystemRuntimeManage},
+		},
+		{
+			http.MethodDelete, "/api/v1/system/admin/runtime/queues/:queue/archived",
+			[]types.APIKeyCapability{types.APIKeyCapabilitySystemRuntimeManage},
+		},
+		{
+			http.MethodGet, "/api/v1/system/admin/tenants",
+			[]types.APIKeyCapability{
+				types.APIKeyCapabilitySystemTenantsRead,
+				types.APIKeyCapabilitySystemTenantsManage,
+			},
+		},
+		{
+			http.MethodPost, "/api/v1/system/admin/tenants/:tenant_id/storage-quota/increase",
+			[]types.APIKeyCapability{types.APIKeyCapabilitySystemTenantsManage},
+		},
+		{
+			http.MethodPost, "/api/v1/system/admin/tenants/apply-default-storage-quota",
+			[]types.APIKeyCapability{types.APIKeyCapabilitySystemTenantsManage},
+		},
 	}
 	for _, tc := range cases {
 		policy := mustLookupAPIKeyPolicy(t, g, tc.method, tc.path)
 		if !policy.PlatformOnly {
 			t.Fatalf("%s %s must be platform-only", tc.method, tc.path)
 		}
-		if !policyHasCapability(policy, tc.capability) {
-			t.Fatalf("%s %s capabilities = %#v, want %s", tc.method, tc.path, policy.Capabilities, tc.capability)
+		if len(policy.Capabilities) != len(tc.capabilities) {
+			t.Fatalf("%s %s capabilities = %#v, want %#v", tc.method, tc.path, policy.Capabilities, tc.capabilities)
+		}
+		for _, capability := range tc.capabilities {
+			if !policyHasCapability(policy, capability) {
+				t.Fatalf("%s %s capabilities = %#v, want %s", tc.method, tc.path, policy.Capabilities, capability)
+			}
 		}
 	}
 	if _, ok := g.apiKeyAuthorizer.Lookup(http.MethodPost, "/api/v1/system/admin/api-keys"); ok {
