@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -108,6 +109,8 @@ func TestRuntimePurgeRecoversFinalizerFromArchivedTask(t *testing.T) {
 				if calls <= 3 {
 					return errors.New("temporary finalizer failure")
 				}
+				_, getErr := inspector.inspector.GetTaskInfo(types.QueueDefault, ordinary.ID)
+				require.NoError(t, getErr, "business recovery must run before ordinary history is deleted")
 				return nil
 			},
 		}, nil
@@ -372,4 +375,161 @@ func TestRuntimePurgeWaitsForHandlerAfterAsynqMovesToRetry(t *testing.T) {
 	require.NoError(t, inspector.waitRuntimeTaskStopped(
 		context.Background(), types.QueueDefault, info.ID, time.Now().Add(time.Second),
 	))
+}
+
+type runtimePurgeRedisHook struct {
+	process func(context.Context, redis.Cmder, redis.ProcessHook) error
+}
+
+func (h runtimePurgeRedisHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h runtimePurgeRedisHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func (h runtimePurgeRedisHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error { return h.process(ctx, cmd, next) }
+}
+
+func TestRuntimeHeartbeatFailurePreservesBusinessResult(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "success"},
+		{name: "business failure", err: errors.New("business failure")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			inspector, _ := newRuntimePurgeTestQueue(t)
+			client := inspector.redis.(*redis.Client)
+			failed := make(chan struct{})
+			var once sync.Once
+			client.AddHook(runtimePurgeRedisHook{process: func(ctx context.Context, cmd redis.Cmder,
+				next redis.ProcessHook,
+			) error {
+				if cmd.Name() == "evalsha" && cmd.Args()[1] == renewRuntimeExecution.Hash() {
+					once.Do(func() { close(failed) })
+					return errors.New("injected heartbeat failure")
+				}
+				return next(ctx, cmd)
+			}})
+			handler := runtimeTaskExecutionMiddleware(client)(asynq.HandlerFunc(
+				func(ctx context.Context, _ *asynq.Task) error {
+					select {
+					case <-failed:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+					require.NoError(t, ctx.Err(), "monitoring must not cancel the business context")
+					return test.err
+				}))
+			ctx, cancel := context.WithTimeout(context.Background(), runtimeTaskLeaseRenew+5*time.Second)
+			defer cancel()
+			err := handler.ProcessTask(ctx, asynq.NewTask("purge:test", nil))
+			require.Equal(t, test.err, err, "monitoring must not replace or wrap the business result")
+			// Direct invocation has no Asynq ID; its execution entry still must be acknowledged.
+			require.Zero(t, client.ZCard(ctx, types.RuntimeTaskExecutionKey("", "")).Val())
+		})
+	}
+}
+
+func TestRuntimePurgeAtomicDeleteAllowsTaskIDReuse(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	const taskID = "wiki-finalize-kb-1"
+	info, err := client.Enqueue(asynq.NewTask("purge:test", []byte("old")),
+		asynq.TaskID(taskID), asynq.Unique(time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeDelete))
+	redisClient := inspector.redis.(*redis.Client)
+	observer := redis.NewClient(redisClient.Options())
+	t.Cleanup(func() { _ = observer.Close() })
+	successorClient := asynq.NewClientFromRedisClient(observer)
+	uniqueKey, err := observer.HGet(ctx, runtimeTaskDataKey(types.QueueDefault, taskID), "unique_key").Result()
+	require.NoError(t, err)
+	var deleteCommand []interface{}
+	responseLost := errors.New("injected lost delete response")
+	redisClient.AddHook(runtimePurgeRedisHook{process: func(ctx context.Context, cmd redis.Cmder,
+		next redis.ProcessHook,
+	) error {
+		if err := next(ctx, cmd); err != nil {
+			return err
+		}
+		if deleteCommand != nil || (cmd.Name() != "evalsha" && cmd.Name() != "eval") ||
+			observer.Exists(ctx, runtimeTaskDataKey(types.QueueDefault, taskID)).Val() != 0 {
+			return nil
+		}
+		deleteCommand = append([]interface{}(nil), cmd.Args()...)
+		require.Zero(t, observer.Exists(ctx, runtimePurgeRecoveryKey(types.QueueDefault, taskID), uniqueKey).Val(),
+			"task ID, unique lock and recovery must be released in the same operation")
+		require.Zero(t, observer.ZCard(ctx, runtimePurgeRecoveryIndex(types.QueueDefault)).Val())
+		_, enqueueErr := successorClient.Enqueue(asynq.NewTask("purge:test", []byte("new")),
+			asynq.TaskID(taskID), asynq.ProcessIn(time.Hour))
+		require.NoError(t, enqueueErr)
+		return responseLost
+	}})
+	require.ErrorIs(t, inspector.deleteRuntimePurgeTask(ctx, types.QueueDefault, taskID), responseLost)
+	require.NotEmpty(t, deleteCommand)
+	// A transport retry can replay the successful script after a new task owns the ID.
+	require.NoError(t, observer.Do(ctx, deleteCommand...).Err())
+	result, supported, err := inspector.PurgeRuntimeTasks(ctx, types.QueueDefault, types.RuntimeTaskArchived, nil)
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Zero(t, result.Deleted)
+	successor, _, err := inspector.GetRuntimeTask(ctx, types.QueueDefault, taskID)
+	require.NoError(t, err)
+	require.Equal(t, types.RuntimeTaskScheduled, successor.State)
+	require.True(t, successor.Allows(types.RuntimeTaskActionRunNow))
+}
+
+func TestRuntimePurgePreservesUnfinishedRecovery(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	ctx := context.Background()
+	info, err := client.Enqueue(asynq.NewTask("purge:test", nil))
+	require.NoError(t, err)
+	require.NoError(t, inspector.quarantineRuntimeTask(ctx, types.QueueDefault, info, runtimePurgeCancel))
+	require.Error(t, inspector.deleteRuntimePurgeTask(ctx, types.QueueDefault, info.ID))
+	_, err = inspector.inspector.GetTaskInfo(types.QueueDefault, info.ID)
+	require.NoError(t, err)
+	recovery, err := inspector.runtimePurgeRecovery(ctx, types.QueueDefault, info.ID)
+	require.NoError(t, err)
+	require.Equal(t, runtimePurgeCancel, recovery.Phase)
+}
+
+func TestRuntimePurgeStopsHistoryDeletionWhenRequestEnds(t *testing.T) {
+	inspector, client := newRuntimePurgeTestQueue(t)
+	var history []*asynq.TaskInfo
+	for range 3 {
+		info, err := client.Enqueue(asynq.NewTask("purge:test", nil))
+		require.NoError(t, err)
+		require.NoError(t, inspector.inspector.ArchiveTask(types.QueueDefault, info.ID))
+		history = append(history, info)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	redisClient := inspector.redis.(*redis.Client)
+	observer := redis.NewClient(redisClient.Options())
+	t.Cleanup(func() { _ = observer.Close() })
+	redisClient.AddHook(runtimePurgeRedisHook{process: func(ctx context.Context, cmd redis.Cmder,
+		next redis.ProcessHook,
+	) error {
+		if err := next(ctx, cmd); err != nil {
+			return err
+		}
+		if observer.Exists(context.Background(), runtimeTaskDataKey(types.QueueDefault, history[0].ID)).Val() == 0 {
+			cancel()
+		}
+		return nil
+	}})
+	result, err := inspector.purgeArchivedRuntimeTaskRecords(ctx, types.QueueDefault, history, nil, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, result.Deleted)
+	for _, task := range history[1:] {
+		exists, getErr := observer.Exists(
+			context.Background(), runtimeTaskDataKey(types.QueueDefault, task.ID),
+		).Result()
+		require.NoError(t, getErr)
+		require.EqualValues(t, 1, exists)
+	}
 }

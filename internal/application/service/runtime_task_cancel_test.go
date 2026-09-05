@@ -120,6 +120,14 @@ func TestRuntimePurgePreservesCompletedParseStates(t *testing.T) {
 			payload: `{"tenant_id":1,"knowledge_id":"completed","refresh":true}`, summary: true,
 		},
 		{
+			name: "questions after completion", taskType: types.TypeQuestionGeneration,
+			payload: `{"tenant_id":1,"knowledge_id":"completed"}`,
+		},
+		{
+			name: "questions after failure", taskType: types.TypeQuestionGeneration,
+			payload: `{"tenant_id":1,"knowledge_id":"failed"}`,
+		},
+		{
 			name: "batch reparse before submission", taskType: types.TypeKnowledgeListReparse,
 			payload: `{"tenant_id":1,"knowledge_ids":["completed","failed"]}`,
 		},
@@ -147,14 +155,34 @@ func TestRuntimePurgePreservesCompletedParseStates(t *testing.T) {
 			require.NoError(t, plan.Cancel(context.Background()))
 			require.Equal(t, types.ParseStatusCompleted, repo.rows["completed"].ParseStatus)
 			require.Equal(t, types.ParseStatusFailed, repo.rows["failed"].ParseStatus)
+			require.Empty(t, inspector.stopped, "finished parses must retain independent sibling tasks")
 			if test.summary {
 				require.Equal(t, map[string]map[string]interface{}{
 					"completed": {"summary_status": types.SummaryStatusFailed},
 				}, repo.updates)
 			} else {
 				require.Empty(t, repo.updates)
-				require.Equal(t, []string{"completed", "failed"}, inspector.stopped)
 			}
 		})
 	}
+}
+
+func TestRuntimePurgeStillCleansCancelledParseSiblings(t *testing.T) {
+	repo := &runtimeCancellationKnowledgeRepo{
+		rows: map[string]*types.Knowledge{
+			"cancelled": {
+				ID: "cancelled", TenantID: 1, KnowledgeBaseID: "kb-1", ParseStatus: types.ParseStatusCancelled,
+			},
+		},
+	}
+	inspector := &runtimeCancellationInspector{}
+	knowledge := &knowledgeService{
+		repo: repo, taskInspector: inspector, taskPendingRepo: &runtimeCancellationPendingRepo{},
+	}
+	svc := &RuntimeTaskCancellationService{knowledge: knowledge}
+	plan, err := svc.CancelBatch()(context.Background(), types.TypeQuestionGeneration,
+		[]byte(`{"tenant_id":1,"knowledge_id":"cancelled"}`))
+	require.NoError(t, err)
+	require.NoError(t, plan.Cancel(context.Background()))
+	require.Equal(t, []string{"cancelled"}, inspector.stopped)
 }

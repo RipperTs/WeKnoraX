@@ -235,29 +235,50 @@ func (a *asynqTaskInspector) listRuntimePurgeRecoveries(
 	return recoveries, nil
 }
 
-var deleteOrphanedRuntimePurgeTask = redis.NewScript(`
-if redis.call("EXISTS", KEYS[1]) == 0 then
+// Delete the archived task and its recovery guard together. A replay after a
+// lost response must not delete a successor that has reused the same task ID.
+var deleteRuntimePurgeTaskRecord = redis.NewScript(`
+local recovery = redis.call("GET", KEYS[3])
+if ARGV[2] ~= "" and not recovery then
 	return 0
 end
-if redis.call("HGET", KEYS[1], "state") ~= "archived" then
-	return -1
-end
-if redis.call("ZSCORE", KEYS[2], ARGV[1]) then
+if (recovery or "") ~= ARGV[2] then
 	return -2
 end
+if recovery and cjson.decode(recovery).phase ~= "delete" then
+	return -3
+end
+if redis.call("EXISTS", KEYS[1]) ~= 0 and redis.call("HGET", KEYS[1], "state") ~= "archived" then
+	return -1
+end
+-- Match Asynq's unique-key ownership check before freeing the task ID.
 local unique_key = redis.call("HGET", KEYS[1], "unique_key")
 if unique_key and unique_key ~= "" and redis.call("GET", unique_key) == ARGV[1] then
 	redis.call("DEL", unique_key)
 end
-return redis.call("DEL", KEYS[1])
+local deleted = redis.call("DEL", KEYS[1])
+redis.call("ZREM", KEYS[2], ARGV[1])
+redis.call("DEL", KEYS[3])
+redis.call("ZREM", KEYS[4], ARGV[1])
+return deleted
 `)
 
-func (a *asynqTaskInspector) deleteOrphanedRuntimePurgeTask(
+func (a *asynqTaskInspector) deleteRuntimePurgeTask(
 	ctx context.Context, queue, taskID string,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	recoveryKey := runtimePurgeRecoveryKey(queue, taskID)
+	recovery, err := a.redis.Get(ctx, recoveryKey).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return err
+	}
 	archivedKey, _ := runtimeTaskStateKey(queue, types.RuntimeTaskArchived)
-	result, err := deleteOrphanedRuntimePurgeTask.Run(
-		ctx, a.redis, []string{runtimeTaskDataKey(queue, taskID), archivedKey}, taskID,
+	result, err := deleteRuntimePurgeTaskRecord.Run(
+		ctx, a.redis, []string{
+			runtimeTaskDataKey(queue, taskID), archivedKey, recoveryKey, runtimePurgeRecoveryIndex(queue),
+		}, taskID, recovery,
 	).Int64()
 	if err != nil {
 		return err
@@ -266,29 +287,14 @@ func (a *asynqTaskInspector) deleteOrphanedRuntimePurgeTask(
 	case 0, 1:
 		return nil
 	case -1:
-		return errors.New("orphaned runtime purge task is not archived")
+		return errors.New("runtime purge task is not archived")
 	case -2:
-		return errors.New("runtime purge task is still present in the archive index")
+		return errors.New("runtime purge recovery changed before deletion")
+	case -3:
+		return errors.New("runtime purge business cleanup is incomplete")
 	default:
-		return fmt.Errorf("unexpected orphaned runtime purge delete result %d", result)
+		return fmt.Errorf("unexpected runtime purge delete result %d", result)
 	}
-}
-
-func (a *asynqTaskInspector) deleteRuntimePurgeTask(ctx context.Context, queue, taskID string) error {
-	err := a.inspector.DeleteTask(queue, taskID)
-	if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) {
-		recovery, recoveryErr := a.runtimePurgeRecovery(ctx, queue, taskID)
-		if recoveryErr != nil {
-			return errors.Join(err, recoveryErr)
-		}
-		if recovery == nil || recovery.Phase != runtimePurgeDelete {
-			return err
-		}
-		if orphanErr := a.deleteOrphanedRuntimePurgeTask(ctx, queue, taskID); orphanErr != nil {
-			return errors.Join(err, orphanErr)
-		}
-	}
-	return a.deleteRuntimePurgeRecovery(ctx, queue, taskID)
 }
 
 func (a *asynqTaskInspector) quarantineRuntimeTask(
@@ -583,12 +589,6 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 	for _, recovery := range recoveries {
 		recoveryByID[recovery.TaskID] = recovery
 	}
-	for _, task := range archivedTasks {
-		if recoveryByID[task.ID] == nil {
-			deleteTask(task)
-		}
-	}
-
 	plans := make(map[string]interfaces.RuntimeTaskCancellationPlan, len(recoveries))
 	tasks := make([]*asynq.TaskInfo, 0, len(recoveries))
 	taskRecoveries := make(map[string]*runtimePurgeRecovery, len(recoveries))
@@ -598,6 +598,9 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 	taskReasons := make(map[string]string)
 
 	for _, recovery := range recoveries {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		current, getErr := a.inspector.GetTaskInfo(queue, recovery.TaskID)
 		if getErr == nil && current.State != asynq.TaskStateArchived {
 			archiveErr := a.inspector.ArchiveTask(queue, recovery.TaskID)
@@ -670,6 +673,9 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 		if recovery.Phase != runtimePurgeCancel || taskErrors[task.ID] != nil {
 			continue
 		}
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		cancelErr := runRuntimePurgeCallback(cancelCtx, plans[task.ID].Cancel)
 		cancel()
@@ -699,6 +705,9 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 		}
 	}
 	for key, group := range finalizers {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		if group.remaining != 0 {
 			group.err = errors.New("related runtime task recovery is incomplete")
 			continue
@@ -721,6 +730,9 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 	}
 
 	for _, task := range tasks {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		taskErr, reason := taskErrors[task.ID], taskReasons[task.ID]
 		if taskErr == nil {
 			if group := taskFinalizers[task.ID]; group != nil && group.err != nil {
@@ -735,6 +747,15 @@ func (a *asynqTaskInspector) purgeArchivedRuntimeTaskRecords(
 			taskErr, reason = errors.New("runtime task recovery phase is incomplete"), "business_cancel_failed"
 		}
 		recordFailure(task, reason, taskErr)
+	}
+	// Finish recoverable business work before spending the request on history.
+	for _, task := range archivedTasks {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		if recoveryByID[task.ID] == nil {
+			deleteTask(task)
+		}
 	}
 	return result, nil
 }

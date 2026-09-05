@@ -191,6 +191,11 @@ func (s *knowledgeService) cancelRuntimeKnowledge(ctx context.Context, id string
 	if err != nil || knowledge == nil {
 		return err
 	}
+	// Finished parses can have independent enrichment work. Purging one
+	// selected task must leave its other queued tasks and business state intact.
+	if knowledge.ParseStatus == types.ParseStatusCompleted || knowledge.ParseStatus == types.ParseStatusFailed {
+		return nil
+	}
 	inspector, ok := s.taskInspector.(interfaces.RuntimeKnowledgeTaskCanceller)
 	if !ok {
 		return errors.New("confirmed document task cancellation is unavailable")

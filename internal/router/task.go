@@ -188,7 +188,7 @@ return 1
 // Track and renew until the handler itself exits, even after asynq cancels it.
 func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 	return func(next asynq.Handler) asynq.Handler {
-		return asynq.HandlerFunc(func(ctx context.Context, task *asynq.Task) (resultErr error) {
+		return asynq.HandlerFunc(func(ctx context.Context, task *asynq.Task) error {
 			id, _ := asynq.GetTaskID(ctx)
 			queue, _ := asynq.GetQueueName(ctx)
 			key, execution := types.RuntimeTaskExecutionKey(queue, id), uuid.NewString()
@@ -200,41 +200,35 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 			if started == 0 {
 				return fmt.Errorf("runtime task %s is awaiting purge cleanup: %w", id, asynq.SkipRetry)
 			}
-			workerCtx, cancelWorker := context.WithCancelCause(ctx)
-			defer cancelWorker(nil)
 			renewCtx, stopRenewal := context.WithCancel(context.WithoutCancel(ctx))
-			renewResult := make(chan error, 1)
+			renewDone := make(chan struct{})
 			go func() {
+				defer close(renewDone)
 				ticker := time.NewTicker(runtimeTaskLeaseRenew)
 				defer ticker.Stop()
-				var renewalErr error
+				loggedFailure := false
 				for {
 					select {
 					case <-renewCtx.Done():
-						renewResult <- renewalErr
 						return
 					case <-ticker.C:
 						err := renewRuntimeExecution.Run(renewCtx, client, []string{key},
 							execution, runtimeTaskLease.Milliseconds()).Err()
 						if renewCtx.Err() != nil {
-							renewResult <- renewalErr
 							return
 						}
-						if err != nil {
-							cancelWorker(err)
-							if renewalErr == nil {
-								renewalErr = err
-								logger.Errorf(renewCtx, "renew runtime execution %s: %v", id, err)
-							}
-							// Cancellation is cooperative. Keep reporting this
-							// execution until the handler actually returns.
+						if err != nil && !loggedFailure {
+							loggedFailure = true
+							// An expired heartbeat blocks purge until exit is confirmed;
+							// monitoring failures must not interrupt business processing.
+							logger.Errorf(renewCtx, "renew runtime execution %s: %v", id, err)
 						}
 					}
 				}
 			}()
 			defer func() {
 				stopRenewal()
-				resultErr = errors.Join(resultErr, <-renewResult)
+				<-renewDone
 				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 				defer cancel()
 				if err := client.ZRem(cleanupCtx, key, execution).Err(); err != nil {
@@ -243,10 +237,10 @@ func runtimeTaskExecutionMiddleware(client *redis.Client) asynq.MiddlewareFunc {
 					logger.Errorf(cleanupCtx, "release runtime execution %s: %v", id, err)
 				}
 			}()
-			if err := workerCtx.Err(); err != nil {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			return next.ProcessTask(workerCtx, task)
+			return next.ProcessTask(ctx, task)
 		})
 	}
 }
