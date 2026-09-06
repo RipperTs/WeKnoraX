@@ -1054,11 +1054,22 @@ onMounted(async () => {
 </script>
 
 <style lang="less" scoped>
+@login-single-column-width: 1024px;
+@login-phone-width: 480px;
+@login-compact-height: 700px;
+
 .login-layout {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 52fr) minmax(0, 48fr);
+  grid-template-rows: auto 1fr;
   width: 100%;
-  min-height: 100%;
-  overflow: hidden;
+  // 内容超过视口（如注册表单或软键盘弹出）时，让页面自然增高并滚动。
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  box-sizing: border-box;
+  overflow-x: clip;
   position: relative;
   background: linear-gradient(225deg, #091022 0%, #14234a 18%, #1d3f8f 36%, #295acc 52%, #3370ff 68%, #5c8dff 84%, #adc6ff 100%);
 
@@ -1275,22 +1286,23 @@ onMounted(async () => {
 
 /* Left Showcase Section */
 .showcase-section {
-  flex: 0 0 52%;
   display: flex;
-  align-items: flex-end;
-  padding: 100px 30px 100px 50px;
+  min-width: 0;
+  align-items: center;
+  padding: 40px 24px 40px clamp(24px, 3.5vw, 50px);
   box-sizing: border-box;
   position: relative;
 }
 
 .showcase-content {
   width: 100%;
+  min-width: 0;
   max-width: 600px;
   position: relative;
   z-index: 2;
   display: flex;
   flex-direction: column;
-  margin-bottom: 60px;
+  overflow-wrap: anywhere;
 }
 
 .showcase-subtitle {
@@ -1387,17 +1399,18 @@ onMounted(async () => {
 
 /* Right Form Section */
 .form-section {
-  flex: 0 0 48%;
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: center;
-  padding: 40px 50px 40px 30px;
+  padding: 32px clamp(24px, 3.5vw, 50px) 40px 24px;
   box-sizing: border-box;
   position: relative;
 }
 
 .form-panel {
   width: 100%;
+  min-width: 0;
   max-width: 480px;
   margin-bottom: 0;
   position: relative;
@@ -1405,9 +1418,11 @@ onMounted(async () => {
 }
 
 .header-links {
-  position: fixed;
-  top: 28px;
-  right: 28px;
+  // 独占一行，避免小窗口中语言入口覆盖标题或表单。
+  grid-column: 1 / -1;
+  justify-self: end;
+  position: relative;
+  padding: 24px 28px 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1419,6 +1434,8 @@ onMounted(async () => {
   align-items: center;
   gap: 7px;
   padding: 9px 15px;
+  min-height: 44px;
+  box-sizing: border-box;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.25);
@@ -1490,6 +1507,8 @@ onMounted(async () => {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
+  min-height: 44px;
+  box-sizing: border-box;
   cursor: pointer;
   font-size: 13px;
   font-family: var(--app-font-family);
@@ -1524,12 +1543,13 @@ onMounted(async () => {
 .form-card {
   background: rgba(255, 255, 255, 0.97);
   border-radius: 16px;
-  padding: 40px;
+  padding: clamp(24px, 3vw, 40px);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
   box-sizing: border-box;
   border: none;
   width: 100%;
-  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .login-card-tabs {
@@ -1562,7 +1582,7 @@ onMounted(async () => {
     min-width: 0;
     justify-content: center;
     height: auto;
-    min-height: 42px;
+    min-height: 44px;
     padding: 0;
     border-radius: 8px;
     color: var(--td-text-color-secondary);
@@ -1588,6 +1608,7 @@ onMounted(async () => {
   }
 
   :deep(.t-tabs__nav-item-text-wrapper) {
+    min-width: 0;
     white-space: normal;
     text-align: center;
     line-height: 20px;
@@ -1698,7 +1719,6 @@ onMounted(async () => {
   }
 
   &__button {
-    height: 46px;
     border-radius: 8px;
     font-size: 15px;
     font-weight: 500;
@@ -1721,7 +1741,7 @@ onMounted(async () => {
 }
 
 .form-content {
-  :deep(.t-form-item__label) {
+  :deep(.t-form__label) {
     font-size: 14px;
     color: var(--td-text-color-primary);
     font-weight: 500;
@@ -1729,9 +1749,14 @@ onMounted(async () => {
     font-family: var(--app-font-family);
     display: block;
     text-align: left;
+    min-height: 0;
+    padding-right: 0;
+    line-height: 1.5;
+    white-space: normal;
   }
 
   :deep(.t-input) {
+    min-height: 46px;
     border: 1px solid var(--td-component-stroke);
     border-radius: 8px;
     background: var(--td-bg-color-container);
@@ -1751,7 +1776,8 @@ onMounted(async () => {
       box-shadow: none !important;
       outline: none !important;
       background: transparent;
-      font-size: 15px;
+      // 触屏输入保持可读字号，避免聚焦时页面被自动放大。
+      font-size: 16px;
       font-family: var(--app-font-family);
 
       &:focus {
@@ -1767,7 +1793,7 @@ onMounted(async () => {
     }
   }
 
-  :deep(.t-form-item) {
+  :deep(.t-form__item) {
     margin-bottom: 18px;
 
     &:last-child {
@@ -1775,8 +1801,11 @@ onMounted(async () => {
     }
   }
 
-  :deep(.t-form-item__control) {
+  :deep(.t-form__controls),
+  :deep(.t-form__controls-content),
+  :deep(.t-input__wrap) {
     width: 100%;
+    min-width: 0;
   }
 }
 
@@ -1921,7 +1950,6 @@ onMounted(async () => {
 }
 
 .submit-button {
-  height: 46px;
   border-radius: 8px;
   font-size: 16px;
   font-weight: 500;
@@ -1954,13 +1982,32 @@ onMounted(async () => {
 }
 
 .sso-button {
-  height: 46px;
   border-radius: 8px;
   font-size: 15px;
   font-weight: 500;
 }
 
+.submit-button,
+.register-cta__button,
+.sso-button {
+  height: auto;
+  min-height: 46px;
+  padding: 10px 16px;
+
+  :deep(.t-button__text) {
+    min-width: 0;
+    white-space: normal;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+}
+
 .form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0 4px;
   text-align: center;
   font-size: 14px;
   color: var(--td-text-color-secondary);
@@ -1970,9 +2017,11 @@ onMounted(async () => {
   border-bottom: 1px solid var(--td-component-stroke);
 
   .link-button {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     color: var(--td-brand-color);
     text-decoration: none;
-    margin-left: 4px;
     font-weight: 500;
     transition: all 0.2s;
 
@@ -2027,38 +2076,10 @@ onMounted(async () => {
 }
 
 /* Responsive Design */
-@media (max-width: 1024px) {
-  .knowledge-node:nth-of-type(n + 13) {
-    display: none;
-  }
-
-  .connection-line:nth-of-type(n + 13) {
-    display: none;
-  }
-
-  .showcase-subtitle {
-    font-size: 18px;
-  }
-
-  .header-links {
-    top: 22px;
-    right: 22px;
-    gap: 8px;
-
-    .link-text {
-      display: none;
-    }
-
-    .header-link {
-      padding: 10px;
-      gap: 0;
-    }
-  }
-}
-
-@media (max-width: 768px) {
+@media (max-width: @login-single-column-width) {
   .login-layout {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
   }
 
   .knowledge-node:nth-of-type(n + 9) {
@@ -2070,45 +2091,40 @@ onMounted(async () => {
   }
 
   .showcase-section {
-    flex: 0 0 auto;
-    min-height: 50vh;
-    padding: 40px 24px;
+    padding: 20px 24px 0;
   }
 
   .showcase-content {
-    max-width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    text-align: center;
   }
 
   .showcase-subtitle {
-    font-size: 16px;
-    margin-bottom: 24px;
+    font-size: 20px;
   }
 
-  .feature-tags {
-    margin-bottom: 24px;
+  .showcase-description {
+    margin-bottom: 0;
+    font-size: 14px;
   }
 
+  // 窄屏优先呈现登录入口，避免宣传内容把表单推到首屏之外。
+  .feature-tags,
   .carousel-container {
-    margin-top: 24px;
+    display: none;
   }
 
   .form-section {
-    flex: 0 0 auto;
+    align-items: flex-start;
     padding: 24px;
   }
 
   .header-links {
-    top: 18px;
-    right: 18px;
-    gap: 8px;
-
-    .link-text {
-      display: inline;
-    }
+    padding: 16px 24px 0;
 
     .header-link {
       padding: 8px 12px;
-      font-size: 12px;
     }
   }
 
@@ -2121,49 +2137,37 @@ onMounted(async () => {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: @login-phone-width) {
   .animated-bg {
     display: none;
   }
 
   .showcase-section {
-    padding: 32px 20px;
+    padding: 16px 16px 0;
   }
 
   .showcase-subtitle {
-    font-size: 14px;
-  }
-
-  .tag {
-    font-size: 12px;
-    padding: 6px 16px;
+    font-size: 18px;
   }
 
   .form-section {
-    padding: 20px;
+    padding: 20px 16px 24px;
   }
 
   .header-links {
-    top: 14px;
-    right: 14px;
-    gap: 6px;
-    flex-wrap: wrap;
-
-    .header-link {
-      padding: 7px 10px;
-      font-size: 11px;
-    }
+    padding: 12px 16px 0;
   }
 
   .form-card {
-    padding: 28px 20px;
+    padding: 24px 20px;
   }
 
   .login-card-tabs {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
   }
 
   .sso-provider-card {
+    min-height: 88px;
     padding: 16px 12px;
 
     :deep(.t-button__text) {
@@ -2179,6 +2183,52 @@ onMounted(async () => {
 
   .form-header {
     margin-bottom: 24px;
+  }
+}
+
+// 横屏手机和低高度窗口缩减留白，表单仍由文档滚动完整承载。
+@media (max-height: @login-compact-height) {
+  .header-links {
+    padding-top: 12px;
+  }
+
+  .showcase-section {
+    padding-top: 16px;
+    padding-bottom: 0;
+  }
+
+  .feature-tags {
+    margin-bottom: 20px;
+  }
+
+  .carousel-container {
+    margin-top: 20px;
+  }
+
+  .form-section {
+    padding-top: 16px;
+    padding-bottom: 24px;
+  }
+
+  .form-card {
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+
+  .form-header,
+  .login-card-tabs,
+  .quick-sso-header {
+    margin-bottom: 20px;
+  }
+}
+
+@media (max-width: @login-single-column-width) and (max-height: @login-compact-height) {
+  .showcase-description {
+    display: none;
+  }
+
+  .showcase-subtitle {
+    margin-bottom: 0;
   }
 }
 
