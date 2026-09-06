@@ -498,7 +498,7 @@ func TestRuntimeCancellationSkipsNewerKnowledgeAttempt(t *testing.T) {
 	batch.targets["42:doc"] = types.RuntimeCancelledKnowledge{TenantID: 42, ID: "doc", Attempt: 2}
 	batch.results["42:doc:2"] = runtimeCancellationResult{cancelled: true}
 	for _, taskType := range []string{
-		types.TypeManualProcess, types.TypeDataTableSummary, types.TypeQuestionGeneration,
+		types.TypeDocumentProcess, types.TypeManualProcess, types.TypeDataTableSummary, types.TypeQuestionGeneration,
 	} {
 		for _, attempt := range []int{0, 1, 3} {
 			payload, err := json.Marshal(runtimeCancellationPayload{TenantID: 42, KnowledgeID: "doc", Attempt: attempt})
@@ -510,6 +510,31 @@ func TestRuntimeCancellationSkipsNewerKnowledgeAttempt(t *testing.T) {
 			assert.False(t, cancelled)
 		}
 	}
+	for _, status := range []string{
+		types.ParseStatusPending, types.ParseStatusProcessing, types.ParseStatusFinalizing, types.ParseStatusCompleted,
+	} {
+		id := "no-attempt-" + status
+		require.NoError(t, db.Exec(`INSERT INTO knowledges (id,tenant_id,parse_status,updated_at) VALUES (?,?,?,?)`,
+			id, 42, status, before).Error)
+		target, _, err := repo.CancelKnowledge(context.Background(), 42, id, 0, time.Now())
+		require.NoError(t, err)
+		var knowledge types.Knowledge
+		require.NoError(t, db.First(&knowledge, "id = ?", id).Error)
+		if status == types.ParseStatusPending {
+			require.NotNil(t, target)
+			assert.Zero(t, target.Attempt)
+			assert.Equal(t, types.ParseStatusCancelled, knowledge.ParseStatus)
+		} else {
+			assert.Nil(t, target)
+			assert.Equal(t, status, knowledge.ParseStatus)
+		}
+	}
+	// A pending reparse already has an attempt and must not be cancelled by an old zero-attempt task.
+	require.NoError(t, db.Model(&types.Knowledge{}).Where("id = ?", "doc").
+		UpdateColumn("parse_status", types.ParseStatusPending).Error)
+	target, _, err = repo.CancelKnowledge(context.Background(), 42, "doc", 0, time.Now())
+	require.NoError(t, err)
+	assert.Nil(t, target)
 }
 
 func TestRuntimeCancellationSettlesSyncTemporaryDocumentAndMemory(t *testing.T) {

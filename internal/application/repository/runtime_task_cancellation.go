@@ -58,7 +58,7 @@ func (r *RuntimeTaskCancellationRepository) CancelKnowledge(
 func cancelRuntimeKnowledge(
 	tx *gorm.DB, tenantID uint64, id string, attempt int, cutoff time.Time,
 ) (*types.RuntimeCancelledKnowledge, *types.Knowledge, error) {
-	if attempt <= 0 {
+	if attempt < 0 {
 		return nil, nil, nil
 	}
 	var knowledge types.Knowledge
@@ -78,6 +78,10 @@ func cancelRuntimeKnowledge(
 		return nil, nil, err
 	}
 	if latest != attempt {
+		return nil, nil, nil
+	}
+	// Zero identifies an initial upload only while it is still waiting to parse.
+	if attempt == 0 && knowledge.ParseStatus != types.ParseStatusPending {
 		return nil, nil, nil
 	}
 	now := time.Now()

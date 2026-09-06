@@ -302,7 +302,8 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 		if p.KnowledgeID == "" {
 			return false, fmt.Errorf("%w: task knowledge is missing", types.ErrRuntimeCancellationNotCommitted)
 		}
-		if p.Attempt <= 0 {
+		// Initial document uploads get their first attempt only after a worker starts.
+		if p.Attempt < 0 || (p.Attempt == 0 && task.Type != types.TypeDocumentProcess) {
 			return false, nil
 		}
 		key := fmt.Sprintf("%d:%s", p.TenantID, p.KnowledgeID)
@@ -358,7 +359,10 @@ func (s *RuntimeTaskCancellationService) cancelBusinessTask(
 				batch.results[resultKey] = result
 			}
 			if target != nil && err == nil {
-				batch.targets[fmt.Sprintf("%d:%s", p.TenantID, target.ID)] = *target
+				// An unstarted upload has no child tasks to sweep.
+				if target.Attempt > 0 {
+					batch.targets[fmt.Sprintf("%d:%s", p.TenantID, target.ID)] = *target
+				}
 				if knowledge != nil {
 					recordKBActivity(ctx, s.audit, p.TenantID, knowledge.KnowledgeBaseID,
 						types.AuditActionKnowledgeParseCanceled, "knowledge", knowledge.ID, types.AuditOutcomeCanceled,

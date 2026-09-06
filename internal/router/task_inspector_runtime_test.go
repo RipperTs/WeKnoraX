@@ -494,6 +494,82 @@ func TestRuntimeCancellationProcessesSnapshotAfterRequestCloses(t *testing.T) {
 	require.Equal(t, 3, info.Pending)
 	require.Zero(t, info.Archived, "invalid payloads must remain in pending without being reserved")
 
+	for _, mode := range []string{"single", "bulk"} {
+		t.Run("initial_uploads_"+mode, func(t *testing.T) {
+			ctx := context.Background()
+			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = sqlDB.Close() })
+			require.NoError(t, db.Exec(`CREATE TABLE knowledges (
+  id TEXT PRIMARY KEY,tenant_id INTEGER,knowledge_base_id TEXT,parse_status TEXT,
+  summary_status TEXT,pending_subtasks_count INTEGER,error_message TEXT,
+  updated_at DATETIME,deleted_at DATETIME)`).Error)
+			require.NoError(t, db.AutoMigrate(&types.KnowledgeProcessingSpan{}, &types.TaskPendingOp{}))
+			before := time.Now().Add(-time.Minute)
+			require.NoError(t, db.Exec(`INSERT INTO knowledges VALUES (?,?,?,?,?,?,?,?,?)`,
+				"other", 42, "kb", types.ParseStatusProcessing, types.SummaryStatusProcessing,
+				2, "", before, nil).Error)
+			payloads := []types.DocumentProcessPayload{
+				{FilePath: "file.pdf", FileName: "file.pdf", FileType: "pdf"},
+				{URL: "https://example.com/article"},
+				{FileURL: "https://example.com/file.pdf", FileName: "file.pdf", FileType: "pdf"},
+				{Passages: []string{"uploaded text"}},
+			}
+			var taskIDs []string
+			for i, payload := range payloads {
+				id := fmt.Sprintf("initial-%s-%d", mode, i)
+				require.NoError(t, db.Exec(`INSERT INTO knowledges VALUES (?,?,?,?,?,?,?,?,?)`,
+					id, 42, "kb", types.ParseStatusPending, types.SummaryStatusNone,
+					0, "", before, nil).Error)
+				payload.TenantID, payload.KnowledgeBaseID, payload.KnowledgeID = 42, "kb", id
+				data, err := json.Marshal(payload)
+				require.NoError(t, err)
+				_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeDocumentProcess, data),
+					asynq.Queue(types.QueueDefault), asynq.TaskID(id))
+				require.NoError(t, err)
+				taskIDs = append(taskIDs, id)
+				t.Cleanup(func() { _ = inspector.inspector.DeleteTask(types.QueueDefault, id) })
+			}
+			uploadSvc := service.NewRuntimeTaskCancellationService(inspector, client,
+				repository.NewRuntimeTaskCancellationRepository(db), nil, nil)
+			if mode == "single" {
+				for _, id := range taskIDs {
+					cancelled, err := uploadSvc.CancelOne(ctx, types.QueueDefault, id)
+					require.NoError(t, err)
+					require.True(t, cancelled)
+				}
+			} else {
+				job, err := uploadSvc.Start(ctx, types.QueueDefault)
+				require.NoError(t, err)
+				require.Eventually(t, func() bool {
+					job, err = uploadSvc.Get(ctx, types.QueueDefault)
+					return err == nil && job.Status != "running"
+				}, 20*time.Second, 20*time.Millisecond)
+				require.Equal(t, "completed", job.Status)
+				require.Equal(t, len(payloads), job.Cancelled)
+				require.Zero(t, job.Skipped)
+				require.Zero(t, job.Failed)
+				require.Zero(t, job.RelatedDeleted)
+				require.Zero(t, job.ActiveSignaled)
+			}
+			for _, id := range taskIDs {
+				var knowledge types.Knowledge
+				require.NoError(t, db.First(&knowledge, "id = ?", id).Error)
+				require.Equal(t, types.ParseStatusCancelled, knowledge.ParseStatus)
+				_, err := inspector.inspector.GetTaskInfo(types.QueueDefault, id)
+				require.ErrorIs(t, err, asynq.ErrTaskNotFound)
+			}
+			var other types.Knowledge
+			require.NoError(t, db.First(&other, "id = ?", "other").Error)
+			require.Equal(t, types.ParseStatusProcessing, other.ParseStatus)
+			require.Equal(t, types.SummaryStatusProcessing, other.SummaryStatus)
+			require.Equal(t, 2, other.PendingSubtasksCount)
+			require.Zero(t, client.ZCard(ctx, "asynq:{default}:archived").Val())
+		})
+	}
+
 	t.Run("manual_edits_keep_fifo", func(t *testing.T) {
 		manualCtx := context.Background()
 		const edits = 205 // Cross cancellation batch boundaries.
