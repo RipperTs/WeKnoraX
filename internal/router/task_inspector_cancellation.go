@@ -89,10 +89,14 @@ func (a *asynqTaskInspector) ReservePendingRuntimeCancellationTask(
 	ctx context.Context, task *types.RuntimeCancellationTask,
 ) (bool, error) {
 	prefix := "asynq:{" + task.Queue + "}:"
-	now := time.Now()
+	deadline := time.Now().Add(2 * time.Hour)
+	// Asynq trims the oldest archives by score when its size limit is reached.
+	// Keep reservations newer than worker dead letters for the protection
+	// window plus the 10 seconds allowed to release them back to pending.
+	archiveScore := deadline.Add(10 * time.Second).Unix()
 	n, err := reservePendingCancellationTask.Run(ctx, a.redis,
 		[]string{prefix + "t:" + task.ID, prefix + "pending", prefix + "archived"},
-		task.ID, task.Message, task.PendingSince, task.Reservation, now.Unix(), now.Add(2*time.Hour).Unix()).Int()
+		task.ID, task.Message, task.PendingSince, task.Reservation, archiveScore, deadline.Unix()).Int()
 	return n == 1, err
 }
 

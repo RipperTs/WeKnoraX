@@ -340,6 +340,32 @@ func TestRuntimeCancellationDeleteChecksTaskIdentityAndUniqueLock(t *testing.T) 
 	require.Empty(t, info.AllowedActions)
 	_, err = inspector.RunRuntimeTask(ctx, types.QueueQuestion, "reused")
 	require.Error(t, err)
+	deadline, err := client.HGet(ctx, "asynq:{question}:t:reused", "runtime_cancel_until").Int64()
+	require.NoError(t, err)
+	archiveScore, err := client.ZScore(ctx, "asynq:{question}:archived", "reused").Result()
+	require.NoError(t, err)
+	require.Greater(t, archiveScore, float64(deadline))
+	// Asynq v0.26.0 trims the oldest archive entries at its 10,000-task
+	// limit. Exercise that native path while this reservation is held.
+	const archiveLimit = 10000
+	archiveKey := "asynq:{question}:archived"
+	archives := make([]redis.Z, archiveLimit)
+	archiveIDs := make([]any, archiveLimit)
+	for i := range archives {
+		id := fmt.Sprintf("z-capacity-%05d", i)
+		archives[i] = redis.Z{Score: float64(time.Now().Unix()), Member: id}
+		archiveIDs[i] = id
+	}
+	require.NoError(t, client.ZAdd(ctx, archiveKey, archives...).Err())
+	_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeQuestionGeneration, payload),
+		asynq.Queue(types.QueueQuestion), asynq.TaskID("zz-capacity-trigger"))
+	require.NoError(t, err)
+	require.NoError(t, inspector.inspector.ArchiveTask(types.QueueQuestion, "zz-capacity-trigger"))
+	_, err = client.ZScore(ctx, archiveKey, "reused").Result()
+	require.NoError(t, err, "native archive trimming must retain the reservation")
+	require.Equal(t, current.Message, client.HGet(ctx, "asynq:{question}:t:reused", "msg").Val())
+	require.NoError(t, client.ZRem(ctx, archiveKey, archiveIDs...).Err())
+	require.NoError(t, inspector.inspector.DeleteTask(types.QueueQuestion, "zz-capacity-trigger"))
 	for i, deadline := range []int64{time.Now().Add(time.Hour).Unix(), time.Now().Add(-time.Hour).Unix()} {
 		require.NoError(t, client.HSet(ctx, "asynq:{question}:t:reused", "runtime_cancel_until", deadline).Err())
 		id := fmt.Sprintf("dead-letter-%d", i)
