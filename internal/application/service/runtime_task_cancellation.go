@@ -263,6 +263,16 @@ func (s *RuntimeTaskCancellationService) CancelOne(ctx context.Context, queue, i
 	return cancelled, errors.Join(err, sweepErr)
 }
 
+type runtimeCancellationPayload struct {
+	TenantID        uint64 `json:"tenant_id"`
+	KnowledgeID     string `json:"knowledge_id"`
+	KnowledgeBaseID string `json:"knowledge_base_id"`
+	DocumentID      string `json:"document_id"`
+	SubjectID       string `json:"subject_id"`
+	SyncLogID       string `json:"sync_log_id"`
+	Attempt         int    `json:"attempt"`
+}
+
 func (s *RuntimeTaskCancellationService) cancelTask(
 	ctx context.Context, task *types.RuntimeCancellationTask, cutoff time.Time, batch *runtimeCancellationBatch,
 ) (bool, error) {
@@ -276,12 +286,36 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 	if pendingSince > cutoff.UnixNano() {
 		return false, nil
 	}
+	var p runtimeCancellationPayload
+	if err := json.Unmarshal(task.Payload, &p); err != nil {
+		return false, errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
+	}
+	if p.TenantID == 0 {
+		return false, fmt.Errorf("%w: task tenant is missing", types.ErrRuntimeCancellationNotCommitted)
+	}
+	// Leave known skips in place. Reserving and requeueing them would change
+	// FIFO order, particularly for consecutive manual edits without attempts.
+	switch task.Type {
+	case types.TypeDocumentProcess, types.TypeManualProcess, types.TypeImageMultimodal,
+		types.TypeKnowledgePostProcess, types.TypeQuestionGeneration, types.TypeSummaryGeneration,
+		types.TypeChunkExtract, types.TypeDataTableSummary, types.TypeKnowledgeAutoTag:
+		if p.KnowledgeID == "" {
+			return false, fmt.Errorf("%w: task knowledge is missing", types.ErrRuntimeCancellationNotCommitted)
+		}
+		if p.Attempt <= 0 {
+			return false, nil
+		}
+		key := fmt.Sprintf("%d:%s", p.TenantID, p.KnowledgeID)
+		if target, ok := batch.targets[key]; ok && p.Attempt != target.Attempt {
+			return false, nil
+		}
+	}
 	task.Reservation = uuid.NewString()
 	reserved, err := s.queue.ReservePendingRuntimeCancellationTask(ctx, task)
 	if err != nil || !reserved {
 		return false, err
 	}
-	cancelled, err := s.cancelBusinessTask(ctx, task, cutoff, batch)
+	cancelled, err := s.cancelBusinessTask(ctx, task, p, cutoff, batch)
 	if err != nil && !errors.Is(err, types.ErrRuntimeCancellationNotCommitted) {
 		// Business changes may already have committed. Keep the task archived
 		// on failure so a worker cannot overwrite the cancellation result.
@@ -300,23 +334,9 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 }
 
 func (s *RuntimeTaskCancellationService) cancelBusinessTask(
-	ctx context.Context, task *types.RuntimeCancellationTask, cutoff time.Time, batch *runtimeCancellationBatch,
+	ctx context.Context, task *types.RuntimeCancellationTask, p runtimeCancellationPayload,
+	cutoff time.Time, batch *runtimeCancellationBatch,
 ) (bool, error) {
-	var p struct {
-		TenantID        uint64 `json:"tenant_id"`
-		KnowledgeID     string `json:"knowledge_id"`
-		KnowledgeBaseID string `json:"knowledge_base_id"`
-		DocumentID      string `json:"document_id"`
-		SubjectID       string `json:"subject_id"`
-		SyncLogID       string `json:"sync_log_id"`
-		Attempt         int    `json:"attempt"`
-	}
-	if err := json.Unmarshal(task.Payload, &p); err != nil {
-		return false, errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
-	}
-	if p.TenantID == 0 {
-		return false, fmt.Errorf("%w: task tenant is missing", types.ErrRuntimeCancellationNotCommitted)
-	}
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, p.TenantID)
 	var cancelled bool
 	var err error
@@ -324,16 +344,7 @@ func (s *RuntimeTaskCancellationService) cancelBusinessTask(
 	case types.TypeDocumentProcess, types.TypeManualProcess, types.TypeImageMultimodal,
 		types.TypeKnowledgePostProcess, types.TypeQuestionGeneration, types.TypeSummaryGeneration,
 		types.TypeChunkExtract, types.TypeDataTableSummary, types.TypeKnowledgeAutoTag:
-		if p.KnowledgeID == "" {
-			return false, fmt.Errorf("%w: task knowledge is missing", types.ErrRuntimeCancellationNotCommitted)
-		}
-		if p.Attempt <= 0 {
-			return false, nil
-		}
 		key := fmt.Sprintf("%d:%s", p.TenantID, p.KnowledgeID)
-		if target, ok := batch.targets[key]; ok && p.Attempt != target.Attempt {
-			return false, nil
-		}
 		resultKey := fmt.Sprintf("%s:%d", key, p.Attempt)
 		result, exists := batch.results[resultKey]
 		if !exists {

@@ -491,8 +491,8 @@ func TestRuntimeCancellationSkipsNewerKnowledgeAttempt(t *testing.T) {
 	var span types.KnowledgeProcessingSpan
 	require.NoError(t, db.First(&span).Error)
 	assert.Equal(t, types.SpanStatusRunning, span.Status)
-	// Zero-attempt tasks must also be rejected after a matching task has
-	// populated the batch cache, without applying its result to the old task.
+	// Known skips must not reserve or requeue the task, even after another
+	// attempt has populated the batch cache. This service has no queue adapter.
 	svc := &RuntimeTaskCancellationService{repo: repo}
 	batch := newRuntimeCancellationBatch()
 	batch.targets["42:doc"] = types.RuntimeCancelledKnowledge{TenantID: 42, ID: "doc", Attempt: 2}
@@ -500,11 +500,15 @@ func TestRuntimeCancellationSkipsNewerKnowledgeAttempt(t *testing.T) {
 	for _, taskType := range []string{
 		types.TypeManualProcess, types.TypeDataTableSummary, types.TypeQuestionGeneration,
 	} {
-		cancelled, err := svc.cancelBusinessTask(context.Background(), &types.RuntimeCancellationTask{
-			Type: taskType, Payload: []byte(`{"tenant_id":42,"knowledge_id":"doc"}`),
-		}, time.Now(), batch)
-		require.NoError(t, err)
-		assert.False(t, cancelled)
+		for _, attempt := range []int{0, 1, 3} {
+			payload, err := json.Marshal(runtimeCancellationPayload{TenantID: 42, KnowledgeID: "doc", Attempt: attempt})
+			require.NoError(t, err)
+			cancelled, err := svc.cancelTask(context.Background(), &types.RuntimeCancellationTask{
+				Type: taskType, Payload: payload, PendingSince: "1",
+			}, time.Now(), batch)
+			require.NoError(t, err)
+			assert.False(t, cancelled)
+		}
 	}
 }
 

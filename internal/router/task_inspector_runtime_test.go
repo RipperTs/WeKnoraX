@@ -466,7 +466,48 @@ func TestRuntimeCancellationProcessesSnapshotAfterRequestCloses(t *testing.T) {
 	info, err := inspector.inspector.GetQueueInfo(types.QueueMaintenance)
 	require.NoError(t, err)
 	require.Equal(t, 3, info.Pending)
-	require.Zero(t, info.Archived, "invalid payloads have not changed business state and must be released")
+	require.Zero(t, info.Archived, "invalid payloads must remain in pending without being reserved")
+
+	t.Run("manual_edits_keep_fifo", func(t *testing.T) {
+		manualCtx := context.Background()
+		const edits = 205 // Cross cancellation batch boundaries.
+		for i := 0; i < edits; i++ {
+			payload, err := json.Marshal(types.ManualProcessPayload{
+				TenantID: 42, KnowledgeID: "doc", KnowledgeBaseID: "kb",
+				Content: fmt.Sprintf("edit-%d", i), NeedCleanup: true,
+			})
+			require.NoError(t, err)
+			_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeManualProcess, payload),
+				asynq.Queue(types.QueueDefault), asynq.TaskID(fmt.Sprintf("edit-%d", i)))
+			require.NoError(t, err)
+		}
+		pendingKey := "asynq:{default}:pending"
+		before, err := client.LRange(manualCtx, pendingKey, 0, -1).Result()
+		require.NoError(t, err)
+		job, err := svc.Start(manualCtx, types.QueueDefault)
+		require.NoError(t, err)
+		_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeManualProcess,
+			[]byte(`{"tenant_id":42,"knowledge_id":"doc","content":"newest"}`)),
+			asynq.Queue(types.QueueDefault), asynq.TaskID("newest-edit"))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			job, err = svc.Get(manualCtx, types.QueueDefault)
+			return err == nil && job.Status != "running"
+		}, 20*time.Second, 20*time.Millisecond)
+		require.Equal(t, "completed", job.Status)
+		require.Equal(t, edits, job.Skipped)
+		require.Zero(t, job.Cancelled)
+		require.Zero(t, job.Failed)
+		cancelled, err := svc.CancelOne(manualCtx, types.QueueDefault, "edit-0")
+		require.NoError(t, err)
+		require.False(t, cancelled)
+		require.Equal(t, append([]string{"newest-edit"}, before...), client.LRange(manualCtx, pendingKey, 0, -1).Val())
+		// Asynq consumes from the tail: older edits must still run first.
+		for i := 0; i < edits; i++ {
+			require.Equal(t, fmt.Sprintf("edit-%d", i), client.RPop(manualCtx, pendingKey).Val())
+		}
+		require.Equal(t, "newest-edit", client.RPop(manualCtx, pendingKey).Val())
+	})
 
 	for _, failure := range []string{"none", "before_update", "after_update", "commit"} {
 		t.Run("sync_business_failure_"+failure, func(t *testing.T) {
