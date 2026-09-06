@@ -977,12 +977,14 @@ async function refreshCancellation() {
     cancellation.value = job
     cancellationError.value = ''
     if (finished) await Promise.all([fetchRuntimeTasks(true), load(false)])
-    if (job?.status === 'running' && taskDrawerVisible.value && taskQueue.value?.name === queue) {
-      cancellationTimer = setTimeout(() => void refreshCancellation(), 2000)
-    }
   } catch (err: any) {
     if (requestID === cancellationRequestID && taskQueue.value?.name === queue && taskDrawerVisible.value) {
       cancellationError.value = err?.message || t('system.globalSettings.runtime.tasks.cancellationProgressError')
+    }
+  } finally {
+    if (requestID === cancellationRequestID && taskQueue.value?.name === queue &&
+      taskDrawerVisible.value && cancellation.value?.status === 'running') {
+      cancellationTimer = setTimeout(() => void refreshCancellation(), 2000)
     }
   }
 }

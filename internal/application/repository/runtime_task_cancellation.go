@@ -12,8 +12,8 @@ import (
 
 const runtimeCancellationReason = "管理员已取消排队任务"
 
-// RuntimeTaskCancellationRepository settles persisted business state before a
-// pending queue record is removed. The cutoff prevents replacing newer work.
+// RuntimeTaskCancellationRepository settles persisted business state while the
+// queue task is reserved. The cutoff prevents replacing newer work.
 type RuntimeTaskCancellationRepository struct{ db *gorm.DB }
 
 // NewRuntimeTaskCancellationRepository creates the persisted-state cancellation adapter.
@@ -38,6 +38,9 @@ func (r *RuntimeTaskCancellationRepository) CancelKnowledge(
 func cancelRuntimeKnowledge(
 	tx *gorm.DB, tenantID uint64, id string, attempt int, cutoff time.Time,
 ) (*types.RuntimeCancelledKnowledge, *types.Knowledge, error) {
+	if attempt <= 0 {
+		return nil, nil, nil
+	}
 	var knowledge types.Knowledge
 	err := tx.Clauses(forUpdateClause()).Where("tenant_id = ? AND id = ?", tenantID, id).First(&knowledge).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -54,7 +57,7 @@ func cancelRuntimeKnowledge(
 	if err != nil {
 		return nil, nil, err
 	}
-	if attempt > 0 && latest > attempt {
+	if latest != attempt {
 		return nil, nil, nil
 	}
 	now := time.Now()
@@ -77,8 +80,8 @@ func cancelRuntimeKnowledge(
 		"USER_CANCELLED", runtimeCancellationReason); err != nil {
 		return nil, nil, err
 	}
-	// Wiki rows have no attempt field: only remove this document's captured,
-	// unclaimed ingest work. Retractions must still converge the index.
+	// Only remove this document's captured, unclaimed ingest work.
+	// Retractions must still converge the index.
 	if err := tx.Where("tenant_id = ? AND task_type = ? AND scope_id = ? AND dedup_key = ?",
 		tenantID, types.TypeWikiIngest, knowledge.KnowledgeBaseID, id).
 		Where("op = ? AND claimed_at IS NULL AND enqueued_at <= ?", "ingest", cutoff).
@@ -147,12 +150,13 @@ func (r *RuntimeTaskCancellationRepository) CancelWikiBatch(
 		after = row.ID
 		var payload struct {
 			KnowledgeID string `json:"knowledge_id"`
+			Attempt     int    `json:"attempt"`
 		}
 		if json.Unmarshal(row.Payload, &payload) != nil || payload.KnowledgeID == "" {
 			failed++
 			continue
 		}
-		target, _, err := r.CancelKnowledge(ctx, tenantID, payload.KnowledgeID, 0, cutoff)
+		target, _, err := r.CancelKnowledge(ctx, tenantID, payload.KnowledgeID, payload.Attempt, cutoff)
 		if err != nil {
 			failed++
 			continue

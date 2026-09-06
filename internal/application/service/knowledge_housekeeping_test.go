@@ -461,15 +461,35 @@ func TestRuntimeCancellationSkipsNewerKnowledgeAttempt(t *testing.T) {
   (knowledge_id,attempt,span_id,name,kind,status) VALUES (?,?,?,?,?,?)`,
 		"doc", 2, "root", "parse", "root", types.SpanStatusRunning).Error)
 	repo := repository.NewRuntimeTaskCancellationRepository(db)
-	target, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", 1, time.Now())
-	require.NoError(t, err)
-	assert.Nil(t, target)
-	target, _, err = repo.CancelKnowledge(context.Background(), 42, "doc", 2, before.Add(-time.Second))
+	for _, attempt := range []int{0, 1, 3} {
+		target, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", attempt, time.Now())
+		require.NoError(t, err)
+		assert.Nil(t, target)
+	}
+	target, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", 2, before.Add(-time.Second))
 	require.NoError(t, err)
 	assert.Nil(t, target)
 	var knowledge types.Knowledge
 	require.NoError(t, db.First(&knowledge, "id = ?", "doc").Error)
 	assert.Equal(t, types.ParseStatusProcessing, knowledge.ParseStatus)
+	var span types.KnowledgeProcessingSpan
+	require.NoError(t, db.First(&span).Error)
+	assert.Equal(t, types.SpanStatusRunning, span.Status)
+	// Zero-attempt tasks must also be rejected after a matching task has
+	// populated the batch cache, without applying its result to the old task.
+	svc := &RuntimeTaskCancellationService{repo: repo}
+	batch := newRuntimeCancellationBatch()
+	batch.targets["42:doc"] = types.RuntimeCancelledKnowledge{TenantID: 42, ID: "doc", Attempt: 2}
+	batch.results["42:doc:2"] = runtimeCancellationResult{cancelled: true}
+	for _, taskType := range []string{
+		types.TypeManualProcess, types.TypeDataTableSummary, types.TypeQuestionGeneration,
+	} {
+		cancelled, err := svc.cancelBusinessTask(context.Background(), &types.RuntimeCancellationTask{
+			Type: taskType, Payload: []byte(`{"tenant_id":42,"knowledge_id":"doc"}`),
+		}, time.Now(), batch)
+		require.NoError(t, err)
+		assert.False(t, cancelled)
+	}
 }
 
 func TestRuntimeCancellationSettlesSyncTemporaryDocumentAndMemory(t *testing.T) {
@@ -581,10 +601,22 @@ func TestRuntimeCancellationWikiCancelsIngestAndKeepsRetractionTrigger(t *testin
 	require.NoError(t, db.Exec(`INSERT INTO knowledges
   (id,tenant_id,knowledge_base_id,parse_status,pending_subtasks_count,updated_at) VALUES (?,?,?,?,?,?)`,
 		"doc", 42, "kb", types.ParseStatusFinalizing, 1, before).Error)
+	insertSpan(t, db, "doc", 2, "root", types.SpanStatusRunning, before)
+	require.NoError(t, db.Exec(`INSERT INTO knowledges
+  (id,tenant_id,knowledge_base_id,parse_status,updated_at) VALUES (?,?,?,?,?)`,
+		"unknown-attempt", 42, "kb", types.ParseStatusProcessing, before).Error)
+	insertSpan(t, db, "unknown-attempt", 2, "root", types.SpanStatusRunning, before)
+	unknown := types.TaskPendingOp{
+		TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+		ScopeID: "kb", Op: WikiOpIngest, DedupKey: "unknown-attempt",
+		Payload: []byte(`{"knowledge_id":"unknown-attempt"}`), EnqueuedAt: before,
+	}
+	require.NoError(t, db.Create(&unknown).Error)
 	for _, op := range []string{WikiOpIngest, WikiOpRetract} {
 		row := types.TaskPendingOp{
 			TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
-			ScopeID: "kb", Op: op, DedupKey: "doc", Payload: []byte(`{"knowledge_id":"doc"}`), EnqueuedAt: before,
+			ScopeID: "kb", Op: op, DedupKey: "doc", Payload: []byte(`{"knowledge_id":"doc","attempt":2}`),
+			EnqueuedAt: before,
 		}
 		require.NoError(t, db.Create(&row).Error)
 	}
@@ -599,9 +631,13 @@ func TestRuntimeCancellationWikiCancelsIngestAndKeepsRetractionTrigger(t *testin
 	assert.Equal(t, types.ParseStatusCancelled, knowledge.ParseStatus)
 	assert.Zero(t, knowledge.PendingSubtasksCount)
 	var rows []types.TaskPendingOp
-	require.NoError(t, db.Find(&rows).Error)
-	require.Len(t, rows, 1)
-	assert.Equal(t, WikiOpRetract, rows[0].Op)
+	require.NoError(t, db.Order("id").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, unknown.ID, rows[0].ID)
+	assert.Equal(t, WikiOpRetract, rows[1].Op)
+	var untouched types.Knowledge
+	require.NoError(t, db.First(&untouched, "id = ?", "unknown-attempt").Error)
+	assert.Equal(t, types.ParseStatusProcessing, untouched.ParseStatus)
 }
 
 func TestRuntimeCancellationMemoizesFailedWikiScope(t *testing.T) {

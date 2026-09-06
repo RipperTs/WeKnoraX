@@ -11,6 +11,8 @@ import (
 type RuntimeTaskCancellationQueue interface {
 	SnapshotPendingRuntimeTaskIDs(ctx context.Context, queue string) ([]string, error)
 	GetPendingRuntimeCancellationTask(ctx context.Context, queue, id string) (*types.RuntimeCancellationTask, error)
-	DeletePendingRuntimeCancellationTask(ctx context.Context, task *types.RuntimeCancellationTask) (bool, error)
+	ReservePendingRuntimeCancellationTask(ctx context.Context, task *types.RuntimeCancellationTask) (bool, error)
+	ReleaseRuntimeCancellationTask(ctx context.Context, task *types.RuntimeCancellationTask) error
+	DeleteReservedRuntimeCancellationTask(ctx context.Context, task *types.RuntimeCancellationTask) (bool, error)
 	CancelRuntimeKnowledgeTasks(ctx context.Context, targets []types.RuntimeCancelledKnowledge) (int, int, error)
 }

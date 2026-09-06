@@ -603,6 +603,9 @@ func (a *asynqTaskInspector) ListRuntimeTasks(
 			if info.State != state {
 				continue
 			}
+			if err := a.protectRuntimeCancellation(ctx, &info); err != nil {
+				return types.RuntimeTaskPage{}, true, err
+			}
 			result = append(result, info)
 			if len(result) == pageSize {
 				// A full raw batch may have contained stale IDs that were
@@ -642,6 +645,9 @@ func (a *asynqTaskInspector) GetRuntimeTask(
 	}
 	info, err := projectRuntimeTask(task, workers[task.Queue+"\x00"+task.ID])
 	if err != nil {
+		return nil, true, err
+	}
+	if err := a.protectRuntimeCancellation(ctx, &info); err != nil {
 		return nil, true, err
 	}
 	return &info, true, nil

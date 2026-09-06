@@ -317,18 +317,54 @@ func TestRuntimeCancellationDeleteChecksTaskIdentityAndUniqueLock(t *testing.T) 
 	_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeQuestionGeneration, payload),
 		asynq.Queue(types.QueueQuestion), asynq.TaskID("reused"), asynq.Unique(time.Minute))
 	require.NoError(t, err)
-	deleted, err := inspector.DeletePendingRuntimeCancellationTask(ctx, captured)
+	captured.Reservation = "old-reservation"
+	reserved, err := inspector.ReservePendingRuntimeCancellationTask(ctx, captured)
 	require.NoError(t, err)
-	require.False(t, deleted)
+	require.False(t, reserved)
 	current, err := inspector.GetPendingRuntimeCancellationTask(ctx, types.QueueQuestion, "reused")
 	require.NoError(t, err)
 	require.NotNil(t, current)
 	uniqueKey, err := client.HGet(ctx, "asynq:{question}:t:reused", "unique_key").Result()
 	require.NoError(t, err)
-	deleted, err = inspector.DeletePendingRuntimeCancellationTask(ctx, current)
+	current.Reservation = "current-reservation"
+	reserved, err = inspector.ReservePendingRuntimeCancellationTask(ctx, current)
+	require.NoError(t, err)
+	require.True(t, reserved)
+	// Asynq claims only from pending; the reservation must keep the unique
+	// lock and task record while preventing a concurrent worker claim.
+	require.ErrorIs(t, client.RPopLPush(ctx, "asynq:{question}:pending", "asynq:{question}:active").Err(), redis.Nil)
+	require.Equal(t, "reused", client.Get(ctx, uniqueKey).Val())
+	info, _, err := inspector.GetRuntimeTask(ctx, types.QueueQuestion, "reused")
+	require.NoError(t, err)
+	require.Equal(t, types.RuntimeTaskArchived, info.State)
+	require.Empty(t, info.AllowedActions)
+	_, err = inspector.RunRuntimeTask(ctx, types.QueueQuestion, "reused")
+	require.Error(t, err)
+	// Skipping a task releases it without changing its captured identity.
+	require.NoError(t, inspector.ReleaseRuntimeCancellationTask(ctx, current))
+	require.Equal(t, current.PendingSince, client.HGet(ctx, "asynq:{question}:t:reused", "pending_since").Val())
+	reserved, err = inspector.ReservePendingRuntimeCancellationTask(ctx, current)
+	require.NoError(t, err)
+	require.True(t, reserved)
+	deleted, err := inspector.DeleteReservedRuntimeCancellationTask(ctx, captured)
+	require.NoError(t, err)
+	require.False(t, deleted)
+	deleted, err = inspector.DeleteReservedRuntimeCancellationTask(ctx, current)
 	require.NoError(t, err)
 	require.True(t, deleted)
 	require.ErrorIs(t, client.Get(ctx, uniqueKey).Err(), redis.Nil)
+	// If the worker wins first, no reservation can be obtained.
+	_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeQuestionGeneration, payload),
+		asynq.Queue(types.QueueQuestion), asynq.TaskID("claimed"))
+	require.NoError(t, err)
+	current, err = inspector.GetPendingRuntimeCancellationTask(ctx, types.QueueQuestion, "claimed")
+	require.NoError(t, err)
+	require.NoError(t, client.RPopLPush(ctx, "asynq:{question}:pending", "asynq:{question}:active").Err())
+	require.NoError(t, client.HSet(ctx, "asynq:{question}:t:claimed", "state", "active").Err())
+	current.Reservation = "too-late"
+	reserved, err = inspector.ReservePendingRuntimeCancellationTask(ctx, current)
+	require.NoError(t, err)
+	require.False(t, reserved)
 }
 
 func TestRuntimeCancellationRelatedSweepScopesTenantAttemptAndState(t *testing.T) {
@@ -347,6 +383,7 @@ func TestRuntimeCancellationRelatedSweepScopesTenantAttemptAndState(t *testing.T
 		{"pending", 42, 1, false},
 		{"scheduled", 42, 1, true},
 		{"new-attempt", 42, 2, false},
+		{"unknown-attempt", 42, 0, false},
 		{"other-tenant", 43, 1, false},
 	} {
 		payload, err := json.Marshal(map[string]any{
@@ -365,7 +402,7 @@ func TestRuntimeCancellationRelatedSweepScopesTenantAttemptAndState(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, 2, deleted)
 	require.Zero(t, signaled)
-	for _, id := range []string{"new-attempt", "other-tenant"} {
+	for _, id := range []string{"new-attempt", "unknown-attempt", "other-tenant"} {
 		_, err := inspector.inspector.GetTaskInfo(types.QueueQuestion, id)
 		require.NoError(t, err)
 	}
@@ -411,7 +448,57 @@ func TestRuntimeCancellationProcessesSnapshotAfterRequestCloses(t *testing.T) {
 	require.NoError(t, err)
 	info, err := inspector.inspector.GetQueueInfo(types.QueueMaintenance)
 	require.NoError(t, err)
-	require.Equal(t, 3, info.Pending)
+	require.Equal(t, 2, info.Pending)
+	require.Equal(t, 1, info.Archived, "failed reconciliation must remain unclaimable")
+
+	for _, failBusiness := range []bool{false, true} {
+		t.Run(fmt.Sprintf("sync_business_failure_%t", failBusiness), func(t *testing.T) {
+			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = sqlDB.Close() })
+			require.NoError(t, db.Exec(`CREATE TABLE sync_logs
+  (id TEXT PRIMARY KEY,tenant_id INTEGER,status TEXT,started_at DATETIME,finished_at DATETIME,
+   error_message TEXT,updated_at DATETIME)`).Error)
+			require.NoError(t, db.Exec(`INSERT INTO sync_logs(id,tenant_id,status,started_at) VALUES (?,?,?,?)`,
+				"sync", 42, "running", time.Now().Add(-time.Minute)).Error)
+			id := fmt.Sprintf("sync-%t", failBusiness)
+			_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeDataSourceSync,
+				[]byte(`{"tenant_id":42,"sync_log_id":"sync"}`)), asynq.Queue(types.QueueSync), asynq.TaskID(id))
+			require.NoError(t, err)
+			businessReached := false
+			assertReserved := func(tx *gorm.DB) {
+				businessReached = true
+				require.Equal(t, "archived", client.HGet(context.Background(), "asynq:{sync}:t:"+id, "state").Val())
+				require.ErrorIs(t, client.RPopLPush(context.Background(),
+					"asynq:{sync}:pending", "asynq:{sync}:active").Err(), redis.Nil)
+				if failBusiness {
+					require.Error(t, tx.AddError(fmt.Errorf("business update failed")))
+				}
+			}
+			require.NoError(t, db.Callback().Update().Before("gorm:update").Register("assert_reserved", assertReserved))
+			syncSvc := service.NewRuntimeTaskCancellationService(inspector, client,
+				repository.NewRuntimeTaskCancellationRepository(db), nil, nil)
+			cancelled, err := syncSvc.CancelOne(context.Background(), types.QueueSync, id)
+			require.True(t, businessReached)
+			if failBusiness {
+				require.Error(t, err)
+				require.False(t, cancelled)
+				task, err := inspector.inspector.GetTaskInfo(types.QueueSync, id)
+				require.NoError(t, err)
+				require.Equal(t, asynq.TaskStateArchived, task.State)
+			} else {
+				require.NoError(t, err)
+				require.True(t, cancelled)
+				var log types.SyncLog
+				require.NoError(t, db.First(&log, "id = ?", "sync").Error)
+				require.Equal(t, "canceled", log.Status)
+				_, err = inspector.inspector.GetTaskInfo(types.QueueSync, id)
+				require.ErrorIs(t, err, asynq.ErrTaskNotFound)
+			}
+		})
+	}
 }
 
 // Run against an explicitly supplied disposable local Redis, never the app's

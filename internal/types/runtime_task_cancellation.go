@@ -30,6 +30,7 @@ type RuntimeCancellationTask struct {
 	Message      string
 	State        string
 	PendingSince string
+	Reservation  string
 }
 
 // RuntimeCancelledKnowledge bounds related-task cancellation to one tenant and attempt.

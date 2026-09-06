@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/hibiken/asynq"
@@ -65,12 +67,10 @@ func (a *asynqTaskInspector) getRuntimeCancellationTask(
 	}, nil
 }
 
-// Follow Asynq's pending deletion and unique-lock cleanup, but require both the
-// pending state and the captured message. Never delete a newly reused task ID
-// or an entry claimed by a worker while business cancellation was running.
-// Asynq task IDs are unique within a queue. Removing the one matching entry
-// avoids scanning the rest of a large pending list after finding that ID.
-var deletePendingCancellationTask = redis.NewScript(`
+// Archive atomically before changing business state. Workers only claim pending
+// tasks; archived records remain inspectable if the cancellation process fails.
+// Preserve the message and unique lock until business cancellation commits.
+var reservePendingCancellationTask = redis.NewScript(`
 if redis.call('HGET', KEYS[1], 'state') ~= 'pending' or
    redis.call('HGET', KEYS[1], 'pending_since') ~= ARGV[3] or
    redis.call('HGET', KEYS[1], 'msg') ~= ARGV[2] then
@@ -79,6 +79,30 @@ end
 if redis.call('LREM', KEYS[2], 1, ARGV[1]) == 0 then
     return redis.error_reply('pending task missing from queue')
 end
+redis.call('ZADD', KEYS[3], ARGV[5], ARGV[1])
+redis.call('HSET', KEYS[1], 'state', 'archived',
+ 'runtime_cancel_token', ARGV[4], 'runtime_cancel_until', ARGV[6])
+return 1
+`)
+
+func (a *asynqTaskInspector) ReservePendingRuntimeCancellationTask(
+	ctx context.Context, task *types.RuntimeCancellationTask,
+) (bool, error) {
+	prefix := "asynq:{" + task.Queue + "}:"
+	now := time.Now()
+	n, err := reservePendingCancellationTask.Run(ctx, a.redis,
+		[]string{prefix + "t:" + task.ID, prefix + "pending", prefix + "archived"},
+		task.ID, task.Message, task.PendingSince, task.Reservation, now.Unix(), now.Add(2*time.Hour).Unix()).Int()
+	return n == 1, err
+}
+
+var deleteReservedCancellationTask = redis.NewScript(`
+if redis.call('HGET', KEYS[1], 'state') ~= 'archived' or
+   redis.call('HGET', KEYS[1], 'runtime_cancel_token') ~= ARGV[3] or
+   redis.call('HGET', KEYS[1], 'msg') ~= ARGV[2] then return 0 end
+if redis.call('ZREM', KEYS[2], ARGV[1]) == 0 then
+ return redis.error_reply('reserved task missing from archive')
+end
 local unique_key = redis.call('HGET', KEYS[1], 'unique_key')
 if unique_key and unique_key ~= '' and redis.call('GET', unique_key) == ARGV[1] then
     redis.call('DEL', unique_key)
@@ -86,13 +110,58 @@ end
 return redis.call('DEL', KEYS[1])
 `)
 
-func (a *asynqTaskInspector) DeletePendingRuntimeCancellationTask(
+func (a *asynqTaskInspector) DeleteReservedRuntimeCancellationTask(
 	ctx context.Context, task *types.RuntimeCancellationTask,
 ) (bool, error) {
 	prefix := "asynq:{" + task.Queue + "}:"
-	n, err := deletePendingCancellationTask.Run(ctx, a.redis,
-		[]string{prefix + "t:" + task.ID, prefix + "pending"}, task.ID, task.Message, task.PendingSince).Int()
+	n, err := deleteReservedCancellationTask.Run(ctx, a.redis,
+		[]string{prefix + "t:" + task.ID, prefix + "archived"}, task.ID, task.Message, task.Reservation).Int()
 	return n == 1, err
+}
+
+var releaseCancellationTask = redis.NewScript(`
+if redis.call('HGET', KEYS[1], 'state') ~= 'archived' or
+   redis.call('HGET', KEYS[1], 'runtime_cancel_token') ~= ARGV[3] or
+   redis.call('HGET', KEYS[1], 'msg') ~= ARGV[2] then
+ return redis.error_reply('reserved task changed before release')
+end
+if redis.call('ZREM', KEYS[3], ARGV[1]) == 0 then
+ return redis.error_reply('reserved task missing from archive')
+end
+redis.call('HSET', KEYS[1], 'state', 'pending')
+redis.call('HDEL', KEYS[1], 'runtime_cancel_token', 'runtime_cancel_until')
+redis.call('LPUSH', KEYS[2], ARGV[1])
+return 1
+`)
+
+func (a *asynqTaskInspector) ReleaseRuntimeCancellationTask(
+	ctx context.Context, task *types.RuntimeCancellationTask,
+) error {
+	prefix := "asynq:{" + task.Queue + "}:"
+	return releaseCancellationTask.Run(ctx, a.redis,
+		[]string{prefix + "t:" + task.ID, prefix + "pending", prefix + "archived"},
+		task.ID, task.Message, task.Reservation).Err()
+}
+
+func (a *asynqTaskInspector) protectRuntimeCancellation(ctx context.Context, info *types.RuntimeTaskInfo) error {
+	if info.State != types.RuntimeTaskArchived {
+		return nil
+	}
+	until, err := a.redis.HGet(ctx, "asynq:{"+info.Queue+"}:t:"+info.ID, "runtime_cancel_until").Result()
+	if errors.Is(err, redis.Nil) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	deadline, err := strconv.ParseInt(until, 10, 64)
+	if err != nil {
+		return err
+	}
+	if deadline > time.Now().Unix() {
+		info.AllowedActions = nil
+	}
+	return nil
 }
 
 // CancelRuntimeKnowledgeTasks snapshots each live queue state once for the
@@ -147,7 +216,7 @@ func (a *asynqTaskInspector) CancelRuntimeKnowledgeTasks(
 					continue
 				}
 				target, ok := byID[fmt.Sprintf("%d:%s", p.TenantID, p.KnowledgeID)]
-				if !ok || p.Attempt > target.Attempt {
+				if !ok || p.Attempt <= 0 || p.Attempt != target.Attempt {
 					continue
 				}
 				prefix := "asynq:{" + queue + "}:"

@@ -276,6 +276,32 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 	if pendingSince > cutoff.UnixNano() {
 		return false, nil
 	}
+	task.Reservation = uuid.NewString()
+	reserved, err := s.queue.ReservePendingRuntimeCancellationTask(ctx, task)
+	if err != nil || !reserved {
+		return false, err
+	}
+	cancelled, err := s.cancelBusinessTask(ctx, task, cutoff, batch)
+	if err != nil {
+		// Business changes may already have committed. Keep the task archived
+		// on failure so a worker cannot overwrite the cancellation result.
+		return false, err
+	}
+	if !cancelled {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		return false, s.queue.ReleaseRuntimeCancellationTask(releaseCtx, task)
+	}
+	deleted, err := s.queue.DeleteReservedRuntimeCancellationTask(ctx, task)
+	if err == nil && !deleted {
+		err = errors.New("reserved cancellation task changed before deletion")
+	}
+	return deleted, err
+}
+
+func (s *RuntimeTaskCancellationService) cancelBusinessTask(
+	ctx context.Context, task *types.RuntimeCancellationTask, cutoff time.Time, batch *runtimeCancellationBatch,
+) (bool, error) {
 	var p struct {
 		TenantID        uint64 `json:"tenant_id"`
 		KnowledgeID     string `json:"knowledge_id"`
@@ -293,6 +319,7 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 	}
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, p.TenantID)
 	var cancelled bool
+	var err error
 	switch task.Type {
 	case types.TypeDocumentProcess, types.TypeManualProcess, types.TypeImageMultimodal,
 		types.TypeKnowledgePostProcess, types.TypeQuestionGeneration, types.TypeSummaryGeneration,
@@ -300,18 +327,22 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 		if p.KnowledgeID == "" {
 			return false, errors.New("task knowledge is missing")
 		}
-		key := fmt.Sprintf("%d:%s", p.TenantID, p.KnowledgeID)
-		result, exists := batch.results[key]
-		if target, ok := batch.targets[key]; ok && p.Attempt > target.Attempt {
+		if p.Attempt <= 0 {
 			return false, nil
 		}
+		key := fmt.Sprintf("%d:%s", p.TenantID, p.KnowledgeID)
+		if target, ok := batch.targets[key]; ok && p.Attempt != target.Attempt {
+			return false, nil
+		}
+		resultKey := fmt.Sprintf("%s:%d", key, p.Attempt)
+		result, exists := batch.results[resultKey]
 		if !exists {
 			var target *types.RuntimeCancelledKnowledge
 			var knowledge *types.Knowledge
 			target, knowledge, err = s.repo.CancelKnowledge(ctx, p.TenantID, p.KnowledgeID, p.Attempt, cutoff)
 			result = runtimeCancellationResult{cancelled: target != nil, err: err}
 			if result.cancelled || result.err != nil {
-				batch.results[key] = result
+				batch.results[resultKey] = result
 			}
 			if target != nil && err == nil {
 				batch.targets[fmt.Sprintf("%d:%s", p.TenantID, target.ID)] = *target
@@ -349,10 +380,7 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 		// These wrappers change documents only after the worker starts.
 		cancelled = true
 	}
-	if err != nil || !cancelled {
-		return false, err
-	}
-	return s.queue.DeletePendingRuntimeCancellationTask(ctx, task)
+	return cancelled, err
 }
 
 func (s *RuntimeTaskCancellationService) cancelWiki(
