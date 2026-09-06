@@ -341,6 +341,26 @@
           </h4>
           <div class="rq-failed-section-actions">
             <t-popconfirm
+              v-if="
+                taskState === 'pending' &&
+                taskStateCount(taskQueue, 'pending') > 0
+              "
+              theme="danger"
+              :content="t('system.globalSettings.runtime.tasks.cancelPendingConfirm', { count: taskStateCount(taskQueue, 'pending') })"
+              @confirm="cancelPendingTasks"
+            >
+              <t-button
+                variant="text"
+                size="small"
+                theme="danger"
+                :loading="startingCancellation"
+                :disabled="Boolean(taskActionID) || cancellation?.status === 'running'"
+              >
+                <template #icon><t-icon name="clear" /></template>
+                {{ t('system.globalSettings.runtime.tasks.cancelPending') }}
+              </t-button>
+            </t-popconfirm>
+            <t-popconfirm
               v-if="taskState === 'archived' && tasks.length > 0"
               theme="danger"
               :content="t('system.globalSettings.runtime.tasks.purgeArchivedConfirm', { count: taskStateCount(taskQueue, 'archived') })"
@@ -368,6 +388,17 @@
             </t-button>
           </div>
         </div>
+
+        <div v-if="cancellation" class="rq-cancellation">
+          <strong>{{ t(`system.globalSettings.runtime.tasks.cancellationStatus.${cancellation.status}`) }}</strong>
+          <t-progress :percentage="cancellation.total ? Math.floor(cancellation.processed / cancellation.total * 100) : 100" />
+          <p>{{ t('system.globalSettings.runtime.tasks.cancellationProgress', cancellation) }}</p>
+          <p v-if="cancellation.related_deleted || cancellation.active_signaled">
+            {{ t('system.globalSettings.runtime.tasks.cancellationRelated', cancellation) }}
+          </p>
+          <p v-if="cancellation.error" class="rq-failed-error-state">{{ cancellation.error }}</p>
+        </div>
+        <p v-if="cancellationError" class="rq-failed-error-state">{{ cancellationError }}</p>
 
         <div v-if="tasksLoading && tasks.length === 0" class="rq-failed-loading">
           <t-loading size="small" />
@@ -517,6 +548,9 @@ import {
   getRuntimeQueues,
   mutateRuntimeTask,
   purgeArchivedRuntimeTasks,
+  startRuntimeTaskCancellation,
+  getRuntimeTaskCancellation,
+  type RuntimeTaskCancellation,
   type ModelRuntimeStat,
   type QueueStat,
   type RuntimeTask,
@@ -552,6 +586,11 @@ const tasksSentinelRef = ref<HTMLElement | null>(null)
 const taskActionID = ref('')
 const taskAction = ref<RuntimeTaskAction | ''>('')
 const purging = ref(false)
+const startingCancellation = ref(false)
+const cancellation = ref<RuntimeTaskCancellation | null>(null)
+const cancellationError = ref('')
+let cancellationTimer: ReturnType<typeof setTimeout> | null = null
+let cancellationRequestID = 0
 
 const TASK_PAGE_SIZE = 20
 const taskStates: RuntimeTaskState[] = ['active', 'pending', 'scheduled', 'retry', 'archived', 'completed']
@@ -842,10 +881,14 @@ function attachTasksScrollObserver() {
 }
 
 function openRuntimeTasks(row: QueueStat, state: RuntimeTaskState) {
+  stopCancellationPolling()
+  cancellation.value = null
+  cancellationError.value = ''
   taskQueue.value = row
   taskState.value = state
   taskDrawerVisible.value = true
   void fetchRuntimeTasks(true)
+  void refreshCancellation()
 }
 
 function selectTaskState(state: RuntimeTaskState) {
@@ -855,6 +898,7 @@ function selectTaskState(state: RuntimeTaskState) {
 }
 
 function reloadRuntimeTasks() {
+  void refreshCancellation()
   return fetchRuntimeTasks(true)
 }
 
@@ -894,6 +938,54 @@ async function purgeArchivedTasks() {
     MessagePlugin.error(err?.message || t('system.globalSettings.runtime.tasks.purgeArchivedError'))
   } finally {
     purging.value = false
+  }
+}
+
+async function cancelPendingTasks() {
+  const queue = taskQueue.value?.name
+  if (!queue || startingCancellation.value || cancellation.value?.status === 'running') return
+  stopCancellationPolling()
+  startingCancellation.value = true
+  try {
+    const job = await startRuntimeTaskCancellation(queue)
+    if (taskQueue.value?.name === queue && taskDrawerVisible.value) {
+      cancellation.value = job
+      await refreshCancellation()
+    }
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('system.globalSettings.runtime.tasks.cancelPendingError'))
+  } finally {
+    startingCancellation.value = false
+  }
+}
+
+function stopCancellationPolling() {
+  cancellationRequestID++
+  if (cancellationTimer) clearTimeout(cancellationTimer)
+  cancellationTimer = null
+}
+
+async function refreshCancellation() {
+  stopCancellationPolling()
+  const requestID = cancellationRequestID
+  const queue = taskQueue.value?.name
+  if (!queue || !taskDrawerVisible.value) return
+  try {
+    const job = await getRuntimeTaskCancellation(queue)
+    if (requestID !== cancellationRequestID || taskQueue.value?.name !== queue || !taskDrawerVisible.value) return
+    const finished = cancellation.value?.status === 'running' && job?.status !== 'running'
+    cancellation.value = job
+    cancellationError.value = ''
+    if (finished) await Promise.all([fetchRuntimeTasks(true), load(false)])
+  } catch (err: any) {
+    if (requestID === cancellationRequestID && taskQueue.value?.name === queue && taskDrawerVisible.value) {
+      cancellationError.value = err?.message || t('system.globalSettings.runtime.tasks.cancellationProgressError')
+    }
+  } finally {
+    if (requestID === cancellationRequestID && taskQueue.value?.name === queue &&
+      taskDrawerVisible.value && cancellation.value?.status === 'running') {
+      cancellationTimer = setTimeout(() => void refreshCancellation(), 2000)
+    }
   }
 }
 
@@ -947,6 +1039,7 @@ watch(autoRefresh, (on) => {
 
 watch(taskDrawerVisible, async (open) => {
   if (!open) {
+    stopCancellationPolling()
     detachTasksScrollObserver()
     return
   }
@@ -966,12 +1059,22 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  stopCancellationPolling()
   stopPolling()
   detachTasksScrollObserver()
 })
 </script>
 
 <style lang="less" scoped>
+.rq-cancellation {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: var(--td-bg-color-container-hover);
+  border-radius: 6px;
+
+  p { margin: 8px 0 0; }
+}
+
 .runtime-queues {
   color: var(--td-text-color-primary);
 }

@@ -3838,6 +3838,17 @@ export default {
           purgeArchivedConfirm: 'Remove all {count} failed records from this queue at once. This only clears failed tasks in the queue — it does not affect running or pending tasks, nor does it roll back the business status of documents that already failed. Clear them?',
           purgeArchivedSuccess: 'Cleared {count} failed tasks',
           purgeArchivedError: 'Failed to clear failed tasks',
+          cancelPending: 'Cancel pending tasks',
+          cancelPendingConfirm: 'Cancel tasks pending in this queue when the operation starts (currently about {count}) and settle their business state. Document cancellation stops the entire document pipeline and related tasks. Required cleanup is retained. New tasks are excluded; failures and tasks whose state changes are kept. Processing continues in the background after closing this page. Continue?',
+          cancelPendingError: 'Failed to start cancellation',
+          cancellationProgressError: 'Failed to read cancellation progress. Refresh to try again.',
+          cancellationProgress: 'Processed {processed}/{total} · Cancelled {cancelled} · Skipped {skipped} · Failed {failed}',
+          cancellationRelated: 'Also removed {related_deleted} related tasks and signaled {active_signaled} active tasks',
+          cancellationStatus: {
+            running: 'Cancelling pending tasks',
+            completed: 'Cancellation completed',
+            failed: 'Cancellation incomplete',
+          },
           stateFilter: 'Filter by task state',
           states: {
             active: 'Active',
@@ -3849,7 +3860,7 @@ export default {
           },
           guides: {
             active: 'Inspect the worker, start time, deadline, and orphan status. Cancel is offered only when the business state can be updated safely.',
-            pending: 'Pending tasks have not been claimed. Cancellation updates business state instead of only removing Redis data.',
+            pending: 'Pending tasks have not been claimed. Cancelling one updates business state; “Clear pending” only removes Redis/Asynq tasks.',
             scheduled: 'Scheduled tasks can run early; document pipeline tasks can also use safe business cancellation.',
             retry: 'Use the last error, attempt count, and next run time to decide whether to run now or cancel.',
             archived: 'Fix the root cause before running again. Clearing a record does not complete the original business task.',
@@ -4148,7 +4159,8 @@ export default {
           'system.queue_task_deleted': 'Failed task record cleared',
           'system.queue_task_run_now': 'Queue task run now',
           'system.queue_task_cancelled': 'Queue task cancelled',
-          'system.queue_archived_purged': 'All failed tasks cleared'
+          'system.queue_archived_purged': 'All failed tasks cleared',
+          'system.queue_pending_cancelled': 'Pending task cancellation started'
         },
         outcome: {
           success: 'Success',

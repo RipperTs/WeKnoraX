@@ -2777,7 +2777,8 @@ export default {
           'system.queue_task_deleted': '실패 작업 기록 삭제',
           'system.queue_task_run_now': '큐 작업 즉시 실행',
           'system.queue_task_cancelled': '큐 작업 취소',
-          'system.queue_archived_purged': '실패 작업 모두 지우기'
+          'system.queue_archived_purged': '실패 작업 모두 지우기',
+          'system.queue_pending_cancelled': '대기 작업 일괄 취소 시작'
         },
         columns: {
           time: '시간',
@@ -3043,6 +3044,17 @@ export default {
           purgeArchivedConfirm: '현재 큐의 실패 기록 {count}건을 한 번에 제거합니다. 큐의 실패 작업만 정리하며 실행 중이거나 대기 중인 작업에는 영향이 없고, 이미 실패한 문서의 비즈니스 상태도 되돌리지 않습니다. 지울까요?',
           purgeArchivedSuccess: '실패 작업 {count}건을 지웠습니다',
           purgeArchivedError: '실패 작업을 지우지 못했습니다',
+          cancelPending: '대기 작업 일괄 취소',
+          cancelPendingConfirm: '작업 시작 시 이 큐에서 대기 중인 작업(현재 약 {count}개)을 취소하고 비즈니스 상태를 종료합니다. 문서는 전체 처리 및 관련 작업을 취소합니다. 필수 정리 작업은 유지합니다. 새 작업은 제외하며 실패하거나 상태가 바뀐 작업은 유지합니다. 페이지를 닫아도 백그라운드에서 계속됩니다. 취소할까요?',
+          cancelPendingError: '일괄 취소를 시작하지 못했습니다',
+          cancellationProgressError: '취소 진행 상황을 읽지 못했습니다. 새로고침하세요.',
+          cancellationProgress: '처리 {processed}/{total} · 취소 {cancelled} · 건너뜀 {skipped} · 실패 {failed}',
+          cancellationRelated: '관련 작업 {related_deleted}개 삭제, 실행 중 작업 {active_signaled}개에 취소 신호 전송',
+          cancellationStatus: {
+            running: '대기 작업 취소 중',
+            completed: '일괄 취소 완료',
+            failed: '일괄 취소 일부 미완료',
+          },
           stateFilter: '작업 상태별 필터',
           actionError: {
             cancel: '작업을 취소하지 못했습니다',
@@ -3056,7 +3068,7 @@ export default {
           },
           guides: {
             active: '실행 인스턴스와 시작 시간, 마감 및 고립 상태를 확인합니다. 안전한 비즈니스 취소가 가능한 작업만 취소할 수 있습니다.',
-            pending: '아직 worker가 가져가지 않은 작업입니다. 취소 시 비즈니스 상태도 함께 갱신됩니다.',
+            pending: '아직 worker가 가져가지 않은 작업입니다. 개별 취소는 비즈니스 상태도 갱신하지만 “대기열 비우기”는 Redis/Asynq 작업만 제거합니다.',
             scheduled: '예약 작업을 즉시 실행하거나 지원되는 문서 작업을 안전하게 취소할 수 있습니다.',
             retry: '마지막 오류, 시도 횟수 및 다음 실행 시간을 확인하세요.',
             archived: '원인을 해결한 후 다시 실행하세요. 기록 삭제는 원래 작업을 완료하지 않습니다.',

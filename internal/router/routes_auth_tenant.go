@@ -303,6 +303,11 @@ func RegisterSystemAdminRoutes(
 			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.MutateRuntimeTask)
 		g.apiKeyRoute(adminRoutes, http.MethodDelete, "/runtime/queues/:queue/archived",
 			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.PurgeArchivedRuntimeTasks)
+		g.apiKeyRoute(adminRoutes, http.MethodPost, "/runtime/queues/:queue/cancellations",
+			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeManage), handler.StartRuntimeTaskCancellation)
+		g.apiKeyRoute(adminRoutes, http.MethodGet, "/runtime/queues/:queue/cancellations",
+			apiKeyPlatform(types.APIKeyCapabilitySystemRuntimeRead, types.APIKeyCapabilitySystemRuntimeManage),
+			handler.GetRuntimeTaskCancellation)
 
 		g.apiKeyRoute(adminRoutes, http.MethodGet, "/tenants",
 			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsRead, types.APIKeyCapabilitySystemTenantsManage),

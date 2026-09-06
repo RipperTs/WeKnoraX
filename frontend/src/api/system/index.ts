@@ -791,6 +791,34 @@ export async function purgeArchivedRuntimeTasks(
   return response as unknown as { success: boolean; deleted: number }
 }
 
+export interface RuntimeTaskCancellation {
+  id: string
+  queue: string
+  status: 'running' | 'completed' | 'failed'
+  total: number
+  processed: number
+  cancelled: number
+  skipped: number
+  failed: number
+  related_deleted: number
+  active_signaled: number
+  error?: string
+  started_at: string
+  updated_at: string
+}
+
+export async function startRuntimeTaskCancellation(
+  queue: string,
+): Promise<RuntimeTaskCancellation> {
+  return post(
+    `/api/v1/system/admin/runtime/queues/${encodeURIComponent(queue)}/cancellations`,
+  )
+}
+
+export async function getRuntimeTaskCancellation(queue: string): Promise<RuntimeTaskCancellation | null> {
+  return get(`/api/v1/system/admin/runtime/queues/${encodeURIComponent(queue)}/cancellations`)
+}
+
 // --- Sandbox backend configuration (per workspace) ---
 
 export interface SandboxVolumeMountConfig {

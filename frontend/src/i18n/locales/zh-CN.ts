@@ -2833,7 +2833,8 @@ export default {
           'system.queue_task_deleted': '清除失败任务记录',
           'system.queue_task_run_now': '立即执行队列任务',
           'system.queue_task_cancelled': '终止队列任务',
-          'system.queue_archived_purged': '清除全部失败任务'
+          'system.queue_archived_purged': '清除全部失败任务',
+          'system.queue_pending_cancelled': '批量取消排队任务'
         },
         columns: {
           time: '时间',
@@ -3099,6 +3100,17 @@ export default {
           purgeArchivedConfirm: '将从当前队列一次性移除全部 {count} 条失败记录，仅清理队列里的失败任务，不影响运行中或排队中的任务，也不会回滚已失败文档的业务状态。确认清除？',
           purgeArchivedSuccess: '已清除 {count} 条失败任务',
           purgeArchivedError: '清除失败任务失败',
+          cancelPending: '批量取消排队',
+          cancelPendingConfirm: '将取消操作开始时当前队列中的排队任务（当前约 {count} 个），同时结束对应业务状态。文档任务会取消整篇文档的处理和关联子任务；必要的清理任务会保留。新增任务不计入本批次，失败或状态变化的任务会继续保留。操作在后台执行，关闭页面后仍会继续。确认取消？',
+          cancelPendingError: '启动批量取消失败',
+          cancellationProgressError: '取消进度读取失败，请刷新重试',
+          cancellationProgress: '已处理 {processed}/{total} · 已取消 {cancelled} · 跳过 {skipped} · 失败 {failed}',
+          cancellationRelated: '另已清理关联任务 {related_deleted} 个，已向 {active_signaled} 个执行中任务发送取消信号',
+          cancellationStatus: {
+            running: '正在批量取消',
+            completed: '批量取消已完成',
+            failed: '批量取消未全部完成',
+          },
           stateFilter: '按任务状态筛选',
           actionError: {
             cancel: '终止任务失败',
@@ -3112,7 +3124,7 @@ export default {
           },
           guides: {
             active: '运行中任务可查看执行实例、开始时间和截止时间。只有具备完整业务取消语义的任务才允许终止。',
-            pending: '排队任务尚未被 worker 领取。终止操作会同步更新业务状态，而不是只删除 Redis 记录。',
+            pending: '排队任务尚未被 worker 领取。单条终止会同步更新业务状态；“清空排队”只删除 Redis/Asynq 任务。',
             scheduled: '定时任务可提前立即执行；支持业务取消的文档任务也可以安全终止。',
             retry: '请结合最后错误、重试次数和下次执行时间判断是否立即执行或终止。',
             archived: '请先修复失败原因再立即执行。清除记录不会完成原业务任务。',

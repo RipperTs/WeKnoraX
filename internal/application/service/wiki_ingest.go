@@ -301,6 +301,7 @@ const (
 type WikiPendingOp struct {
 	Op          string `json:"op"`
 	KnowledgeID string `json:"knowledge_id"`
+	Attempt     int    `json:"attempt,omitempty"`
 	// Ingest fields
 	Language string `json:"language,omitempty"`
 	// Retract fields
@@ -476,7 +477,7 @@ func EnqueueWikiIngest(
 	tenantID uint64,
 	kbID, knowledgeID string,
 ) (bool, error) {
-	pendingOp, err := newWikiIngestPendingOp(ctx, tenantID, kbID, knowledgeID)
+	pendingOp, err := newWikiIngestPendingOp(ctx, tenantID, kbID, knowledgeID, attemptFromCtx(ctx))
 
 	// Persist the pending op. A re-ingest of the same knowledge id while
 	// a previous op is still queued simply appends another row; the
@@ -506,11 +507,13 @@ func newWikiIngestPendingOp(
 	ctx context.Context,
 	tenantID uint64,
 	kbID, knowledgeID string,
+	attempt int,
 ) (*types.TaskPendingOp, error) {
 	lang := types.LanguageFromContextOrDefault(ctx)
 	op := WikiPendingOp{
 		Op:          WikiOpIngest,
 		KnowledgeID: knowledgeID,
+		Attempt:     attempt,
 		Language:    lang,
 	}
 	payloadBytes, err := json.Marshal(op)

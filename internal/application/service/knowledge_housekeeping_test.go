@@ -2,13 +2,17 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -384,4 +388,317 @@ func TestHousekeeping_PreservesRecentlyTouched(t *testing.T) {
 	).Row().Scan(&status))
 	assert.Equal(t, types.ParseStatusProcessing, status,
 		"knowledge updated within the cutoff must be left alone")
+}
+
+func TestRuntimeCancellationSettlesKnowledgeAndPreservesWikiCleanup(t *testing.T) {
+	for _, status := range []string{
+		types.ParseStatusPending, types.ParseStatusProcessing, types.ParseStatusFinalizing, types.ParseStatusCompleted,
+	} {
+		t.Run(status, func(t *testing.T) {
+			db := setupHousekeepingDB(t)
+			before := time.Now().Add(-time.Minute)
+			cutoff := time.Now()
+			require.NoError(t, db.Exec(`INSERT INTO knowledges
+    (id,tenant_id,knowledge_base_id,parse_status,summary_status,pending_subtasks_count,updated_at)
+    VALUES (?,?,?,?,?,?,?)`, "doc", 42, "kb", status, types.SummaryStatusProcessing, 3, before).Error)
+			require.NoError(t, db.Exec(`INSERT INTO knowledge_processing_spans
+    (knowledge_id,attempt,span_id,name,kind,status) VALUES (?,?,?,?,?,?)`,
+				"doc", 2, "root", "parse", "root", types.SpanStatusRunning).Error)
+			for _, op := range []types.TaskPendingOp{
+				{
+					TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+					ScopeID: "kb", Op: "ingest", DedupKey: "doc", EnqueuedAt: before,
+				},
+				{
+					TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+					ScopeID: "kb", Op: "retract", DedupKey: "doc", EnqueuedAt: before,
+				},
+				{
+					TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+					ScopeID: "kb", Op: "ingest", DedupKey: "doc", EnqueuedAt: before, ClaimedAt: &before,
+				},
+				{
+					TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+					ScopeID: "kb", Op: "ingest", DedupKey: "doc", EnqueuedAt: cutoff.Add(time.Second),
+				},
+			} {
+				op.Payload = []byte(`{"knowledge_id":"doc"}`)
+				require.NoError(t, db.Create(&op).Error)
+			}
+			repo := repository.NewRuntimeTaskCancellationRepository(db)
+			failWikiCleanup := func(tx *gorm.DB) {
+				require.Error(t, tx.AddError(errors.New("wiki cleanup failed before commit")))
+			}
+			require.NoError(t, db.Callback().Delete().Before("gorm:delete").
+				Register("fail_wiki_cleanup", failWikiCleanup))
+			_, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", 2, cutoff)
+			require.ErrorIs(t, err, types.ErrRuntimeCancellationNotCommitted)
+			var unchanged types.Knowledge
+			require.NoError(t, db.First(&unchanged, "id = ?", "doc").Error)
+			assert.Equal(t, status, unchanged.ParseStatus)
+			assert.Equal(t, types.SummaryStatusProcessing, unchanged.SummaryStatus)
+			assert.Equal(t, 3, unchanged.PendingSubtasksCount)
+			var unchangedSpan types.KnowledgeProcessingSpan
+			require.NoError(t, db.First(&unchangedSpan).Error)
+			assert.Equal(t, types.SpanStatusRunning, unchangedSpan.Status)
+			require.NoError(t, db.Callback().Delete().Remove("fail_wiki_cleanup"))
+			target, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", 2, cutoff)
+			require.NoError(t, err)
+			require.NotNil(t, target)
+			assert.Equal(t, 2, target.Attempt)
+			var knowledge types.Knowledge
+			require.NoError(t, db.First(&knowledge, "id = ?", "doc").Error)
+			expected := types.ParseStatusCancelled
+			if status == types.ParseStatusCompleted {
+				expected = types.ParseStatusCompleted
+			}
+			assert.Equal(t, expected, knowledge.ParseStatus)
+			assert.Equal(t, types.SummaryStatusFailed, knowledge.SummaryStatus)
+			if status != types.ParseStatusCompleted {
+				assert.Zero(t, knowledge.PendingSubtasksCount)
+			}
+			var span types.KnowledgeProcessingSpan
+			require.NoError(t, db.First(&span).Error)
+			assert.Equal(t, types.SpanStatusCancelled, span.Status)
+			assert.NotNil(t, span.FinishedAt)
+			var ops []types.TaskPendingOp
+			require.NoError(t, db.Find(&ops).Error)
+			assert.Len(t, ops, 3)
+		})
+	}
+}
+
+func TestRuntimeCancellationSkipsNewerKnowledgeAttempt(t *testing.T) {
+	db := setupHousekeepingDB(t)
+	before := time.Now().Add(-time.Minute)
+	require.NoError(t, db.Exec(`INSERT INTO knowledges (id,tenant_id,parse_status,updated_at) VALUES (?,?,?,?)`,
+		"doc", 42, types.ParseStatusProcessing, before).Error)
+	require.NoError(t, db.Exec(`INSERT INTO knowledge_processing_spans
+  (knowledge_id,attempt,span_id,name,kind,status) VALUES (?,?,?,?,?,?)`,
+		"doc", 2, "root", "parse", "root", types.SpanStatusRunning).Error)
+	repo := repository.NewRuntimeTaskCancellationRepository(db)
+	for _, attempt := range []int{0, 1, 3} {
+		target, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", attempt, time.Now())
+		require.NoError(t, err)
+		assert.Nil(t, target)
+	}
+	target, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", 2, before.Add(-time.Second))
+	require.NoError(t, err)
+	assert.Nil(t, target)
+	var knowledge types.Knowledge
+	require.NoError(t, db.First(&knowledge, "id = ?", "doc").Error)
+	assert.Equal(t, types.ParseStatusProcessing, knowledge.ParseStatus)
+	var span types.KnowledgeProcessingSpan
+	require.NoError(t, db.First(&span).Error)
+	assert.Equal(t, types.SpanStatusRunning, span.Status)
+	// Known skips must not reserve or requeue the task, even after another
+	// attempt has populated the batch cache. This service has no queue adapter.
+	svc := &RuntimeTaskCancellationService{repo: repo}
+	batch := newRuntimeCancellationBatch()
+	batch.targets["42:doc"] = types.RuntimeCancelledKnowledge{TenantID: 42, ID: "doc", Attempt: 2}
+	batch.results["42:doc:2"] = runtimeCancellationResult{cancelled: true}
+	for _, taskType := range []string{
+		types.TypeDocumentProcess, types.TypeManualProcess, types.TypeDataTableSummary, types.TypeQuestionGeneration,
+	} {
+		for _, attempt := range []int{0, 1, 3} {
+			payload, err := json.Marshal(runtimeCancellationPayload{TenantID: 42, KnowledgeID: "doc", Attempt: attempt})
+			require.NoError(t, err)
+			cancelled, err := svc.cancelTask(context.Background(), &types.RuntimeCancellationTask{
+				Type: taskType, Payload: payload, PendingSince: "1",
+			}, time.Now(), batch)
+			require.NoError(t, err)
+			assert.False(t, cancelled)
+		}
+	}
+	for _, status := range []string{
+		types.ParseStatusPending, types.ParseStatusProcessing, types.ParseStatusFinalizing, types.ParseStatusCompleted,
+	} {
+		id := "no-attempt-" + status
+		require.NoError(t, db.Exec(`INSERT INTO knowledges (id,tenant_id,parse_status,updated_at) VALUES (?,?,?,?)`,
+			id, 42, status, before).Error)
+		target, _, err := repo.CancelKnowledge(context.Background(), 42, id, 0, time.Now())
+		require.NoError(t, err)
+		var knowledge types.Knowledge
+		require.NoError(t, db.First(&knowledge, "id = ?", id).Error)
+		if status == types.ParseStatusPending {
+			require.NotNil(t, target)
+			assert.Zero(t, target.Attempt)
+			assert.Equal(t, types.ParseStatusCancelled, knowledge.ParseStatus)
+		} else {
+			assert.Nil(t, target)
+			assert.Equal(t, status, knowledge.ParseStatus)
+		}
+	}
+	// A pending reparse already has an attempt and must not be cancelled by an old zero-attempt task.
+	require.NoError(t, db.Model(&types.Knowledge{}).Where("id = ?", "doc").
+		UpdateColumn("parse_status", types.ParseStatusPending).Error)
+	target, _, err = repo.CancelKnowledge(context.Background(), 42, "doc", 0, time.Now())
+	require.NoError(t, err)
+	assert.Nil(t, target)
+}
+
+func TestRuntimeCancellationSettlesSyncTemporaryDocumentAndMemory(t *testing.T) {
+	db := setupHousekeepingDB(t)
+	require.NoError(t, db.Exec(`CREATE TABLE sync_logs
+  (id TEXT PRIMARY KEY,tenant_id INTEGER,status TEXT,started_at DATETIME,finished_at DATETIME,
+ error_message TEXT,updated_at DATETIME)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE temporary_documents
+  (id TEXT PRIMARY KEY,tenant_id INTEGER,status TEXT,error_message TEXT,
+ updated_at DATETIME,deleted_at DATETIME)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE memory_subjects
+  (id TEXT PRIMARY KEY,tenant_id INTEGER,subject_id TEXT,pending_sessions TEXT,
+ extract_scheduled_at DATETIME,extract_cursor DATETIME,updated_at DATETIME)`).Error)
+	before := time.Now().Add(-time.Minute)
+	cutoff := time.Now()
+	require.NoError(t, db.Exec(`INSERT INTO sync_logs(id,tenant_id,status,started_at) VALUES (?,?,?,?)`,
+		"sync", 42, "running", before).Error)
+	require.NoError(t, db.Exec(`INSERT INTO temporary_documents(id,tenant_id,status,updated_at) VALUES (?,?,?,?)`,
+		"temp", 42, "uploaded", before).Error)
+	require.NoError(t, db.Exec(`INSERT INTO memory_subjects
+  (id,tenant_id,subject_id,pending_sessions,extract_scheduled_at,updated_at) VALUES (?,?,?,?,?,?)`,
+		"memory", 42, "subject", `["session"]`, before, before).Error)
+	repo := repository.NewRuntimeTaskCancellationRepository(db)
+	cancelled, err := repo.CancelSync(context.Background(), 42, "sync", cutoff)
+	require.NoError(t, err)
+	require.True(t, cancelled)
+	cancelled, err = repo.CancelTemporaryDocument(context.Background(), 42, "temp", cutoff)
+	require.NoError(t, err)
+	require.True(t, cancelled)
+	cancelled, err = repo.CancelMemoryExtraction(context.Background(), 42, "subject", cutoff)
+	require.NoError(t, err)
+	require.True(t, cancelled)
+	var syncLog types.SyncLog
+	require.NoError(t, db.First(&syncLog, "id = ?", "sync").Error)
+	assert.Equal(t, "canceled", syncLog.Status)
+	assert.NotNil(t, syncLog.FinishedAt)
+	var document types.TemporaryDocument
+	require.NoError(t, db.First(&document, "id = ?", "temp").Error)
+	assert.Equal(t, types.TemporaryDocumentStatusFailed, document.Status)
+	var subject types.MemorySubject
+	require.NoError(t, db.First(&subject, "id = ?", "memory").Error)
+	assert.Empty(t, subject.PendingSessions)
+	assert.Nil(t, subject.ExtractScheduledAt)
+	require.NotNil(t, subject.ExtractCursor)
+	assert.True(t, subject.ExtractCursor.Equal(cutoff))
+}
+
+func TestRuntimeCancellationPreservesPartialCloneAndMoveResults(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	svc := &RuntimeTaskCancellationService{redis: client}
+	ctx := context.Background()
+	for _, taskType := range []string{types.TypeKBClone, types.TypeKnowledgeMove} {
+		key := getKBCloneProgressKey("task")
+		if taskType == types.TypeKnowledgeMove {
+			key = getKnowledgeMoveProgressKey("task")
+		}
+		require.NoError(t, client.Set(ctx, key, `{"status":"processing","processed":7,"total":10}`, time.Hour).Err())
+		cancelled, err := svc.cancelProgress(ctx, &types.RuntimeCancellationTask{
+			Type: taskType, Payload: []byte(`{"task_id":"task"}`),
+		})
+		require.NoError(t, err)
+		require.True(t, cancelled)
+		raw, err := client.Get(ctx, key).Bytes()
+		require.NoError(t, err)
+		var progress types.KBCloneProgress
+		require.NoError(t, json.Unmarshal(raw, &progress))
+		assert.Equal(t, types.KBCloneStatusFailed, progress.Status)
+		assert.Equal(t, 7, progress.Processed)
+		assert.Equal(t, 10, progress.Total)
+		assert.Greater(t, client.TTL(ctx, key).Val(), time.Duration(0))
+	}
+}
+
+func TestRuntimeCancellationFAQClosesOnlyMatchingImportInstance(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	svc := &knowledgeService{redisClient: client}
+	ctx := context.Background()
+	payload := types.FAQImportPayload{TenantID: 42, TaskID: "task", KBID: "kb", InstanceID: "instance-1", EnqueuedAt: 1}
+	for _, instance := range []string{"instance-2", "instance-1"} {
+		marker, err := json.Marshal(runningFAQImportInfo{TaskID: "task", InstanceID: instance, EnqueuedAt: 1})
+		require.NoError(t, err)
+		require.NoError(t, client.Set(ctx, getFAQImportRunningKey("kb"), marker, time.Hour).Err())
+		require.NoError(t, client.Set(ctx, getFAQImportProgressKey("task"),
+			`{"task_id":"task","kb_id":"kb","status":"pending","processed":3}`, time.Hour).Err())
+		cancelled, err := svc.CancelPendingFAQImport(ctx, payload)
+		require.NoError(t, err)
+		assert.Equal(t, instance == "instance-1", cancelled)
+		progress, err := svc.GetFAQImportProgress(ctx, "task")
+		require.NoError(t, err)
+		assert.Equal(t, 3, progress.Processed)
+		if cancelled {
+			assert.Equal(t, types.FAQImportStatusFailed, progress.Status)
+			assert.ErrorIs(t, client.Get(ctx, getFAQImportRunningKey("kb")).Err(), redis.Nil)
+		} else {
+			assert.Equal(t, types.FAQImportStatusPending, progress.Status)
+			assert.Equal(t, string(marker), client.Get(ctx, getFAQImportRunningKey("kb")).Val())
+		}
+	}
+}
+
+func TestRuntimeCancellationWikiCancelsIngestAndKeepsRetractionTrigger(t *testing.T) {
+	db := setupHousekeepingDB(t)
+	before := time.Now().Add(-time.Minute)
+	cutoff := time.Now()
+	require.NoError(t, db.Exec(`INSERT INTO knowledges
+  (id,tenant_id,knowledge_base_id,parse_status,pending_subtasks_count,updated_at) VALUES (?,?,?,?,?,?)`,
+		"doc", 42, "kb", types.ParseStatusFinalizing, 1, before).Error)
+	insertSpan(t, db, "doc", 2, "root", types.SpanStatusRunning, before)
+	require.NoError(t, db.Exec(`INSERT INTO knowledges
+  (id,tenant_id,knowledge_base_id,parse_status,updated_at) VALUES (?,?,?,?,?)`,
+		"unknown-attempt", 42, "kb", types.ParseStatusProcessing, before).Error)
+	insertSpan(t, db, "unknown-attempt", 2, "root", types.SpanStatusRunning, before)
+	unknown := types.TaskPendingOp{
+		TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+		ScopeID: "kb", Op: WikiOpIngest, DedupKey: "unknown-attempt",
+		Payload: []byte(`{"knowledge_id":"unknown-attempt"}`), EnqueuedAt: before,
+	}
+	require.NoError(t, db.Create(&unknown).Error)
+	for _, op := range []string{WikiOpIngest, WikiOpRetract} {
+		row := types.TaskPendingOp{
+			TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+			ScopeID: "kb", Op: op, DedupKey: "doc", Payload: []byte(`{"knowledge_id":"doc","attempt":2}`),
+			EnqueuedAt: before,
+		}
+		require.NoError(t, db.Create(&row).Error)
+	}
+	svc := &RuntimeTaskCancellationService{repo: repository.NewRuntimeTaskCancellationRepository(db)}
+	batch := newRuntimeCancellationBatch()
+	cancelled, err := svc.cancelWiki(context.Background(), 42, "kb", cutoff, batch)
+	require.NoError(t, err)
+	require.False(t, cancelled, "the trigger must remain for retraction")
+	require.Len(t, batch.targets, 1)
+	var knowledge types.Knowledge
+	require.NoError(t, db.First(&knowledge, "id = ?", "doc").Error)
+	assert.Equal(t, types.ParseStatusCancelled, knowledge.ParseStatus)
+	assert.Zero(t, knowledge.PendingSubtasksCount)
+	var rows []types.TaskPendingOp
+	require.NoError(t, db.Order("id").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, unknown.ID, rows[0].ID)
+	assert.Equal(t, WikiOpRetract, rows[1].Op)
+	var untouched types.Knowledge
+	require.NoError(t, db.First(&untouched, "id = ?", "unknown-attempt").Error)
+	assert.Equal(t, types.ParseStatusProcessing, untouched.ParseStatus)
+}
+
+func TestRuntimeCancellationMemoizesFailedWikiScope(t *testing.T) {
+	db := setupHousekeepingDB(t)
+	row := types.TaskPendingOp{
+		TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+		ScopeID: "kb", Op: WikiOpIngest, Payload: []byte(`{invalid`), EnqueuedAt: time.Now().Add(-time.Minute),
+	}
+	require.NoError(t, db.Create(&row).Error)
+	svc := &RuntimeTaskCancellationService{repo: repository.NewRuntimeTaskCancellationRepository(db)}
+	batch := newRuntimeCancellationBatch()
+	cutoff := time.Now()
+	_, firstErr := svc.cancelWiki(context.Background(), 42, "kb", cutoff, batch)
+	require.Error(t, firstErr)
+	require.ErrorIs(t, firstErr, types.ErrRuntimeCancellationNotCommitted)
+	require.NoError(t, db.Delete(&row).Error)
+	_, secondErr := svc.cancelWiki(context.Background(), 42, "kb", cutoff, batch)
+	assert.Equal(t, firstErr, secondErr, "another trigger for the same scope must not repeat failed work")
 }

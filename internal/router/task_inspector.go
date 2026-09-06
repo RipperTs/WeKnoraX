@@ -284,7 +284,9 @@ func runtimePayloadTime(value int64) *time.Time {
 
 func runtimeTaskActions(info types.RuntimeTaskInfo) []types.RuntimeTaskAction {
 	actions := make([]types.RuntimeTaskAction, 0, 3)
-	if _, cancellable := taskTypesForKnowledgeCancel[info.Type]; cancellable &&
+	if info.State == types.RuntimeTaskPending && types.CanCancelPendingRuntimeTask(info.Type) && info.TenantID > 0 {
+		actions = append(actions, types.RuntimeTaskActionCancel)
+	} else if _, cancellable := taskTypesForKnowledgeCancel[info.Type]; cancellable &&
 		info.TenantID > 0 && info.KnowledgeID != "" {
 		switch info.State {
 		case types.RuntimeTaskPending, types.RuntimeTaskActive,
@@ -601,6 +603,9 @@ func (a *asynqTaskInspector) ListRuntimeTasks(
 			if info.State != state {
 				continue
 			}
+			if err := a.protectRuntimeCancellation(ctx, &info); err != nil {
+				return types.RuntimeTaskPage{}, true, err
+			}
 			result = append(result, info)
 			if len(result) == pageSize {
 				// A full raw batch may have contained stale IDs that were
@@ -640,6 +645,9 @@ func (a *asynqTaskInspector) GetRuntimeTask(
 	}
 	info, err := projectRuntimeTask(task, workers[task.Queue+"\x00"+task.ID])
 	if err != nil {
+		return nil, true, err
+	}
+	if err := a.protectRuntimeCancellation(ctx, &info); err != nil {
 		return nil, true, err
 	}
 	return &info, true, nil
@@ -682,18 +690,19 @@ func (a *asynqTaskInspector) ForceDeleteRuntimeTask(ctx context.Context, queue, 
 	return true, a.inspector.DeleteTask(queue, taskID)
 }
 
-// PurgeArchivedRuntimeTasks clears the whole archived (dead-letter) set for one
-// queue. asynq's DeleteAllArchivedTasks scopes strictly to the archived list,
-// so pending/active/scheduled/retry work is never at risk.
+// PurgeArchivedRuntimeTasks clears dead letters while preserving cancellation
+// reservations. The token check and deletion must be atomic with reservation.
 func (a *asynqTaskInspector) PurgeArchivedRuntimeTasks(ctx context.Context, queue string) (int, bool, error) {
-	if a == nil || a.inspector == nil {
+	if a == nil || a.inspector == nil || a.redis == nil {
 		return 0, false, nil
 	}
-	deleted, err := a.inspector.DeleteAllArchivedTasks(queue)
-	if err != nil {
+	if _, err := a.inspector.GetQueueInfo(queue); err != nil {
 		return 0, true, err
 	}
-	return deleted, true, nil
+	prefix := "asynq:{" + queue + "}:"
+	deleted, err := purgeUnreservedArchivedTasks.Run(ctx, a.redis,
+		[]string{prefix + "archived"}, prefix+"t:").Int()
+	return deleted, true, err
 }
 
 func (a *asynqTaskInspector) WorkerServerStats(

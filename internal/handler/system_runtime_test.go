@@ -42,6 +42,7 @@ func (runtimeTestSettings) List(context.Context) ([]*types.SystemSetting, error)
 func (runtimeTestSettings) Get(context.Context, string) (*types.SystemSetting, error) {
 	return nil, nil
 }
+
 func (runtimeTestSettings) Update(context.Context, string, any) (*types.SystemSetting, error) {
 	return nil, nil
 }
@@ -59,12 +60,15 @@ type runtimeTestInspector struct{}
 func (runtimeTestInspector) CancelTasksForKnowledge(context.Context, string) (int, int, error) {
 	return 0, 0, nil
 }
+
 func (runtimeTestInspector) HasQueuedTasksForKnowledge(context.Context, string) (bool, error) {
 	return false, nil
 }
+
 func (runtimeTestInspector) QueueStats(context.Context) ([]types.QueueStat, bool, error) {
 	return []types.QueueStat{}, true, nil
 }
+
 func (runtimeTestInspector) WorkerServerStats(context.Context) ([]types.WorkerServerStat, bool, error) {
 	return []types.WorkerServerStat{
 		{Concurrency: 8, Active: 4, Status: "active", Queues: types.QueueWeightsForPool(types.WorkerPoolCore)},
@@ -204,6 +208,30 @@ func (r *runtimeTaskTestInspector) PurgeArchivedRuntimeTasks(
 		return 0, true, r.purgeErr
 	}
 	return r.purgedCount, true, nil
+}
+
+type runtimeCancellationTestService struct {
+	queue  string
+	taskID string
+	job    *types.RuntimeTaskCancellation
+	err    error
+}
+
+func (r *runtimeCancellationTestService) Start(
+	_ context.Context, queue string,
+) (*types.RuntimeTaskCancellation, error) {
+	r.queue = queue
+	return r.job, r.err
+}
+
+func (r *runtimeCancellationTestService) Get(_ context.Context, queue string) (*types.RuntimeTaskCancellation, error) {
+	r.queue = queue
+	return r.job, r.err
+}
+
+func (r *runtimeCancellationTestService) CancelOne(_ context.Context, queue, id string) (bool, error) {
+	r.queue, r.taskID = queue, id
+	return r.err == nil, r.err
 }
 
 func TestGetRuntimeQueuesReportsIsolatedPoolCapacity(t *testing.T) {
@@ -452,6 +480,98 @@ func TestPurgeArchivedRuntimeTasksRejectsUnknownQueue(t *testing.T) {
 	}
 }
 
+func TestStartRuntimeTaskCancellationDelegatesToServiceAndAudits(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	canceller := &runtimeCancellationTestService{job: &types.RuntimeTaskCancellation{
+		ID: "job-1", Queue: types.QueueQuestion, Status: "running", Total: 9,
+	}}
+	audits := &capturingAuditService{}
+	handler := &SystemHandler{runtimeCancellationSvc: canceller, auditSvc: audits}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "queue", Value: types.QueueQuestion}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/cancellations", nil)
+	handler.StartRuntimeTaskCancellation(ctx)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var job types.RuntimeTaskCancellation
+	if err := json.Unmarshal(recorder.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+	if job.ID != "job-1" || job.Total != 9 || job.Status != "running" || canceller.queue != types.QueueQuestion {
+		t.Fatalf("job=%+v queue=%s", job, canceller.queue)
+	}
+	if len(audits.entries) != 1 {
+		t.Fatalf("audit entries=%d", len(audits.entries))
+	}
+	audit := audits.entries[0]
+	if audit.Action != types.AuditActionSystemQueuePendingCancelled || audit.TargetID != types.QueueQuestion {
+		t.Fatalf("audit=%+v", audit)
+	}
+	var details map[string]string
+	if err := json.Unmarshal([]byte(audit.Details), &details); err != nil {
+		t.Fatal(err)
+	}
+	if details["job_id"] != "job-1" || details["total"] != "9" {
+		t.Fatalf("audit details=%v", details)
+	}
+}
+
+func TestStartRuntimeTaskCancellationRejectsUnknownQueue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := &SystemHandler{}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "queue", Value: "unknown"}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/cancellations", nil)
+	handler.StartRuntimeTaskCancellation(ctx)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+}
+
+func TestStartRuntimeTaskCancellationSupportsWikiAndSync(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, queue := range []string{types.QueueWiki, types.QueueSync} {
+		t.Run(queue, func(t *testing.T) {
+			canceller := &runtimeCancellationTestService{job: &types.RuntimeTaskCancellation{
+				ID: "job", Queue: queue, Status: "running",
+			}}
+			handler := &SystemHandler{runtimeCancellationSvc: canceller}
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Params = gin.Params{{Key: "queue", Value: queue}}
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/cancellations", nil)
+			handler.StartRuntimeTaskCancellation(ctx)
+			if recorder.Code != http.StatusAccepted || canceller.queue != queue {
+				t.Fatalf("status=%d queue=%s", recorder.Code, canceller.queue)
+			}
+		})
+	}
+}
+
+func TestGetRuntimeTaskCancellationReturnsProgress(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	canceller := &runtimeCancellationTestService{job: &types.RuntimeTaskCancellation{
+		ID: "job", Queue: types.QueueMultimodal, Status: "completed",
+		Total: 100, Processed: 100, Cancelled: 90, Skipped: 9, Failed: 1,
+	}}
+	handler := &SystemHandler{runtimeCancellationSvc: canceller}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "queue", Value: types.QueueMultimodal}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/cancellations", nil)
+	handler.GetRuntimeTaskCancellation(ctx)
+	var job types.RuntimeTaskCancellation
+	if err := json.Unmarshal(recorder.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusOK || job.Processed != 100 || job.Failed != 1 || job.Skipped != 9 {
+		t.Fatalf("status=%d job=%+v", recorder.Code, job)
+	}
+}
+
 func TestListRuntimeTasksRejectsUnknownQueue(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &SystemHandler{taskInspector: &runtimeTaskTestInspector{}}
@@ -596,5 +716,28 @@ func TestRuntimeTaskCancelPurgesOrphanWhenSweepAlreadyRemovedTask(t *testing.T) 
 	}
 	if inspector.forceDeleted != "task-orphan" {
 		t.Fatalf("expected force delete attempt, got %q", inspector.forceDeleted)
+	}
+}
+
+func TestRuntimePendingTaskCancelUsesBulkBusinessCancellation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	inspector := &runtimeTaskTestInspector{tasks: []types.RuntimeTaskInfo{{
+		ID: "move", Queue: types.QueueMaintenance, Type: types.TypeKnowledgeMove,
+		State: types.RuntimeTaskPending, TenantID: 42,
+		AllowedActions: []types.RuntimeTaskAction{types.RuntimeTaskActionCancel},
+	}}}
+	canceller := &runtimeCancellationTestService{}
+	handler := &SystemHandler{taskInspector: inspector, runtimeCancellationSvc: canceller}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{
+		{Key: "queue", Value: types.QueueMaintenance},
+		{Key: "task_id", Value: "move"},
+		{Key: "action", Value: "cancel"},
+	}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/cancel", nil)
+	handler.MutateRuntimeTask(ctx)
+	if recorder.Code != http.StatusOK || canceller.taskID != "move" || canceller.queue != types.QueueMaintenance {
+		t.Fatalf("status=%d canceller=%+v", recorder.Code, canceller)
 	}
 }
