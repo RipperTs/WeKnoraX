@@ -340,6 +340,23 @@ func TestRuntimeCancellationDeleteChecksTaskIdentityAndUniqueLock(t *testing.T) 
 	require.Empty(t, info.AllowedActions)
 	_, err = inspector.RunRuntimeTask(ctx, types.QueueQuestion, "reused")
 	require.Error(t, err)
+	for i, deadline := range []int64{time.Now().Add(time.Hour).Unix(), time.Now().Add(-time.Hour).Unix()} {
+		require.NoError(t, client.HSet(ctx, "asynq:{question}:t:reused", "runtime_cancel_until", deadline).Err())
+		id := fmt.Sprintf("dead-letter-%d", i)
+		_, err := enqueuer.Enqueue(asynq.NewTask(types.TypeQuestionGeneration, []byte(id)),
+			asynq.Queue(types.QueueQuestion), asynq.TaskID(id), asynq.Unique(time.Minute))
+		require.NoError(t, err)
+		deadLetterKey := client.HGet(ctx, "asynq:{question}:t:"+id, "unique_key").Val()
+		require.NoError(t, inspector.inspector.ArchiveTask(types.QueueQuestion, id))
+		deleted, supported, err := inspector.PurgeArchivedRuntimeTasks(ctx, types.QueueQuestion)
+		require.NoError(t, err)
+		require.True(t, supported)
+		require.Equal(t, 1, deleted)
+		require.ErrorIs(t, client.Get(ctx, deadLetterKey).Err(), redis.Nil)
+		require.Equal(t, []string{"reused"}, client.ZRange(ctx, "asynq:{question}:archived", 0, -1).Val())
+		require.Equal(t, current.Message, client.HGet(ctx, "asynq:{question}:t:reused", "msg").Val())
+		require.Equal(t, "reused", client.Get(ctx, uniqueKey).Val())
+	}
 	// Skipping a task releases it without changing its captured identity.
 	require.NoError(t, inspector.ReleaseRuntimeCancellationTask(ctx, current))
 	require.Equal(t, current.PendingSince, client.HGet(ctx, "asynq:{question}:t:reused", "pending_since").Val())
@@ -448,22 +465,29 @@ func TestRuntimeCancellationProcessesSnapshotAfterRequestCloses(t *testing.T) {
 	require.NoError(t, err)
 	info, err := inspector.inspector.GetQueueInfo(types.QueueMaintenance)
 	require.NoError(t, err)
-	require.Equal(t, 2, info.Pending)
-	require.Equal(t, 1, info.Archived, "failed reconciliation must remain unclaimable")
+	require.Equal(t, 3, info.Pending)
+	require.Zero(t, info.Archived, "invalid payloads have not changed business state and must be released")
 
-	for _, failBusiness := range []bool{false, true} {
-		t.Run(fmt.Sprintf("sync_business_failure_%t", failBusiness), func(t *testing.T) {
+	for _, failure := range []string{"none", "before_update", "after_update", "commit"} {
+		t.Run("sync_business_failure_"+failure, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)
 			sqlDB, err := db.DB()
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = sqlDB.Close() })
+			require.NoError(t, db.Exec("PRAGMA foreign_keys = ON").Error)
+			require.NoError(t, db.Exec("CREATE TABLE sync_statuses (status TEXT PRIMARY KEY)").Error)
+			require.NoError(t, db.Exec("INSERT INTO sync_statuses VALUES ('running')").Error)
+			if failure != "commit" {
+				require.NoError(t, db.Exec("INSERT INTO sync_statuses VALUES ('canceled')").Error)
+			}
 			require.NoError(t, db.Exec(`CREATE TABLE sync_logs
   (id TEXT PRIMARY KEY,tenant_id INTEGER,status TEXT,started_at DATETIME,finished_at DATETIME,
-   error_message TEXT,updated_at DATETIME)`).Error)
+   error_message TEXT,updated_at DATETIME,
+   FOREIGN KEY(status) REFERENCES sync_statuses(status) DEFERRABLE INITIALLY DEFERRED)`).Error)
 			require.NoError(t, db.Exec(`INSERT INTO sync_logs(id,tenant_id,status,started_at) VALUES (?,?,?,?)`,
 				"sync", 42, "running", time.Now().Add(-time.Minute)).Error)
-			id := fmt.Sprintf("sync-%t", failBusiness)
+			id := "sync-" + failure
 			_, err = enqueuer.Enqueue(asynq.NewTask(types.TypeDataSourceSync,
 				[]byte(`{"tenant_id":42,"sync_log_id":"sync"}`)), asynq.Queue(types.QueueSync), asynq.TaskID(id))
 			require.NoError(t, err)
@@ -473,21 +497,46 @@ func TestRuntimeCancellationProcessesSnapshotAfterRequestCloses(t *testing.T) {
 				require.Equal(t, "archived", client.HGet(context.Background(), "asynq:{sync}:t:"+id, "state").Val())
 				require.ErrorIs(t, client.RPopLPush(context.Background(),
 					"asynq:{sync}:pending", "asynq:{sync}:active").Err(), redis.Nil)
-				if failBusiness {
+				if failure == "before_update" {
 					require.Error(t, tx.AddError(fmt.Errorf("business update failed")))
 				}
 			}
 			require.NoError(t, db.Callback().Update().Before("gorm:update").Register("assert_reserved", assertReserved))
+			if failure == "after_update" {
+				failAfterUpdate := func(tx *gorm.DB) {
+					require.EqualValues(t, 1, tx.RowsAffected)
+					require.Error(t, tx.AddError(fmt.Errorf("business update failed before commit")))
+				}
+				require.NoError(t, db.Callback().Update().After("gorm:update").
+					Register("fail_after_update", failAfterUpdate))
+			}
 			syncSvc := service.NewRuntimeTaskCancellationService(inspector, client,
 				repository.NewRuntimeTaskCancellationRepository(db), nil, nil)
 			cancelled, err := syncSvc.CancelOne(context.Background(), types.QueueSync, id)
 			require.True(t, businessReached)
-			if failBusiness {
+			if failure != "none" {
 				require.Error(t, err)
 				require.False(t, cancelled)
+				if failure == "commit" {
+					require.NotErrorIs(t, err, types.ErrRuntimeCancellationNotCommitted)
+				} else {
+					require.ErrorIs(t, err, types.ErrRuntimeCancellationNotCommitted)
+				}
 				task, err := inspector.inspector.GetTaskInfo(types.QueueSync, id)
 				require.NoError(t, err)
-				require.Equal(t, asynq.TaskStateArchived, task.State)
+				if failure == "commit" {
+					require.Equal(t, asynq.TaskStateArchived, task.State)
+				} else {
+					require.Equal(t, asynq.TaskStatePending, task.State)
+					pending := client.LRange(context.Background(), "asynq:{sync}:pending", 0, -1).Val()
+					require.Equal(t, []string{id}, pending)
+					hasToken := client.HExists(context.Background(), "asynq:{sync}:t:"+id, "runtime_cancel_token").Val()
+					require.False(t, hasToken)
+					var log types.SyncLog
+					require.NoError(t, db.First(&log, "id = ?", "sync").Error)
+					require.Equal(t, "running", log.Status)
+				}
+				require.NoError(t, inspector.inspector.DeleteTask(types.QueueSync, id))
 			} else {
 				require.NoError(t, err)
 				require.True(t, cancelled)

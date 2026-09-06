@@ -164,6 +164,26 @@ func (a *asynqTaskInspector) protectRuntimeCancellation(ctx context.Context, inf
 	return nil
 }
 
+// Match Asynq's archive purge and unique-lock cleanup, excluding reservations
+// even after their protection deadline: they are not worker dead letters.
+var purgeUnreservedArchivedTasks = redis.NewScript(`
+local ids = redis.call('ZRANGE', KEYS[1], 0, -1)
+local deleted = 0
+for _, id in ipairs(ids) do
+ local key = ARGV[1] .. id
+ if redis.call('HEXISTS', key, 'runtime_cancel_token') == 0 then
+  local unique_key = redis.call('HGET', key, 'unique_key')
+  if unique_key and unique_key ~= '' and redis.call('GET', unique_key) == id then
+   redis.call('DEL', unique_key)
+  end
+  redis.call('DEL', key)
+  redis.call('ZREM', KEYS[1], id)
+  deleted = deleted + 1
+ end
+end
+return deleted
+`)
+
 // CancelRuntimeKnowledgeTasks snapshots each live queue state once for the
 // whole document set, then reads one payload at a time. Deletions cannot shift
 // pagination, and memory does not grow with the sum of task payload sizes.

@@ -1,6 +1,13 @@
 package types
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrRuntimeCancellationNotCommitted marks failures before any business change
+// could commit. Only these errors permit returning a reserved task to workers.
+var ErrRuntimeCancellationNotCommitted = errors.New("runtime cancellation did not commit business changes")
 
 // RuntimeTaskCancellation records one best-effort operation. Counts refer to
 // the original pending snapshot; related document tasks are counted separately.

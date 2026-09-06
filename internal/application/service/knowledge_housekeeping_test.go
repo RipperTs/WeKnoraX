@@ -426,6 +426,22 @@ func TestRuntimeCancellationSettlesKnowledgeAndPreservesWikiCleanup(t *testing.T
 				require.NoError(t, db.Create(&op).Error)
 			}
 			repo := repository.NewRuntimeTaskCancellationRepository(db)
+			failWikiCleanup := func(tx *gorm.DB) {
+				require.Error(t, tx.AddError(errors.New("wiki cleanup failed before commit")))
+			}
+			require.NoError(t, db.Callback().Delete().Before("gorm:delete").
+				Register("fail_wiki_cleanup", failWikiCleanup))
+			_, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", 2, cutoff)
+			require.ErrorIs(t, err, types.ErrRuntimeCancellationNotCommitted)
+			var unchanged types.Knowledge
+			require.NoError(t, db.First(&unchanged, "id = ?", "doc").Error)
+			assert.Equal(t, status, unchanged.ParseStatus)
+			assert.Equal(t, types.SummaryStatusProcessing, unchanged.SummaryStatus)
+			assert.Equal(t, 3, unchanged.PendingSubtasksCount)
+			var unchangedSpan types.KnowledgeProcessingSpan
+			require.NoError(t, db.First(&unchangedSpan).Error)
+			assert.Equal(t, types.SpanStatusRunning, unchangedSpan.Status)
+			require.NoError(t, db.Callback().Delete().Remove("fail_wiki_cleanup"))
 			target, _, err := repo.CancelKnowledge(context.Background(), 42, "doc", 2, cutoff)
 			require.NoError(t, err)
 			require.NotNil(t, target)
@@ -652,6 +668,7 @@ func TestRuntimeCancellationMemoizesFailedWikiScope(t *testing.T) {
 	cutoff := time.Now()
 	_, firstErr := svc.cancelWiki(context.Background(), 42, "kb", cutoff, batch)
 	require.Error(t, firstErr)
+	require.ErrorIs(t, firstErr, types.ErrRuntimeCancellationNotCommitted)
 	require.NoError(t, db.Delete(&row).Error)
 	_, secondErr := svc.cancelWiki(context.Background(), 42, "kb", cutoff, batch)
 	assert.Equal(t, firstErr, secondErr, "another trigger for the same scope must not repeat failed work")

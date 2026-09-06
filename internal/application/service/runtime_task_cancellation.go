@@ -282,15 +282,15 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 		return false, err
 	}
 	cancelled, err := s.cancelBusinessTask(ctx, task, cutoff, batch)
-	if err != nil {
+	if err != nil && !errors.Is(err, types.ErrRuntimeCancellationNotCommitted) {
 		// Business changes may already have committed. Keep the task archived
 		// on failure so a worker cannot overwrite the cancellation result.
 		return false, err
 	}
-	if !cancelled {
+	if err != nil || !cancelled {
 		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		return false, s.queue.ReleaseRuntimeCancellationTask(releaseCtx, task)
+		return false, errors.Join(err, s.queue.ReleaseRuntimeCancellationTask(releaseCtx, task))
 	}
 	deleted, err := s.queue.DeleteReservedRuntimeCancellationTask(ctx, task)
 	if err == nil && !deleted {
@@ -312,10 +312,10 @@ func (s *RuntimeTaskCancellationService) cancelBusinessTask(
 		Attempt         int    `json:"attempt"`
 	}
 	if err := json.Unmarshal(task.Payload, &p); err != nil {
-		return false, err
+		return false, errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
 	}
 	if p.TenantID == 0 {
-		return false, errors.New("task tenant is missing")
+		return false, fmt.Errorf("%w: task tenant is missing", types.ErrRuntimeCancellationNotCommitted)
 	}
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, p.TenantID)
 	var cancelled bool
@@ -325,7 +325,7 @@ func (s *RuntimeTaskCancellationService) cancelBusinessTask(
 		types.TypeKnowledgePostProcess, types.TypeQuestionGeneration, types.TypeSummaryGeneration,
 		types.TypeChunkExtract, types.TypeDataTableSummary, types.TypeKnowledgeAutoTag:
 		if p.KnowledgeID == "" {
-			return false, errors.New("task knowledge is missing")
+			return false, fmt.Errorf("%w: task knowledge is missing", types.ErrRuntimeCancellationNotCommitted)
 		}
 		if p.Attempt <= 0 {
 			return false, nil
@@ -356,22 +356,22 @@ func (s *RuntimeTaskCancellationService) cancelBusinessTask(
 		cancelled, err = result.cancelled, result.err
 	case types.TypeTemporaryDocumentProcess:
 		if p.DocumentID == "" {
-			return false, errors.New("task document is missing")
+			return false, fmt.Errorf("%w: task document is missing", types.ErrRuntimeCancellationNotCommitted)
 		}
 		cancelled, err = s.repo.CancelTemporaryDocument(ctx, p.TenantID, p.DocumentID, cutoff)
 	case types.TypeDataSourceSync:
 		if p.SyncLogID == "" {
-			return false, errors.New("task sync log is missing")
+			return false, fmt.Errorf("%w: task sync log is missing", types.ErrRuntimeCancellationNotCommitted)
 		}
 		cancelled, err = s.repo.CancelSync(ctx, p.TenantID, p.SyncLogID, cutoff)
 	case types.TypeMemoryExtract:
 		if p.SubjectID == "" {
-			return false, errors.New("task subject is missing")
+			return false, fmt.Errorf("%w: task subject is missing", types.ErrRuntimeCancellationNotCommitted)
 		}
 		cancelled, err = s.repo.CancelMemoryExtraction(ctx, p.TenantID, p.SubjectID, cutoff)
 	case types.TypeWikiIngest:
 		if p.KnowledgeBaseID == "" {
-			return false, errors.New("task knowledge base is missing")
+			return false, fmt.Errorf("%w: task knowledge base is missing", types.ErrRuntimeCancellationNotCommitted)
 		}
 		cancelled, err = s.cancelWiki(ctx, p.TenantID, p.KnowledgeBaseID, cutoff, batch)
 	case types.TypeFAQImport, types.TypeKBClone, types.TypeKnowledgeMove:
@@ -392,9 +392,14 @@ func (s *RuntimeTaskCancellationService) cancelWiki(
 	}
 	var after int64
 	failed := 0
+	uncommitted := true
 	for {
-		targets, next, failures, err := s.repo.CancelWikiBatch(ctx, tenantID, kbID, cutoff, after)
+		targets, next, failures, batchUncommitted, err := s.repo.CancelWikiBatch(ctx, tenantID, kbID, cutoff, after)
+		uncommitted = uncommitted && batchUncommitted
 		if err != nil {
+			if uncommitted {
+				err = errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
+			}
 			batch.results[key] = runtimeCancellationResult{err: err}
 			return false, err
 		}
@@ -409,10 +414,16 @@ func (s *RuntimeTaskCancellationService) cancelWiki(
 	}
 	if failed > 0 {
 		err := fmt.Errorf("%d wiki ingest cancellations failed", failed)
+		if uncommitted {
+			err = errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
+		}
 		batch.results[key] = runtimeCancellationResult{err: err}
 		return false, err
 	}
 	remaining, err := s.repo.HasWikiWork(ctx, tenantID, kbID)
+	if err != nil && uncommitted {
+		err = errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
+	}
 	batch.results[key] = runtimeCancellationResult{cancelled: !remaining, err: err}
 	return !remaining, err
 }
@@ -423,13 +434,13 @@ func (s *RuntimeTaskCancellationService) cancelProgress(
 	if task.Type == types.TypeFAQImport {
 		var p types.FAQImportPayload
 		if err := json.Unmarshal(task.Payload, &p); err != nil {
-			return false, err
+			return false, errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
 		}
 		canceller, ok := s.knowledge.(interface {
 			CancelPendingFAQImport(context.Context, types.FAQImportPayload) (bool, error)
 		})
 		if !ok {
-			return false, errors.New("FAQ cancellation is unavailable")
+			return false, fmt.Errorf("%w: FAQ cancellation is unavailable", types.ErrRuntimeCancellationNotCommitted)
 		}
 		return canceller.CancelPendingFAQImport(ctx, p)
 	}
@@ -437,10 +448,10 @@ func (s *RuntimeTaskCancellationService) cancelProgress(
 		TaskID string `json:"task_id"`
 	}
 	if err := json.Unmarshal(task.Payload, &p); err != nil {
-		return false, err
+		return false, errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
 	}
 	if p.TaskID == "" {
-		return false, errors.New("progress task ID is missing")
+		return false, fmt.Errorf("%w: progress task ID is missing", types.ErrRuntimeCancellationNotCommitted)
 	}
 	key := getKBCloneProgressKey(p.TaskID)
 	if task.Type == types.TypeKnowledgeMove {
@@ -467,7 +478,7 @@ return 1
 // CancelPendingFAQImport closes progress, releases its matching marker and removes uploaded entries.
 func (s *knowledgeService) CancelPendingFAQImport(ctx context.Context, p types.FAQImportPayload) (bool, error) {
 	if p.TaskID == "" || p.KBID == "" {
-		return false, errors.New("FAQ task scope is missing")
+		return false, fmt.Errorf("%w: FAQ task scope is missing", types.ErrRuntimeCancellationNotCommitted)
 	}
 	key := getFAQImportRunningKey(p.KBID)
 	marker, err := s.redisClient.Get(ctx, key).Result()
@@ -475,11 +486,11 @@ func (s *knowledgeService) CancelPendingFAQImport(ctx context.Context, p types.F
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
 	}
 	var info runningFAQImportInfo
 	if err := json.Unmarshal([]byte(marker), &info); err != nil {
-		return false, err
+		return false, errors.Join(types.ErrRuntimeCancellationNotCommitted, err)
 	}
 	if !runningFAQImportInfoMatches(&info, p.TaskID, p.InstanceID, p.EnqueuedAt) {
 		return false, nil
