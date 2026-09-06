@@ -535,6 +535,101 @@ func TestRuntimeCancellationProcessesSnapshotAfterRequestCloses(t *testing.T) {
 		require.Equal(t, "newest-edit", client.RPop(manualCtx, pendingKey).Val())
 	})
 
+	for _, mode := range []string{"single", "bulk"} {
+		for _, failure := range []string{"malformed", "delete"} {
+			t.Run("wiki_partial_failure_"+mode+"_"+failure, func(t *testing.T) {
+				wikiCtx := context.Background()
+				db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+				require.NoError(t, err)
+				sqlDB, err := db.DB()
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = sqlDB.Close() })
+				require.NoError(t, db.Exec(`CREATE TABLE knowledges (
+  id TEXT PRIMARY KEY,tenant_id INTEGER,knowledge_base_id TEXT,parse_status TEXT,
+  summary_status TEXT,pending_subtasks_count INTEGER,error_message TEXT,
+  updated_at DATETIME,deleted_at DATETIME)`).Error)
+				require.NoError(t, db.AutoMigrate(&types.KnowledgeProcessingSpan{}, &types.TaskPendingOp{}))
+				before := time.Now().Add(-time.Minute)
+				for _, id := range []string{"cancelled", "remaining"} {
+					require.NoError(t, db.Exec(`INSERT INTO knowledges VALUES (?,?,?,?,?,?,?,?,?)`,
+						id, 42, "kb", types.ParseStatusFinalizing, types.SummaryStatusPending,
+						1, "", before, nil).Error)
+					require.NoError(t, db.Create(&types.KnowledgeProcessingSpan{
+						KnowledgeID: id, Attempt: 1, SpanID: "root", Name: "parse",
+						Kind: types.SpanKindRoot, Status: types.SpanStatusRunning,
+					}).Error)
+					payload := []byte(fmt.Sprintf(`{"knowledge_id":"%s","attempt":1}`, id))
+					if id == "remaining" && failure == "malformed" {
+						payload = []byte(`{"attempt":1}`)
+					}
+					require.NoError(t, db.Create(&types.TaskPendingOp{
+						TenantID: 42, TaskType: types.TypeWikiIngest, Scope: types.TaskScopeKnowledgeBase,
+						ScopeID: "kb", Op: "ingest", DedupKey: id, Payload: payload, EnqueuedAt: before,
+					}).Error)
+				}
+				if failure == "delete" {
+					failRemainingDelete := func(tx *gorm.DB) {
+						for _, arg := range tx.Statement.Vars {
+							if arg == "remaining" {
+								require.Error(t, tx.AddError(fmt.Errorf("delete remaining wiki row failed")))
+							}
+						}
+					}
+					require.NoError(t, db.Callback().Delete().After("gorm:delete").
+						Register("fail_remaining_delete", failRemainingDelete))
+				}
+				triggerCount := 1
+				if mode == "bulk" {
+					triggerCount = 3
+				}
+				var triggerIDs []string
+				for i := 0; i < triggerCount; i++ {
+					id := fmt.Sprintf("wiki-%s-%s-%d", mode, failure, i)
+					_, err := enqueuer.Enqueue(asynq.NewTask(types.TypeWikiIngest,
+						[]byte(`{"tenant_id":42,"knowledge_base_id":"kb"}`)),
+						asynq.Queue(types.QueueWiki), asynq.TaskID(id))
+					require.NoError(t, err)
+					triggerIDs = append(triggerIDs, id)
+					t.Cleanup(func() { _ = inspector.inspector.DeleteTask(types.QueueWiki, id) })
+				}
+				wikiSvc := service.NewRuntimeTaskCancellationService(inspector, client,
+					repository.NewRuntimeTaskCancellationRepository(db), nil, nil)
+				if mode == "single" {
+					cancelled, err := wikiSvc.CancelOne(wikiCtx, types.QueueWiki, triggerIDs[0])
+					require.Error(t, err)
+					require.NotErrorIs(t, err, types.ErrRuntimeCancellationNotCommitted)
+					require.False(t, cancelled)
+				} else {
+					job, err := wikiSvc.Start(wikiCtx, types.QueueWiki)
+					require.NoError(t, err)
+					require.Eventually(t, func() bool {
+						job, err = wikiSvc.Get(wikiCtx, types.QueueWiki)
+						return err == nil && job.Status != "running"
+					}, 20*time.Second, 20*time.Millisecond)
+					require.Equal(t, "completed", job.Status)
+					require.Equal(t, triggerCount, job.Failed)
+					require.Zero(t, job.Cancelled)
+				}
+				var cancelled, remaining types.Knowledge
+				require.NoError(t, db.First(&cancelled, "id = ?", "cancelled").Error)
+				require.Equal(t, types.ParseStatusCancelled, cancelled.ParseStatus)
+				require.NoError(t, db.First(&remaining, "id = ?", "remaining").Error)
+				require.Equal(t, types.ParseStatusFinalizing, remaining.ParseStatus)
+				var rows []types.TaskPendingOp
+				require.NoError(t, db.Find(&rows).Error)
+				require.Len(t, rows, 1)
+				require.Equal(t, "remaining", rows[0].DedupKey)
+				for _, id := range triggerIDs {
+					task, err := inspector.inspector.GetTaskInfo(types.QueueWiki, id)
+					require.NoError(t, err)
+					require.Equal(t, asynq.TaskStatePending, task.State)
+				}
+				require.EqualValues(t, triggerCount, client.LLen(wikiCtx, "asynq:{wiki}:pending").Val())
+				require.Zero(t, client.ZCard(wikiCtx, "asynq:{wiki}:archived").Val())
+			})
+		}
+	}
+
 	for _, failure := range []string{"none", "before_update", "after_update", "commit"} {
 		t.Run("sync_business_failure_"+failure, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

@@ -316,7 +316,9 @@ func (s *RuntimeTaskCancellationService) cancelTask(
 		return false, err
 	}
 	cancelled, err := s.cancelBusinessTask(ctx, task, p, cutoff, batch)
-	if err != nil && !errors.Is(err, types.ErrRuntimeCancellationNotCommitted) {
+	// Wiki tasks wake a durable KB queue. Even after partial commits, restore
+	// their trigger on failure so the worker can read and process remaining ops.
+	if err != nil && task.Type != types.TypeWikiIngest && !errors.Is(err, types.ErrRuntimeCancellationNotCommitted) {
 		// Business changes may already have committed. Keep the task archived
 		// on failure so a worker cannot overwrite the cancellation result.
 		return false, err
