@@ -60,7 +60,7 @@ export default function (knowledgeBaseId?: string) {
   ): Promise<void> => {
     const targetKbId = kbId || knowledgeBaseId;
     if (!targetKbId) return Promise.resolve();
-    const requestGeneration = query.page === 1 ? ++knowledgeListGeneration : knowledgeListGeneration;
+    const requestGeneration = ++knowledgeListGeneration;
 
     return listKnowledgeFiles(targetKbId, query)
       .then((result: any) => {
@@ -87,14 +87,9 @@ export default function (knowledgeBaseId?: string) {
       }
     });
         
-        if (query.page === 1) {
-          cardList.value = cardList_;
-        } else {
-          cardList.value.push(...cardList_);
-        }
+        cardList.value = cardList_;
         total.value = totalResult;
-      })
-      .catch(() => {});
+      });
   };
   const delKnowledge = (index: number, item: any, onSuccess?: () => void) => {
     cardList.value[index].isMore = false;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, reactive, computed, nextTick } from "vue";
-import { MessagePlugin } from "tdesign-vue-next";
+import { MessagePlugin, type PageInfo } from "tdesign-vue-next";
 import DocContent from "@/components/doc-content.vue";
 import useKnowledgeBase from '@/hooks/useKnowledgeBase';
 import { useRoute, useRouter } from 'vue-router';
@@ -403,10 +403,9 @@ const onCardMoreVisibleChange = (visible: boolean, item: KnowledgeCard) => {
 let isCardDetails = ref(false);
 let timeout: ReturnType<typeof setTimeout> | null = null;
 let knowledgeScroll = ref()
-let page = 1;
-let pageSize = 35;
-let scrollLoading = false;
-const resetPage = () => { page = 1; scrollLoading = false; };
+const page = ref(1);
+const pageSize = ref(50);
+let docListRequest = 0;
 
 // Move state — inline in card menu
 const moveMenuMode = ref<'normal' | 'targets' | 'confirm'>('normal');
@@ -743,13 +742,6 @@ function onTagEditConfirm(tagIds: string[]) {
     handleKnowledgeTagChange(tagEditTarget.value.id, tagIds);
   }
 }
-const getPageSize = () => {
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-  const itemHeight = 148;
-  let itemsInView = Math.floor(viewportHeight / itemHeight) * 5;
-  pageSize = Math.max(35, itemsInView);
-}
-getPageSize()
 // 直接调用 API 获取知识库文件列表
 const getTagName = (tagId?: string | number) => {
   if (!tagId && tagId !== 0) return '';
@@ -757,23 +749,45 @@ const getTagName = (tagId?: string | number) => {
   return tagMap.value[key]?.name || '';
 };
 
-const loadKnowledgeFiles = (kbIdValue: string): Promise<void> => {
-  if (!kbIdValue) return Promise.resolve();
-  if (!isFAQ.value) {
-    docListLoading.value = true;
-  }
-  return getKnowled(
-    {
-      page: 1,
-      page_size: pageSize,
-      ...filterParams.value,
-    },
-    kbIdValue,
-  ).finally(() => {
-    if (isCurrentKb(kbIdValue) && !isFAQ.value) {
+const loadKnowledgeFiles = async (
+  kbIdValue: string,
+  targetPage = 1,
+  targetPageSize = pageSize.value,
+): Promise<void> => {
+  if (!kbIdValue || isFAQ.value) return;
+  const request = ++docListRequest;
+  docListLoading.value = true;
+  try {
+    await getKnowled(
+      { page: targetPage, page_size: targetPageSize, ...filterParams.value },
+      kbIdValue,
+    );
+    if (request !== docListRequest || !isCurrentKb(kbIdValue)) return;
+
+    const lastPage = Math.max(1, Math.ceil(total.value / targetPageSize));
+    if (targetPage > lastPage) {
+      await loadKnowledgeFiles(kbIdValue, lastPage, targetPageSize);
+      return;
+    }
+    page.value = targetPage;
+    pageSize.value = targetPageSize;
+    clearSelection();
+    if (knowledgeScroll.value) knowledgeScroll.value.scrollTop = 0;
+  } catch (error: any) {
+    if (request === docListRequest && isCurrentKb(kbIdValue)) {
+      MessagePlugin.error(error.message);
+    }
+  } finally {
+    if (request === docListRequest && isCurrentKb(kbIdValue)) {
       docListLoading.value = false;
     }
-  });
+  }
+};
+
+const handleDocumentPageChange = (pageInfo: PageInfo) => {
+  const targetPage = pageInfo.pageSize === pageSize.value ? pageInfo.current : 1;
+  clearSelection();
+  loadKnowledgeFiles(kbId.value, targetPage, pageInfo.pageSize);
 };
 
 const isCurrentKb = (targetKbId: string) => targetKbId === kbId.value;
@@ -833,7 +847,6 @@ const moveKnowledgeIntoFolder = async (ids: string[], folderPath: string) => {
     MessagePlugin.success(t('knowledgeBase.moveToFolder.success', { count: ids.length }));
     clearSelection();
     batchMode.value = false;
-    resetPage();
     await loadKnowledgeFiles(kbId.value);
     await loadFolderTree(kbId.value);
   } catch (error: any) {
@@ -862,7 +875,6 @@ const handleFolderRename = async ({ from, to }: { from: string; to: string }) =>
     } else if (selectedFolderPath.value.startsWith(`${from}/`)) {
       selectedFolderPath.value = to + selectedFolderPath.value.slice(from.length);
     }
-    resetPage();
     await loadKnowledgeFiles(kbId.value);
     await loadFolderTree(kbId.value);
   } catch (error: any) {
@@ -941,7 +953,6 @@ const handleTagFilterChange = (tagIds: string[]) => {
   // 同步更新 store 中的 selectedTagIds，供 menu.vue 上传时使用
   uiStore.clearSelectedTagIds();
   tagIds.forEach(id => uiStore.toggleSelectedTagId(id));
-  resetPage();
 };
 
 const handleTagRowClick = (tagId: string) => {
@@ -983,7 +994,6 @@ const onTagManageChanged = (payload?: { deletedTagId?: string }) => {
   if (payload?.deletedTagId && selectedTagIds.value.includes(payload.deletedTagId)) {
     selectedTagIds.value = [];
     handleTagFilterChange([]);
-    resetPage();
     loadKnowledgeFiles(kbId.value);
     return;
   }
@@ -991,13 +1001,11 @@ const onTagManageChanged = (payload?: { deletedTagId?: string }) => {
     void (async () => {
       await new Promise((resolve) => setTimeout(resolve, 800));
       if (!kbId.value) return;
-      resetPage();
       await loadKnowledgeFiles(kbId.value);
       await loadTags(kbId.value, true);
     })();
     return;
   }
-  resetPage();
   loadKnowledgeFiles(kbId.value);
 };
 
@@ -1005,7 +1013,6 @@ const handleKnowledgeTagChange = async (knowledgeId: string, tagIds: string[]) =
   try {
     await updateKnowledgeTagBatch({ updates: { [knowledgeId]: tagIds } });
     MessagePlugin.success(t('knowledgeBase.tagUpdateSuccess'));
-    resetPage(); // Reset page counter to 1 when reloading files after tag change
     loadKnowledgeFiles(kbId.value);
     loadTags(kbId.value, true);
   } catch (error: any) {
@@ -1047,6 +1054,7 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     kbInfo.value = null;
     cardList.value = [];
     total.value = 0;
+    docListLoading.value = false;
   } finally {
     if (isCurrentKb(targetKbId)) {
       kbLoading.value = false;
@@ -1108,7 +1116,7 @@ watch(() => kbId.value, (newKbId, oldKbId) => {
     cardList.value = [];
     total.value = 0;
     docListLoading.value = true;
-    resetPage();
+    page.value = 1;
     tagSearchQuery.value = '';
     tagPage.value = 1;
     uiStore.clearSelectedTagIds();
@@ -1145,7 +1153,6 @@ watch(docSearchKeyword, (newVal, oldVal) => {
   }
   docSearchDebounce = window.setTimeout(() => {
     if (kbId.value) {
-      resetPage();
       loadKnowledgeFiles(kbId.value);
     }
   }, 300);
@@ -1155,7 +1162,6 @@ watch(docSearchKeyword, (newVal, oldVal) => {
 watch(selectedFileType, (newVal, oldVal) => {
   if (newVal === oldVal) return;
   if (kbId.value) {
-    resetPage();
     loadKnowledgeFiles(kbId.value);
   }
 });
@@ -1163,7 +1169,6 @@ watch(selectedFileType, (newVal, oldVal) => {
 // 监听解析状态/来源/更新时间范围筛选变化（与文件类型行为一致）
 watch([selectedParseStatus, selectedSource, updatedTimeRange], () => {
   if (kbId.value) {
-    resetPage();
     loadKnowledgeFiles(kbId.value);
   }
 }, { deep: true });
@@ -1173,7 +1178,6 @@ watch([selectedParseStatus, selectedSource, updatedTimeRange], () => {
 watch(selectedFolderPath, () => {
   if (!kbId.value || isFAQ.value) return;
   clearSelection();
-  resetPage();
   loadKnowledgeFiles(kbId.value);
 });
 
@@ -1184,7 +1188,6 @@ const handleFileUploaded = (event: CustomEvent) => {
   if (uploadedKbId && uploadedKbId === kbId.value && !isFAQ.value) {
     console.log('匹配当前知识库，开始刷新文件列表');
     // 如果上传的文件属于当前知识库，使用 loadKnowledgeFiles 刷新文件列表
-    resetPage(); // Reset page counter when reloading files after upload
     loadKnowledgeFiles(uploadedKbId);
     loadTags(uploadedKbId);
     void loadFolderTree(uploadedKbId);
@@ -1302,7 +1305,6 @@ onUnmounted(() => {
 });
 watch(() => cardList.value, (newValue) => {
   if (isFAQ.value) return;
-  docListLoading.value = false;
 
   // Auto-open document if navigated with ?knowledge_id=xxx.
   if (pendingKnowledgeId.value) {
@@ -1443,7 +1445,6 @@ const confirmDeleteKnowledge = (index: number, item: KnowledgeCard) => {
   closeCardMoreMenu(index);
   const deletedId = item?.id;
   delKnowledge(index, item, async () => {
-    resetPage();
     const maxPolls = 30;
     const delayMs = 400;
     for (let i = 0; i < maxPolls; i++) {
@@ -1513,7 +1514,6 @@ const handleMoveConfirm = async () => {
       startMovePoll(taskId);
     } else {
       moveSubmitting.value = false;
-      resetPage(); // Reset page counter when reloading files after move
       loadKnowledgeFiles(kbId.value);
       void loadFolderTree(kbId.value);
     }
@@ -1539,7 +1539,6 @@ const startMovePoll = (taskId: string) => {
         } else {
           MessagePlugin.success(t('knowledgeBase.moveCompleted'));
         }
-        resetPage(); // Reset page counter when reloading files after move completion
         loadKnowledgeFiles(kbId.value);
         void loadFolderTree(kbId.value);
       } else if (data.status === 'failed') {
@@ -1562,7 +1561,6 @@ const stopMovePoll = () => {
 
 const manualEditorSuccess = ({ kbId: savedKbId }: { kbId: string; knowledgeId: string; status: 'draft' | 'publish' }) => {
   if (savedKbId === kbId.value && !isFAQ.value) {
-    resetPage(); // Reset page counter when reloading files after manual edit
     loadKnowledgeFiles(savedKbId);
     void loadFolderTree(savedKbId);
   }
@@ -1951,7 +1949,6 @@ const submitReparse = async (id: string, processConfig?: KnowledgeProcessOverrid
     delete traceAvailableById[id];
     traceAvailableById[id] = true;
     MessagePlugin.success(t('knowledgeBase.rebuildSubmitted'));
-    resetPage();
     loadKnowledgeFiles(kbId.value);
     scheduleWikiStatusProbes();
   } catch (error: any) {
@@ -1959,29 +1956,6 @@ const submitReparse = async (id: string, processConfig?: KnowledgeProcessOverrid
   }
 };
 
-const handleScroll = () => {
-  if (isFAQ.value) return;
-  if (docListLoading.value) return;
-  if (scrollLoading) return;
-  const currentKbId = kbId.value;
-  if (!currentKbId) return;
-  const element = knowledgeScroll.value;
-  if (element) {
-    let pageNum = Math.ceil(total.value / pageSize)
-    const { scrollTop, scrollHeight, clientHeight } = element;
-    if (scrollTop + clientHeight >= scrollHeight - 10) {
-      if (cardList.value.length < total.value && page < pageNum) {
-        page++;
-        scrollLoading = true;
-        getKnowled({ page, page_size: pageSize, ...filterParams.value }, currentKbId).finally(() => {
-          if (isCurrentKb(currentKbId)) {
-            scrollLoading = false;
-          }
-        });
-      }
-    }
-  }
-};
 const getDoc = (page: number) => {
   getfDetails(details.id, page)
 };
@@ -2105,7 +2079,6 @@ const confirmBatchDelete = async () => {
       MessagePlugin.success(t('knowledgeBase.batchDeleteSuccess', { count: ids.length }));
       clearSelection();
       batchMode.value = false;
-      resetPage();
       // 后端将批量删除放入异步队列，立刻拉列表仍可能包含待删项；短轮询直到列表与后端一致或超时
       const maxPolls = 30;
       const delayMs = 400;
@@ -2146,7 +2119,6 @@ const onBatchTagConfirm = async (tagIds: string[]) => {
     batchTagDialogVisible.value = false;
     clearSelection();
     batchMode.value = false;
-    resetPage();
     loadKnowledgeFiles(kbId.value);
     loadTags(kbId.value, true);
   } catch (e: any) {
@@ -2582,104 +2554,112 @@ async function createNewSession(value: string): Promise<void> {
                   </div>
                 </div>
               </div>
-              <div class="doc-scroll-container"
-                :class="{
-                  'is-empty': !cardList.length && !currentChildFolders.length && !docListLoading,
-                  'is-marquee-active': docMarqueeVisible,
-                }"
-                ref="knowledgeScroll" @scroll="handleScroll" @mousedown="onDocMarqueeMouseDown">
-                <div v-if="docMarqueeVisible" class="doc-marquee-box"
-                  :class="{ 'is-add': docMarqueeMode === 'add', 'is-subtract': docMarqueeMode === 'subtract' }"
-                  :style="docMarqueeBoxStyle" aria-hidden="true" />
-                <!-- 文档骨架屏 -->
-                <div v-if="docListLoading && cardList.length === 0 && !currentChildFolders.length" class="doc-card-list doc-card-list-animated">
-                  <div v-for="n in 8" :key="'doc-skel-' + n" class="knowledge-card knowledge-card-skeleton">
-                    <div class="card-content">
-                      <div class="card-content-nav">
-                        <t-skeleton animation="gradient" :row-col="[{ width: '70%', height: '18px' }]" />
+              <div class="doc-list-body">
+                <div class="doc-scroll-container"
+                  :class="{
+                    'is-empty': !cardList.length && !currentChildFolders.length && !docListLoading,
+                    'is-marquee-active': docMarqueeVisible,
+                  }"
+                  ref="knowledgeScroll" @mousedown="onDocMarqueeMouseDown">
+                  <div v-if="docMarqueeVisible" class="doc-marquee-box"
+                    :class="{ 'is-add': docMarqueeMode === 'add', 'is-subtract': docMarqueeMode === 'subtract' }"
+                    :style="docMarqueeBoxStyle" aria-hidden="true" />
+                  <!-- 文档骨架屏 -->
+                  <div v-if="docListLoading" class="doc-card-list doc-card-list-animated">
+                    <div v-for="n in 8" :key="'doc-skel-' + n" class="knowledge-card knowledge-card-skeleton">
+                      <div class="card-content">
+                        <div class="card-content-nav">
+                          <t-skeleton animation="gradient" :row-col="[{ width: '70%', height: '18px' }]" />
+                        </div>
+                        <t-skeleton animation="gradient"
+                          :row-col="[{ width: '100%', height: '14px' }, { width: '60%', height: '14px' }]" />
                       </div>
-                      <t-skeleton animation="gradient"
-                        :row-col="[{ width: '100%', height: '14px' }, { width: '60%', height: '14px' }]" />
-                    </div>
-                    <div class="card-bottom">
-                      <t-skeleton animation="gradient"
-                        :row-col="[[{ width: '80px', height: '14px' }, { width: '40px', height: '18px', type: 'rect' }]]" />
+                      <div class="card-bottom">
+                        <t-skeleton animation="gradient"
+                          :row-col="[[{ width: '80px', height: '14px' }, { width: '40px', height: '18px', type: 'rect' }]]" />
+                      </div>
                     </div>
                   </div>
+                  <template v-else-if="(cardList.length || currentChildFolders.length) && viewMode === 'grid'">
+                    <DocumentCardView
+                      :items="cardList"
+                      :folders="currentChildFolders" :folder-options="folderOptions"
+                      :selected-ids="selectedIds"
+                      :batch-mode="batchMode"
+                      :can-edit="canEdit"
+                      :can-download="canDownloadKnowledge"
+                      :can-mutate-knowledge="canMutateKnowledge"
+                      :trace-available-by-id="traceAvailableById"
+                      :tag-list="tagList"
+                      :move-menu-mode="moveMenuMode"
+                      :move-target-kbs="moveTargetKbs"
+                      :move-targets-loading="moveTargetsLoading"
+                      :move-selected-target-name="moveSelectedTargetName"
+                      :move-mode="moveMode"
+                      :move-submitting="moveSubmitting"
+                      :show-folder-path="showDocumentFolderPath"
+                      @open="(item: any) => openKnowledgeItem(item)"
+                      @open-folder="handleFolderSelect"
+                      @move-to-folder="(item: any, path: string) => moveKnowledgeIntoFolder([item.id], path)"
+                      @toggle-checkbox="onCardGridCheckboxChange"
+                      @menu-visible-change="(visible: boolean, item: any) => onCardMoreVisibleChange(visible, item)"
+                      @action="(action: any, item: any) => handleCardAction(action, item)"
+                      @tag-edit="(item: any) => openTagEditDialog(item)"
+                      @move-select-target="(kb: any) => handleMoveSelectTarget(kb)"
+                      @move-back="handleMoveBack"
+                      @move-confirm="handleMoveConfirm"
+                      @update:move-mode="(mode: any) => moveMode = mode"
+                    />
+                  </template>
+                  <template v-else-if="(cardList.length || currentChildFolders.length) && viewMode === 'list'">
+                    <DocumentListView :items="cardList" :folders="currentChildFolders" :folder-options="folderOptions"
+                      :selected-ids="selectedIds" :tag-list="tagList"
+                      :can-edit="canEdit" :can-download="canDownloadKnowledge" :can-mutate-knowledge="canMutateKnowledge"
+                      :trace-visible-ids="traceAvailableById"
+                      :move-menu-mode="moveMenuMode"
+                      :move-target-kbs="moveTargetKbs"
+                      :move-targets-loading="moveTargetsLoading"
+                      :move-selected-target-name="moveSelectedTargetName"
+                      :move-mode="moveMode"
+                      :move-submitting="moveSubmitting"
+                      :show-folder-path="showDocumentFolderPath"
+                      @open-folder="handleFolderSelect"
+                      @move-to-folder="(item: any, path: string) => moveKnowledgeIntoFolder([item.id], path)"
+                      @open="(item: any) => openKnowledgeItem(item)" @toggle-row="toggleSelectRow"
+                      @toggle-all="toggleSelectAll" @action="(action: any, item: any) => handleListAction(action, item)"
+                      @probe-trace="(item: any) => probeTraceAvailable(item)"
+                      @tag-edit="(item: any) => openTagEditDialog(item)"
+                      @move-select-target="(kb: any) => handleMoveSelectTarget(kb)"
+                      @move-back="handleMoveBack"
+                      @move-confirm="handleMoveConfirm"
+                      @update:move-mode="(mode: any) => moveMode = mode"
+                      @reset-move-state="moveMenuMode = 'normal'" />
+                  </template>
+                  <template v-else-if="!docListLoading">
+                    <div class="doc-empty-state">
+                      <p v-if="selectedFolderPath || isFiltering" class="doc-empty-folder">
+                        {{ isFiltering
+                          ? $t('knowledgeBase.folderTree.emptySearch')
+                          : $t('knowledgeBase.folderTree.emptyFolder') }}
+                      </p>
+                      <EmptyKnowledge v-else />
+                    </div>
+                  </template>
                 </div>
-                <template v-else-if="(cardList.length || currentChildFolders.length) && viewMode === 'grid'">
-                  <DocumentCardView
-                    :items="cardList"
-                    :folders="currentChildFolders" :folder-options="folderOptions"
-                    :selected-ids="selectedIds"
-                    :batch-mode="batchMode"
-                    :can-edit="canEdit"
-                    :can-download="canDownloadKnowledge"
-                    :can-mutate-knowledge="canMutateKnowledge"
-                    :trace-available-by-id="traceAvailableById"
-                    :tag-list="tagList"
-                    :move-menu-mode="moveMenuMode"
-                    :move-target-kbs="moveTargetKbs"
-                    :move-targets-loading="moveTargetsLoading"
-                    :move-selected-target-name="moveSelectedTargetName"
-                    :move-mode="moveMode"
-                    :move-submitting="moveSubmitting"
-                    :show-folder-path="showDocumentFolderPath"
-                    @open="(item: any) => openKnowledgeItem(item)"
-                    @open-folder="handleFolderSelect"
-                    @move-to-folder="(item: any, path: string) => moveKnowledgeIntoFolder([item.id], path)"
-                    @toggle-checkbox="onCardGridCheckboxChange"
-                    @menu-visible-change="(visible: boolean, item: any) => onCardMoreVisibleChange(visible, item)"
-                    @action="(action: any, item: any) => handleCardAction(action, item)"
-                    @tag-edit="(item: any) => openTagEditDialog(item)"
-                    @move-select-target="(kb: any) => handleMoveSelectTarget(kb)"
-                    @move-back="handleMoveBack"
-                    @move-confirm="handleMoveConfirm"
-                    @update:move-mode="(mode: any) => moveMode = mode"
-                  />
-                </template>
-                <template v-else-if="(cardList.length || currentChildFolders.length) && viewMode === 'list'">
-                  <DocumentListView :items="cardList" :folders="currentChildFolders" :folder-options="folderOptions"
-                    :selected-ids="selectedIds" :tag-list="tagList"
-                    :can-edit="canEdit" :can-download="canDownloadKnowledge" :can-mutate-knowledge="canMutateKnowledge"
-                    :trace-visible-ids="traceAvailableById"
-                    :move-menu-mode="moveMenuMode"
-                    :move-target-kbs="moveTargetKbs"
-                    :move-targets-loading="moveTargetsLoading"
-                    :move-selected-target-name="moveSelectedTargetName"
-                    :move-mode="moveMode"
-                    :move-submitting="moveSubmitting"
-                    :show-folder-path="showDocumentFolderPath"
-                    @open-folder="handleFolderSelect"
-                    @move-to-folder="(item: any, path: string) => moveKnowledgeIntoFolder([item.id], path)"
-                    @open="(item: any) => openKnowledgeItem(item)" @toggle-row="toggleSelectRow"
-                    @toggle-all="toggleSelectAll" @action="(action: any, item: any) => handleListAction(action, item)"
-                    @probe-trace="(item: any) => probeTraceAvailable(item)"
-                    @tag-edit="(item: any) => openTagEditDialog(item)"
-                    @move-select-target="(kb: any) => handleMoveSelectTarget(kb)"
-                    @move-back="handleMoveBack"
-                    @move-confirm="handleMoveConfirm"
-                    @update:move-mode="(mode: any) => moveMode = mode"
-                    @reset-move-state="moveMenuMode = 'normal'" />
-                </template>
-                <template v-else-if="!docListLoading">
-                  <div class="doc-empty-state">
-                    <p v-if="selectedFolderPath || isFiltering" class="doc-empty-folder">
-                      {{ isFiltering
-                        ? $t('knowledgeBase.folderTree.emptySearch')
-                        : $t('knowledgeBase.folderTree.emptyFolder') }}
-                    </p>
-                    <EmptyKnowledge v-else />
-                  </div>
-                </template>
+                <div class="doc-batch-bar-anchor" v-show="batchMode || selectedIds.size > 0">
+                  <DocumentBatchBar :count="selectedIds.size" :delete-loading="batchDeleting"
+                    :reparse-loading="batchReparsing" :tag-loading="batchTagging" :visible="batchMode || selectedIds.size > 0"
+                    :show-move-to-folder="canEdit" :folder-options="folderOptions"
+                    @cancel="handleBatchCancel" @delete="confirmBatchDelete" @reparse="confirmBatchReparse"
+                    @batch-tag="handleBatchTag"
+                    @move-to-folder="(path: string) => moveKnowledgeIntoFolder(Array.from(selectedIds), path)" />
+                </div>
               </div>
-              <div class="doc-batch-bar-anchor" v-show="batchMode || selectedIds.size > 0">
-                <DocumentBatchBar :count="selectedIds.size" :delete-loading="batchDeleting"
-                  :reparse-loading="batchReparsing" :tag-loading="batchTagging" :visible="batchMode || selectedIds.size > 0"
-                  :show-move-to-folder="canEdit" :folder-options="folderOptions"
-                  @cancel="handleBatchCancel" @delete="confirmBatchDelete" @reparse="confirmBatchReparse"
-                  @batch-tag="handleBatchTag"
-                  @move-to-folder="(path: string) => moveKnowledgeIntoFolder(Array.from(selectedIds), path)" />
+              <div v-if="total > 0" class="doc-pagination">
+                <t-pagination :current="page" :page-size="pageSize" :total="total"
+                  :page-size-options="[50, 100, 150, 200, 300]" :disabled="docListLoading" size="small"
+                  :show-jumper="false" :max-page-btn="5" :folded-max-page-btn="3"
+                  page-ellipsis-mode="both-ends" @change="handleDocumentPageChange" />
               </div>
             </div>
           </div>
@@ -3074,7 +3054,6 @@ async function createNewSession(value: string): Promise<void> {
   position: relative;
   container-type: inline-size;
   container-name: doc-card-area;
-  /* 作为批量工具栏悬浮的定位上下文 */
 }
 
 // 目录树选中路径的面包屑：与顶部知识库面包屑同一套视觉语言，只是更轻量。
@@ -3398,6 +3377,53 @@ async function createNewSession(value: string): Promise<void> {
         background-color: var(--td-bg-color-container);
         box-shadow: none !important;
       }
+    }
+  }
+}
+
+.doc-list-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.doc-pagination {
+  flex-shrink: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--td-component-stroke);
+
+  @container doc-card-area (max-width: 560px) {
+    :deep(.t-pagination) {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px 4px;
+    }
+
+    :deep(.t-pagination__total) {
+      grid-column: 1 / 3;
+    }
+
+    :deep(.t-pagination__select) {
+      grid-column: 3;
+      margin-right: 0;
+    }
+
+    :deep(.t-pagination__btn-prev) {
+      grid-column: 1;
+      margin-right: 0;
+    }
+
+    :deep(.t-pagination__pager) {
+      grid-column: 2;
+      justify-content: center;
+    }
+
+    :deep(.t-pagination__btn-next) {
+      grid-column: 3;
+      margin-left: 0;
+      justify-self: end;
     }
   }
 }
@@ -3839,7 +3865,7 @@ async function createNewSession(value: string): Promise<void> {
   box-sizing: border-box;
   display: grid;
   // 文档卡片信息量较大（标题 + 摘要 + 标签/类型），保持稍宽的最小列宽，避免一行塞太多导致内容拥挤。
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 12px;
   align-content: flex-start;
   width: 100%;
@@ -4084,7 +4110,7 @@ async function createNewSession(value: string): Promise<void> {
 }
 
 .knowledge-card {
-  min-width: 240px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--td-component-border);

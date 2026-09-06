@@ -699,7 +699,7 @@ const handleAction = (action: 'download' | 'edit' | 'view-trace' | 'reparse' | '
 .doc-card-list {
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 12px;
   align-content: flex-start;
   width: 100%;
@@ -710,7 +710,7 @@ const handleAction = (action: 'download' | 'edit' | 'view-trace' | 'reparse' | '
 }
 
 .folder-card {
-  min-width: 240px;
+  min-width: 0;
   height: 136px;
   box-sizing: border-box;
   display: flex;
@@ -778,7 +778,7 @@ const handleAction = (action: 'download' | 'edit' | 'view-trace' | 'reparse' | '
 }
 
 .knowledge-card {
-  min-width: 240px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--td-component-border);

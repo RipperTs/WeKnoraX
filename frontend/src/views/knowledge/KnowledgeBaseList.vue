@@ -2174,7 +2174,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 .kb-card-wrap {
   display: grid;
   gap: 12px;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   animation: contentFadeIn 0.32s ease-out;
 }
 
@@ -2261,6 +2261,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 }
 
 .kb-card {
+  min-width: 0;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   overflow: hidden;
@@ -2803,36 +2804,6 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   .header {
     margin-right: 16px;
-  }
-}
-
-@media (min-width: 900px) {
-  .kb-card-wrap {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (min-width: 1250px) {
-  .kb-card-wrap {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (min-width: 1600px) {
-  .kb-card-wrap {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-@media (min-width: 1900px) {
-  .kb-card-wrap {
-    grid-template-columns: repeat(5, 1fr);
-  }
-}
-
-@media (min-width: 2200px) {
-  .kb-card-wrap {
-    grid-template-columns: repeat(6, 1fr);
   }
 }
 
